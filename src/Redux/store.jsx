@@ -207,29 +207,17 @@ export const getAccidentNextStatuses = createAsyncThunk(
 
 // Cars - Public access for listing
 export const fetchCars = createAsyncThunk(
-  "cars/fetchAll", 
-  async (forceRefresh = false, thunkAPI) => {
+  "cars/fetchAll",
+  async (_, thunkAPI) => {
     try {
-      if (!forceRefresh) {
-        const cachedData = cacheManager.get('cars');
-        if (cachedData) {
-          return cachedData;
-        }
-      }
-
       const response = await api.get("/cars");
-      const carsData = response.data;
-      cacheManager.set('cars', carsData);
-      return carsData;
+      return response.data;
     } catch (error) {
-      const cachedData = cacheManager.get('cars');
-      if (cachedData) {
-        return cachedData;
-      }
       return handleApiError(error, thunkAPI);
     }
   }
 );
+
 
 export const createCar = createAsyncThunk(
   "cars/create", 
