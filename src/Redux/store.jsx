@@ -49,7 +49,6 @@ const CACHE_CONFIG = {
 };
 
 // Cache manager
-// In store.jsx, update cacheManager methods:
 const cacheManager = {
   set: (key, data) => {
     try {
@@ -65,7 +64,6 @@ const cacheManager = {
 
   get: (key) => {
     try {
-      // Consistent naming with '_cache' suffix
       const cached = localStorage.getItem(`${key}_cache`);
       if (cached) {
         const { data, timestamp, version } = JSON.parse(cached);
@@ -86,9 +84,7 @@ const cacheManager = {
 
   invalidate: (key) => {
     try {
-      // Remove both possible key formats
       localStorage.removeItem(`${key}_cache`);
-      localStorage.removeItem(key); // Also remove without suffix for safety
     } catch (error) {
       console.warn(`Error invalidating cache for ${key}:`, error);
     }
@@ -97,7 +93,6 @@ const cacheManager = {
   invalidateAll: () => {
     Object.keys(CACHE_CONFIG).forEach(key => {
       localStorage.removeItem(`${key}_cache`);
-      localStorage.removeItem(key); // Also remove without suffix
     });
   }
 };
