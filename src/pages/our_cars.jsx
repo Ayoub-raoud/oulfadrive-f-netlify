@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { FaCar, FaUsers, FaDoorOpen, FaGasPump, FaCog, FaChevronLeft, FaChevronRight, FaFilter, FaCalendarAlt, FaUser, FaIdCard, FaTimes, FaSpinner, FaSearch, FaClock, FaCheckCircle, FaExclamationTriangle, FaWhatsapp } from 'react-icons/fa';
 import { useSelector, useDispatch } from 'react-redux';
-import { fetchCars, selectCars, selectCarsLoading, selectCarsError, createClient, createReservation, fetchClients, selectClients } from '../Redux/store';
+import { fetchCars, selectCars, selectCarsLoading, selectCarsError, createClient, createReservation, fetchClients, selectClients, fetchMatricules, selectMatricules, selectMatriculesLoading } from '../Redux/store';
 import { useNavigate } from 'react-router-dom';
 
 function OurCars() {
     const dispatch = useDispatch();
     const cars = useSelector(selectCars);
     const clients = useSelector(selectClients);
+    const matricules = useSelector(selectMatricules);
+    const matriculesLoading = useSelector(selectMatriculesLoading);
     const loading = useSelector(selectCarsLoading);
     const error = useSelector(selectCarsError);
     const navigate = useNavigate();
@@ -59,12 +61,31 @@ function OurCars() {
     useEffect(() => {
         dispatch(fetchCars());
         dispatch(fetchClients());
+        dispatch(fetchMatricules());
     }, [dispatch]);
+
+    // ✅ UPDATED: Function to check if a car has active matricules (for reservation purposes)
+    const hasActiveMatricules = (carId) => {
+        if (!matricules || !matricules.length) {
+            return false;
+        }
+        
+        const carMatricules = matricules.filter(matricule => matricule.car_id === carId);
+        return carMatricules.some(matricule => matricule.status === 'active');
+    };
 
     // ✅ UPDATED: Function to get car availability status based on status field from AdminModal
     const getCarAvailability = (car) => {
         // Use the car's status field directly from the database
         return car.status || 'non disponible';
+    };
+
+    // ✅ UPDATED: Function to get available matricules for a car
+    const getAvailableMatricules = (carId) => {
+        if (!matricules || !matricules.length) return [];
+        return matricules.filter(matricule => 
+            matricule.car_id === carId && matricule.status === 'active'
+        );
     };
 
     // WhatsApp integration
@@ -91,7 +112,7 @@ function OurCars() {
                 return car.image;
             }
             // If it's a relative path, construct the full URL
-            return `http://localhost:8000/storage/${car.image}`;
+            return `https://oulfa-back-production.up.railway.app/storage/${car.image}`;
         }
         return null;
     };
@@ -222,6 +243,12 @@ function OurCars() {
             return;
         }
 
+        // Additional check for active matricules
+        if (!hasActiveMatricules(car.id)) {
+            showAlertPrompt('error', 'Cette voiture n\'a pas de matricule actif disponible');
+            return;
+        }
+
         setSelectedCar(car);
         setReservationData({
             nom: '',
@@ -310,6 +337,13 @@ function OurCars() {
             return;
         }
 
+        // ✅ Check for active matricules
+        if (!hasActiveMatricules(selectedCar.id)) {
+            showAlertPrompt('error', 'Cette voiture n\'a pas de matricule actif disponible');
+            setSubmitting(false);
+            return;
+        }
+
         try {
             let clientId;
 
@@ -364,6 +398,15 @@ function OurCars() {
                 }
             }
 
+            // ✅ Get available matricules for the car
+            const availableMatricules = getAvailableMatricules(selectedCar.id);
+            if (availableMatricules.length === 0) {
+                throw new Error('Aucun matricule disponible pour cette voiture');
+            }
+
+            // Use the first available matricule
+            const selectedMatriculeId = availableMatricules[0].id;
+
             // Then create the reservation with time fields
             const reservationPayload = {
                 start_date: reservationData.start_date,
@@ -376,6 +419,7 @@ function OurCars() {
                 remaining_amount: reservationData.total_price,
                 car_id: selectedCar.id,
                 client_id: clientId,
+                matricule_id: selectedMatriculeId,
                 status: 'pending' // Auto-confirm the reservation
             };
 
@@ -387,6 +431,12 @@ function OurCars() {
 
             showAlertPrompt('success', 'Réservation confirmée avec succès !');
             setShowReservationForm(false);
+            
+            // Refresh data to update availability
+            setTimeout(() => {
+                dispatch(fetchCars(true));
+                dispatch(fetchMatricules(true));
+            }, 1000);
             
         } catch (error) {
             console.error('Error creating reservation:', error);
@@ -2199,7 +2249,7 @@ function OurCars() {
                                     <div className="calculation-section">
                                         <div className="calculation-row">
                                             <span className="calculation-label">Tarif Journalier:</span>
-                                            <span className="calculation-value">{selectedCar.price_per_day} MAD/jour</span>
+                                            <span className="calculation-value">{selectedCar.price_per_day} MAD /jour</span>
                                         </div>
                                         
                                         <div className="calculation-row">
