@@ -91,7 +91,7 @@ function OurCars() {
                 return car.image;
             }
             // If it's a relative path, construct the full URL
-            return `http://localhost:8000/storage/${car.image}`;
+            return `https://oulfa-back-production.up.railway.app/storage/${car.image}`;
         }
         return null;
     };
