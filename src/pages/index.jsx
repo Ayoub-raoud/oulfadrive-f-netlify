@@ -274,112 +274,95 @@ function Index() {
         // ✅ REMOVED: Matricule checking logic
 
         try {
-    let clientId;
+            let clientId;
 
-    // If client was found in search, use existing client ID
-    if (foundClient) {
-        clientId = foundClient.id;
-        console.log('Using existing client ID:', clientId);
-    } else {
-        // Validate required client fields
-        if (!reservationData.nom || !reservationData.prenom || !reservationData.telephone || !reservationData.email || !reservationData.city) {
-            showAlertPrompt('error', 'Veuillez remplir tous les champs d\'information client');
-            setSubmitting(false);
-            return;
-        }
+            // If client was found in search, use existing client ID
+            if (foundClient) {
+                clientId = foundClient.id;
+                console.log('Using existing client ID:', clientId);
+            } else {
+                // Validate required client fields
+                if (!reservationData.nom || !reservationData.prenom || !reservationData.telephone || !reservationData.email || !reservationData.city) {
+                    showAlertPrompt('error', 'Veuillez remplir tous les champs d\'information client');
+                    setSubmitting(false);
+                    return;
+                }
 
-        // Check if client already exists (in case they weren't found in initial search)
-        const existingClient = clients.find(client => 
-            client.telephone === reservationData.telephone || 
-            client.email === reservationData.email
-        );
+                // Check if client already exists (in case they weren't found in initial search)
+                const existingClient = clients.find(client => 
+                    client.telephone === reservationData.telephone || 
+                    client.email === reservationData.email
+                );
 
-        if (existingClient) {
-            // Use existing client
-            clientId = existingClient.id;
-            console.log('Found existing client during submission:', clientId);
-        } else {
-            // Create new client with proper image fields
-            const clientData = {
-                nom: reservationData.nom,
-                prenom: reservationData.prenom,
-                telephone: reservationData.telephone,
-                email: reservationData.email,
-                city: reservationData.city,
-                cin_number: '',
-                driver_license_number: '',
-                cin_image: '',
-                driver_license_image: ''
-            };
-
-            console.log('Creating new client with data:', clientData);
-            
-            try {
-                // Create client using Redux action
-                const clientResult = await dispatch(createClient(clientData)).unwrap();
-                console.log('Client created:', clientResult);
-                
-                // Extract client ID from the response
-                clientId = clientResult.client?.id || clientResult.id;
-            } catch (clientError) {
-                // Check if error is because client already exists (409 Conflict)
-                if (clientError.status === 409 && clientError.client) {
-                    // Client already exists - use the existing client ID from the error response
-                    console.log('Client already exists, using existing client:', clientError.client);
-                    clientId = clientError.client.id;
+                if (existingClient) {
+                    // Use existing client
+                    clientId = existingClient.id;
+                    console.log('Found existing client during submission:', clientId);
                 } else {
-                    // Re-throw other errors
-                    throw clientError;
+                    // Create new client with proper image fields
+                    const clientData = {
+                        nom: reservationData.nom,
+                        prenom: reservationData.prenom,
+                        telephone: reservationData.telephone,
+                        email: reservationData.email,
+                        city: reservationData.city,
+                        cin_number: '',
+                        driver_license_number: '',
+                        cin_image: '',
+                        driver_license_image: ''
+                    };
+
+                    console.log('Creating new client with data:', clientData);
+                    
+                    // Create client using Redux action
+                    const clientResult = await dispatch(createClient(clientData)).unwrap();
+                    console.log('Client created:', clientResult);
+
+                    // Extract client ID from the response
+                    clientId = clientResult.client?.id || clientResult.id;
+                    
+                    if (!clientId) {
+                        throw new Error('Failed to get client ID from response');
+                    }
                 }
             }
+
+            // ✅ REMOVED: Matricule selection logic
+            // We don't need to check or assign matricules anymore
+
+            // Then create the reservation with time fields
+            const reservationPayload = {
+                start_date: reservationData.start_date,
+                end_date: reservationData.end_date,
+                start_time: reservationData.start_time,
+                end_time: reservationData.end_time,
+                total_days: reservationData.total_days,
+                total_price: reservationData.total_price,
+                amount_paid: 0,
+                remaining_amount: reservationData.total_price,
+                car_id: selectedCar.id,
+                client_id: clientId,
+                status: 'pending' // Auto-confirm the reservation
+            };
+
+            console.log('Creating reservation with data:', reservationPayload);
             
-            if (!clientId) {
-                throw new Error('Failed to get client ID');
-            }
+            // Create reservation using Redux action
+            const reservationResult = await dispatch(createReservation(reservationPayload)).unwrap();
+            console.log('Reservation created:', reservationResult);
+
+            showAlertPrompt('success', 'Réservation confirmée avec succès !');
+            setShowReservationForm(false);
+            
+            // ✅ MODIFIED: Don't refresh data to keep car as "disponible"
+            // We don't want to change the car's status
+            
+        } catch (error) {
+            console.error('Error creating reservation:', error);
+            showAlertPrompt('error', `Erreur lors de la création de la réservation: ${error.message || error}`);
+        } finally {
+            setSubmitting(false);
         }
-    }
-
-    // Then create the reservation with time fields
-    const reservationPayload = {
-        start_date: reservationData.start_date,
-        end_date: reservationData.end_date,
-        start_time: reservationData.start_time,
-        end_time: reservationData.end_time,
-        total_days: reservationData.total_days,
-        total_price: reservationData.total_price,
-        amount_paid: 0,
-        remaining_amount: reservationData.total_price,
-        car_id: selectedCar.id,
-        client_id: clientId,
-        status: 'pending' // Auto-confirm the reservation
-    };
-
-    console.log('Creating reservation with data:', reservationPayload);
-    
-    // Create reservation using Redux action
-    const reservationResult = await dispatch(createReservation(reservationPayload)).unwrap();
-    console.log('Reservation created:', reservationResult);
-
-    showAlertPrompt('success', 'Réservation confirmée avec succès !');
-    setShowReservationForm(false);
-    
-} catch (error) {
-    console.error('Error creating reservation:', error);
-    
-    // Show user-friendly error messages
-    let errorMessage = 'Erreur lors de la création de la réservation';
-    if (error.message) {
-        if (error.message.includes('already exists')) {
-            errorMessage = 'Le client existe déjà dans notre système. Veuillez utiliser la fonction de recherche de client existant.';
-        } else {
-            errorMessage = error.message;
-        }
-    }
-    
-    showAlertPrompt('error', errorMessage);
-} finally {
-    setSubmitting(false);
-}
     };
 
     // Safe function to capitalize first letter
