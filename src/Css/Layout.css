@@ -1,0 +1,70 @@
+.app-layout {
+    min-height: 100vh; 
+    background-color: #ffffff; 
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+}
+
+/* Fixed navbar container - positioned below banner */
+.fixed-navbar-container {
+    width: 100%;
+    position: fixed;
+    top: 40px; /* Start below the banner */
+    z-index: 1000;
+    transition: top 0.3s ease-in-out;
+}
+
+/* When banner is hidden, move navbar to top */
+.shipping-banner.hidden ~ .fixed-navbar-container {
+    top: 0;
+}
+
+/* Main content container */
+.main-content {
+    flex: 1;
+    margin-top: 120px; /* Default: navbar + banner height */
+    transition: margin-top 0.3s ease-in-out;
+}
+
+/* When banner is hidden, adjust margin */
+.shipping-banner.hidden ~ .fixed-navbar-container ~ .main-content {
+    margin-top: 80px; /* Only navbar height */
+}
+
+/* Footer container */
+.footer-container {
+    width: 100%;
+}
+
+/* Shipping Banner */
+.shipping-banner {
+    background-color: white;
+    color: black;
+    text-align: center;
+    padding: 8px 0;
+    font-weight: bold;
+    font-size: 14px;
+    border-bottom: 1px solid #e5e5e5;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1100; /* Higher than navbar */
+    transition: transform 0.3s ease-in-out;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.shipping-banner.hidden {
+    transform: translateY(-100%);
+}
+
+/* Ensure navbar inside container has proper styling */
+.fixed-navbar-container .navbar-header {
+    position: relative !important;
+    top: auto !important;
+}
