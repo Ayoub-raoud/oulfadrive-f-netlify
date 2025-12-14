@@ -1912,19 +1912,19 @@ const calculateRentalDays = (startDate, endDate) => {
               <p className="confirmation-message">{confirmationConfig.message}</p>
               
               {confirmationConfig.matricule && (
-  <div className="matricule-preview" style={{ display: 'flex', alignItems: 'center' }}>
-    <div className="matricule-avatar-preview">
-      {confirmationConfig.matricule.matricule_code.substring(0, 2)}
-    </div>
-    <div className="matricule-info-preview">
-      <h4>{confirmationConfig.matricule.matricule_code}</h4>
-      <div className="matricule-meta-preview">
-        <div>{confirmationConfig.matricule.car?.brand} {confirmationConfig.matricule.car?.model}</div>
-        <div>{getStatusBadge(confirmationConfig.matricule.status, confirmationConfig.matricule)}</div>
-      </div>
-    </div>
-  </div>
-)}
+                <div className="matricule-preview">
+                  <div className="matricule-avatar-preview">
+                    {confirmationConfig.matricule.matricule_code.substring(0, 2)}
+                  </div>
+                  <div className="matricule-info-preview">
+                    <h4>{confirmationConfig.matricule.matricule_code}</h4>
+                    <div className="matricule-meta-preview">
+                      <div>{confirmationConfig.matricule.car?.brand} {confirmationConfig.matricule.car?.model}</div>
+                      <div>{getStatusBadge(confirmationConfig.matricule.status, confirmationConfig.matricule.id)}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="confirmation-actions">
@@ -3942,212 +3942,6 @@ input[type="date"].form-input::-webkit-calendar-picker-indicator:hover {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-}
-  /* Confirmation Modal Styles - For Matricules */
-.confirmation-modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 1rem;
-  backdrop-filter: blur(5px);
-}
-
-.confirmation-modal {
-  background: white;
-  border-radius: 20px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  max-width: 480px;
-  width: 100%;
-  overflow: hidden;
-  animation: modalSlideIn 0.3s ease-out;
-}
-
-.confirmation-header {
-  padding: 2rem 2rem 1rem;
-  text-align: center;
-  border-bottom: 1px solid #f1f3f4;
-}
-
-.confirmation-icon {
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto 1rem;
-  font-size: 2rem;
-}
-
-.confirmation-icon.delete {
-  background: rgba(220, 53, 69, 0.1);
-  color: #dc3545;
-  border: 2px solid rgba(220, 53, 69, 0.2);
-}
-
-.confirmation-title {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #1a1a1a;
-  margin: 0;
-}
-
-.confirmation-body {
-  padding: 1.5rem 2rem;
-}
-
-.confirmation-message {
-  color: #6c757d;
-  font-size: 1rem;
-  line-height: 1.6;
-  margin-bottom: 1.5rem;
-  text-align: center;
-}
-
-/* Matricule Preview in Confirmation Modal */
-.matricule-preview {
-  padding: 1.5rem;
-  background: #f8f9fa;
-  border-radius: 12px;
-  border: 1px solid #e9ecef;
-  margin-top: 1rem;
-}
-
-.matricule-avatar-preview {
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-weight: 700;
-  font-size: 1.2rem;
-  margin-right: 1rem;
-}
-
-.matricule-info-preview {
-  flex: 1;
-}
-
-.matricule-info-preview h4 {
-  margin: 0 0 0.5rem 0;
-  color: #1a1a1a;
-  font-size: 1.1rem;
-  font-weight: 600;
-}
-
-.matricule-meta-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.9rem;
-}
-
-.matricule-meta-preview > div {
-  color: #6c757d;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.confirmation-actions {
-  padding: 1.5rem 2rem 2rem;
-  display: flex;
-  gap: 1rem;
-  justify-content: flex-end;
-}
-
-.btn-confirm-cancel {
-  padding: 0.75rem 1.5rem;
-  border: 1px solid #6c757d;
-  background: transparent;
-  color: #6c757d;
-  border-radius: 10px;
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.btn-confirm-cancel:hover:not(:disabled) {
-  background: #6c757d;
-  color: white;
-}
-
-.btn-confirm-cancel:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.btn-confirm-delete {
-  padding: 0.75rem 1.5rem;
-  border: none;
-  background: #dc3545;
-  color: white;
-  border-radius: 10px;
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.btn-confirm-delete:hover:not(:disabled) {
-  background: #c82333;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(220, 53, 69, 0.4);
-}
-
-.btn-confirm-delete:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
-}
-
-/* Animation for modal */
-@keyframes modalSlideIn {
-  from {
-    opacity: 0;
-    transform: translateY(-50px) scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-/* Responsive adjustments */
-@media (max-width: 768px) {
-  .confirmation-modal {
-    margin: 1rem;
-  }
-  
-  .confirmation-actions {
-    flex-direction: column;
-  }
-  
-  .matricule-preview {
-    flex-direction: column;
-    text-align: center;
-  }
-  
-  .matricule-avatar-preview {
-    margin-right: 0;
-    margin-bottom: 1rem;
-    align-self: center;
-  }
 }
       `}</style>
     </div>
