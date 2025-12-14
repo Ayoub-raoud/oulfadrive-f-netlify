@@ -735,67 +735,7 @@ export const loginUtilisateur = createAsyncThunk(
     }
   }
 );
-let wsConnection = null;
-const WS_RECONNECT_DELAY = 5000;
 
-export const connectWebSocket = () => {
-  const token = localStorage.getItem('authToken');
-  if (!token) return;
-  
-  try {
-    // Close existing connection
-    if (wsConnection) {
-      wsConnection.close();
-    }
-    
-    // Connect to your backend WebSocket endpoint
-    // You'll need to set this up in your Laravel backend
-    wsConnection = new WebSocket(`wss://oulfa-back-production.up.railway.app/ws?token=${token}`);
-    
-    wsConnection.onopen = () => {
-      console.log('WebSocket connected');
-    };
-    
-    wsConnection.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log('WebSocket message:', data);
-        
-        switch(data.type) {
-          case 'CAR_UPDATED':
-            // Update specific car immediately
-            store.dispatch(updateCarImmediate(data.car));
-            break;
-          case 'CAR_CREATED':
-            store.dispatch(addCarImmediate(data.car));
-            break;
-          case 'CAR_DELETED':
-            store.dispatch(removeCarImmediate(data.carId));
-            break;
-          case 'MATRICULE_UPDATED':
-            // Refresh matricules which affects car status
-            store.dispatch(refreshMatricules());
-            break;
-        }
-      } catch (error) {
-        console.error('Error processing WebSocket message:', error);
-      }
-    };
-    
-    wsConnection.onclose = () => {
-      console.log('WebSocket disconnected, reconnecting...');
-      wsConnection = null;
-      setTimeout(connectWebSocket, WS_RECONNECT_DELAY);
-    };
-    
-    wsConnection.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
-    
-  } catch (error) {
-    console.error('Failed to connect WebSocket:', error);
-  }
-};
 export const logoutUtilisateur = createAsyncThunk(
   "auth/logout",
   async (_, thunkAPI) => {
