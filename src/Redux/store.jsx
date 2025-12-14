@@ -43,7 +43,7 @@ const CACHE_CONFIG = {
   cars: { ttl: 10 * 1000 },
   clients: { ttl: 10 * 60 * 1000 },
   matricules: { ttl: 5 * 60 * 1000 },
-  reservations: { ttl: 2 * 60 * 1000 },
+  reservations: { ttl: 60 * 1000 },
   contacts: { ttl: 10 * 60 * 1000 },
   utilisateurs: { ttl: 10 * 60 * 1000 }
 };
