@@ -134,7 +134,23 @@ const MatriculesManagement = ({ onBack, filter }) => {
       setMaintenanceAlerts(alerts);
     }
   }, [matricules, reservations, accidents]);
-
+// Add this function in MatriculesManagement.jsx after the imports:
+// ✅ Calculate rental days correctly (same as reservations component)
+const calculateRentalDays = (startDate, endDate) => {
+  if (!startDate || !endDate) return 0;
+  
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  
+  // Reset times to compare only dates
+  start.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
+  
+  const diffTime = Math.abs(end - start);
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  
+  return diffDays === 0 ? 1 : diffDays;
+};
   // Fonction pour vérifier les alertes de maintenance
   const checkMaintenanceAlerts = (matricule) => {
     const alerts = [];
@@ -1541,9 +1557,9 @@ const MatriculesManagement = ({ onBack, filter }) => {
                               {new Date(reservation.start_date).toLocaleDateString('fr-FR')} - {new Date(reservation.end_date).toLocaleDateString('fr-FR')}
                             </div>
                             <div className="item-detail">
-                              <FaClock className="detail-icon" />
-                              {reservation.total_days || reservation.rental_days} jours
-                            </div>
+  <FaClock className="detail-icon" />
+  {calculateRentalDays(reservation.start_date, reservation.end_date)} jours
+</div>
                             <div className="item-detail">
                               <FaMoneyBill className="detail-icon" />
                               {reservation.total_price} MAD

@@ -260,7 +260,22 @@ const GestionClients = () => {
   const getClientAccidents = (clientId) => {
     return accidents.filter(a => a.client_id === clientId);
   };
-
+// Make sure this function exists (it should already be there):
+const calculateRentalDays = (startDate, endDate) => {
+  if (!startDate || !endDate) return 0;
+  
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  
+  // Reset times to compare only dates
+  start.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
+  
+  const diffTime = Math.abs(end - start);
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  
+  return diffDays === 0 ? 1 : diffDays;
+};
   // Pagination pour les détails
   const clientReservations = selectedClient ? getClientReservations(selectedClient.id) : [];
   const clientAccidents = selectedClient ? getClientAccidents(selectedClient.id) : [];
@@ -1115,9 +1130,9 @@ const GestionClients = () => {
                               {new Date(reservation.start_date).toLocaleDateString('fr-FR')} - {new Date(reservation.end_date).toLocaleDateString('fr-FR')}
                             </div>
                             <div className="item-detail">
-                              <FaClock className="detail-icon" />
-                              {reservation.total_days || reservation.rental_days} jours
-                            </div>
+  <FaClock className="detail-icon" />
+  {calculateRentalDays(reservation.start_date, reservation.end_date)} jours
+</div>
                             <div className="item-detail">
                               <FaMoneyBill className="detail-icon" />
                               {reservation.total_price} MAD
