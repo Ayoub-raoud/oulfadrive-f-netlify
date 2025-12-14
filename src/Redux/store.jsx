@@ -40,7 +40,7 @@ api.interceptors.response.use(
 // Cache configuration
 const CACHE_CONFIG = {
   accidents: { ttl: 5 * 60 * 1000 },
-  cars: { ttl: 5 * 60 * 1000 },
+  cars: { ttl: 10 * 1000 },
   clients: { ttl: 10 * 60 * 1000 },
   matricules: { ttl: 5 * 60 * 1000 },
   reservations: { ttl: 2 * 60 * 1000 },
@@ -207,17 +207,29 @@ export const getAccidentNextStatuses = createAsyncThunk(
 
 // Cars - Public access for listing
 export const fetchCars = createAsyncThunk(
-  "cars/fetchAll",
-  async (_, thunkAPI) => {
+  "cars/fetchAll", 
+  async (forceRefresh = false, thunkAPI) => {
     try {
+      if (!forceRefresh) {
+        const cachedData = cacheManager.get('cars');
+        if (cachedData) {
+          return cachedData;
+        }
+      }
+
       const response = await api.get("/cars");
-      return response.data;
+      const carsData = response.data;
+      cacheManager.set('cars', carsData);
+      return carsData;
     } catch (error) {
+      const cachedData = cacheManager.get('cars');
+      if (cachedData) {
+        return cachedData;
+      }
       return handleApiError(error, thunkAPI);
     }
   }
 );
-
 
 export const createCar = createAsyncThunk(
   "cars/create", 
