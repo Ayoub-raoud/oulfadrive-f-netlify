@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { createContact, selectContactsLoading, selectContactsError } from '../Redux/store';
-import { FaPhone, FaEnvelope, FaMapMarkerAlt, FaClock, FaCheckCircle, FaPaperPlane } from 'react-icons/fa';
+import { FaPhone, FaEnvelope, FaMapMarkerAlt, FaClock, FaCheckCircle, FaPaperPlane, FaExternalLinkAlt } from 'react-icons/fa';
 
 function Contact() {
     const dispatch = useDispatch();
@@ -41,6 +41,8 @@ function Contact() {
         }
     };
 
+    const googleMapsUrl = "https://www.google.com/maps/place/33%C2%B033'08.7%22N+7%C2%B040'54.1%22W/@33.5533336,-7.6853658,738m/data=!3m1!1e3!4m4!3m3!8m2!3d33.5524216!4d-7.681684?entry=ttu";
+
     return (
         <div>
             <style>
@@ -65,7 +67,6 @@ function Contact() {
                         gap: 2rem;
                         background: white;
                         border-radius: 16px;
-                        
                         overflow: hidden;
                     }
 
@@ -275,7 +276,7 @@ function Contact() {
 
                     .hour-day {
                         font-weight: 500;
-                    color: #374151;
+                        color: #374151;
                     }
 
                     .hour-time {
@@ -283,19 +284,57 @@ function Contact() {
                         color: #1f2937;
                     }
 
-                    .map-placeholder {
+                    .map-container {
                         margin-top: 2rem;
-                        background: #f1f5f9;
                         border-radius: 10px;
-                        padding: 2rem;
-                        text-align: center;
-                        border: 2px dashed #cbd5e1;
+                        overflow: hidden;
+                        border: 2px solid #e5e7eb;
+                        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
                     }
 
-                    .map-text {
+                    .google-map {
+                        width: 100%;
+                        height: 250px;
+                        border: 0;
+                        display: block;
+                    }
+
+                    .map-info {
+                        background: #f8fafc;
+                        padding: 1rem;
+                        border-top: 1px solid #e5e7eb;
+                    }
+
+                    .map-info-text {
                         color: #64748b;
                         font-size: 0.9rem;
                         margin-top: 0.5rem;
+                        text-align: center;
+                        line-height: 1.5;
+                    }
+
+                    .maps-link {
+                        color: #dc2626;
+                        text-decoration: none;
+                        font-weight: 600;
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 4px;
+                        margin-left: 4px;
+                        transition: all 0.3s ease;
+                        padding: 2px 6px;
+                        border-radius: 4px;
+                    }
+
+                    .maps-link:hover {
+                        color: #b91c1c;
+                        background-color: rgba(220, 38, 38, 0.1);
+                        text-decoration: underline;
+                    }
+
+                    .link-icon {
+                        font-size: 0.8rem;
+                        margin-top: 1px;
                     }
 
                     .loading-spinner {
@@ -331,6 +370,10 @@ function Contact() {
                         .info-title {
                             font-size: 1.5rem;
                         }
+
+                        .google-map {
+                            height: 200px;
+                        }
                     }
 
                     @media (max-width: 480px) {
@@ -352,6 +395,10 @@ function Contact() {
                         .info-subtitle {
                             font-size: 1rem;
                             margin-bottom: 2rem;
+                        }
+
+                        .google-map {
+                            height: 180px;
                         }
                     }
                 `}
@@ -480,12 +527,12 @@ function Contact() {
                                     <div className="contact-info-content">
                                         <h4 className="contact-info-title">Téléphone</h4>
                                         <p className="contact-info-text">
-                                            <a href="tel:+212522123456" className="contact-info-link">
-                                                +212 522 123 456
+                                            <a href="tel:+212665921921" className="contact-info-link">
+                                                +212 665 921 921
                                             </a>
                                             <br />
                                             <a href="tel:+212522123457" className="contact-info-link">
-                                                +212 522 123 457
+                                                +212 665 921 921
                                             </a>
                                         </p>
                                     </div>
@@ -496,8 +543,8 @@ function Contact() {
                                     <div className="contact-info-content">
                                         <h4 className="contact-info-title">Email</h4>
                                         <p className="contact-info-text">
-                                            <a href="mailto:info@oulfadrive.com" className="contact-info-link">
-                                                info@oulfadrive.com
+                                            <a href="mailto:oulfadrive25@gmail.com" className="contact-info-link">
+                                                oulfadrive25@gmail.com
                                             </a>
                                             <br />
                                             <a href="mailto:support@oulfadrive.com" className="contact-info-link">
@@ -512,8 +559,9 @@ function Contact() {
                                     <div className="contact-info-content">
                                         <h4 className="contact-info-title">Adresse</h4>
                                         <p className="contact-info-text">
-                                            123 Avenue Hassan II<br />
-                                            Casablanca 20000, Maroc
+                                            Angle Boulevard Rachidi et Rue Mohammed Smiha<br />
+                                            Quartier Gauthier, Casablanca 20000, Maroc<br />
+                                            Coordonnées : 33°33'08.7"N 7°40'54.1"W
                                         </p>
                                     </div>
                                 </div>
@@ -542,12 +590,32 @@ function Contact() {
                                 </div>
                             </div>
 
-                            <div className="map-placeholder">
-                                <FaMapMarkerAlt size={32} color="#dc2626" />
-                                <p className="map-text">
-                                    Notre bureau principal est situé au cœur de Casablanca, 
-                                    facilement accessible depuis tous les principaux pôles de transport.
-                                </p>
+                            <div className="map-container">
+                                <iframe 
+                                    className="google-map"
+                                    src="https://www.google.com/maps/embed?pb=!1m14!1m8!1m3!1d13246.298118518714!2d-7.681684!3d33.5524216!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zMzPCsDMzJzA4LjciTiA3wrA0MCc1NC4xIlc!5e0!3m2!1sen!2sma!4v1640995200000!5m2!1sen!2sma"
+                                    allowFullScreen
+                                    loading="lazy"
+                                    referrerPolicy="no-referrer-when-downgrade"
+                                    title="Oulfa Drive Location"
+                                />
+                                <div className="map-info">
+                                    <p className="map-info-text">
+                                        <FaMapMarkerAlt size={16} color="#dc2626" style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+                                        Notre bureau principal est situé à l'angle du Boulevard Rachidi et de la Rue Mohammed Smiha 
+                                        dans le quartier Gauthier de Casablanca, à proximité des stations de tramway 
+                                        "Place des Nations Unies" et "Médina".
+                                        <a 
+                                            href={googleMapsUrl} 
+                                            target="_blank" 
+                                            rel="noopener noreferrer"
+                                            className="maps-link"
+                                        >
+                                            Voir sur Google Maps
+                                            <FaExternalLinkAlt className="link-icon" />
+                                        </a>
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     </div>

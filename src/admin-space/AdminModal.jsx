@@ -4421,13 +4421,12 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
             </div>
             
             <div className="form-group">
-              <label className="form-label required-field">Email</label>
+              <label className="form-label">Email</label>
               <input
                 type="email"
                 className="form-input"
                 value={formData.email || ''}
                 onChange={(e) => handleChange('email', e.target.value)}
-                required
               />
             </div>
             
@@ -4443,13 +4442,12 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
             </div>
             
             <div className="form-group">
-              <label className="form-label required-field">Ville</label>
+              <label className="form-label">Ville</label>
               <input
                 type="text"
                 className="form-input"
                 value={formData.city || ''}
                 onChange={(e) => handleChange('city', e.target.value)}
-                required
               />
             </div>
           </div>

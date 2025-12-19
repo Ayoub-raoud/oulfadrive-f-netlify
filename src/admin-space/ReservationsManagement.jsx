@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
@@ -30,14 +31,16 @@ import {
 import AdminModal from './AdminModal';
 
 // Import checklist image and logo
-import checklistImage from '../assets/Checklist.png';
+import checklistImage from '../assets/checklist.png';
 import logoImage from '../assets/logo.png';
 
 // Components for contract
-const FormLine = ({ label, value = '' }) => (
+const FormLine = ({ label, value = '', showPrice = true }) => (
   <div className="form-line">
     <label>{label} :</label>
-    <div className="dots-line">{value}</div>
+    <div className="dots-line">
+      {showPrice ? value : '_________'}
+    </div>
   </div>
 );
 
@@ -57,11 +60,11 @@ const CarDiagram = () => (
   </div>
 );
 
-const ObservationBox = ({ title, isHalf = false, children }) => (
+const ObservationBox = ({ title, isHalf = false, children, showPrice = true }) => (
   <div className={`observation-box ${isHalf ? 'half-width' : ''}`}>
     <label className="obs-title">{title} :</label>
     <div className="observation-content">
-      {children}
+      {showPrice ? children : '_________'}
     </div>
   </div>
 );
@@ -75,7 +78,7 @@ const SignatureBlock = ({ label, signature = '' }) => (
   </div>
 );
 
-const ContractLocation = ({ reservation, showSignatures = false, currentUser }) => {
+const ContractLocation = ({ reservation, showSignatures = false, currentUser, hidePrices = false }) => {
   const [paperwork, setPaperwork] = useState({
     circulation: false,
     carteGrise: false,
@@ -262,10 +265,10 @@ const ContractLocation = ({ reservation, showSignatures = false, currentUser }) 
               }
             />
             <FormLine label="Nombre de jours" value={calculateRentalDays()} />
-            <FormLine label="Prix unitaire" value={`${reservation?.car?.price_per_day || ''} DH`} />
-            <FormLine label="Montant T.T.C" value={`${reservation?.total_price || ''} DH`} />
-            <FormLine label="Montant payé" value={`${reservation?.amount_paid || ''} DH`} />
-            <FormLine label="Montant restant" value={`${reservation?.remaining_amount || ''} DH`} />
+            <FormLine label="Prix unitaire" value={`${reservation?.car?.price_per_day || ''} DH`} showPrice={!hidePrices} />
+            <FormLine label="Montant T.T.C" value={`${reservation?.total_price || ''} DH`} showPrice={!hidePrices} />
+            <FormLine label="Montant payé" value={`${reservation?.amount_paid || ''} DH`} showPrice={!hidePrices} />
+            <FormLine label="Montant restant" value={`${reservation?.remaining_amount || ''} DH`} showPrice={!hidePrices} />
             <FormLine label="Montant de la franchise" value="" />
           </div>
         </div>
@@ -318,14 +321,23 @@ const ContractLocation = ({ reservation, showSignatures = false, currentUser }) 
             Assurance tous risques incluse. Franchise applicable en cas de sinistre.
           </div>
         </ObservationBox>
-        <ObservationBox title="Caution & Garantie" isHalf>
+        <ObservationBox title="Caution & Garantie" isHalf showPrice={!hidePrices}>
           <div className="observation-text">
             Caution: {reservation?.amount_paid ? `${reservation.amount_paid} DH` : '_________'} DH<br/>
             Montant restant: {reservation?.remaining_amount ? `${reservation.remaining_amount} DH` : '_________'} DH
           </div>
         </ObservationBox>
       </section>
-
+      
+      <section className="kilometer-excess-clause">
+        <div className="kilometer-excess-content">
+          <strong>IMPORTANT - CLAUSE DE DÉPASSEMENT DE KILOMÉTRAGE :</strong>
+          <br/>
+          En cas de dépassement du kilométrage mentionné (200km par jour), 
+          vous allez payer 1.5 DH pour chaque kilomètre additionnel au-delà de la limite autorisée.
+        </div>
+      </section>
+      
       <section className="signature-section">
         <SignatureBlock 
           label="Signature Agent" 
@@ -398,6 +410,9 @@ const ReservationsManagement = ({ onBack, filter }) => {
     visiteTechnique: false,
     autorisation: false
   });
+  
+  // NEW: State for hiding prices in contract - PERSISTENT throughout component lifecycle
+  const [hideContractPrices, setHideContractPrices] = useState(false);
 
   // Search and Filter states - UPDATED: Initialize with filter prop
   const [searchTerm, setSearchTerm] = useState('');
@@ -658,7 +673,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
       
       // Open in new window and download
       window.open(pdfUrl, '_blank');
-      doc.save(`contrat-location-${reservation.id}.pdf`);
+      doc.save(`contrat-location-${reservation.id}${hideContractPrices ? '-sans-prix' : ''}.pdf`);
       
       // Clean up URL after a delay
       setTimeout(() => {
@@ -687,7 +702,13 @@ const ReservationsManagement = ({ onBack, filter }) => {
 
   const handleViewContract = (reservation) => {
     setSelectedContractReservation(reservation);
+    // DO NOT reset hideContractPrices here - keep the checkbox state
     setShowContract(true);
+  };
+
+  // Handle hide prices checkbox change - UPDATED: simple toggle
+  const handleHidePricesChange = () => {
+    setHideContractPrices(!hideContractPrices);
   };
 
   // Filter and search reservations with fixed date filtering
@@ -1328,6 +1349,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
               paperwork: contractPaperwork
             }}
             currentUser={currentUser}
+            hidePrices={hideContractPrices}
           />
         </div>
       )}
@@ -1348,7 +1370,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
                 </button>
                 <button 
                   className="btn btn-secondary" 
-                  onClick={() => setShowContract(false)}
+                  onClick={() => setShowContract(false)} // Just close, don't reset checkbox
                 >
                   <FaTimes className="btn-icon" />
                   Fermer
@@ -1356,6 +1378,24 @@ const ReservationsManagement = ({ onBack, filter }) => {
               </div>
             </div>
             <div className="contract-modal-content">
+              {/* Price Visibility Control */}
+              <div className="price-visibility-control">
+                <h3>Options d'affichage</h3>
+                <div className="price-checkbox-group">
+                  <label className="price-checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={hideContractPrices}
+                      onChange={handleHidePricesChange}
+                    />
+                    Masquer les prix dans le contrat
+                  </label>
+                  <div className="price-checkbox-description">
+                    Si coché, tous les montants (prix unitaire, montant TTC, montant payé, montant restant) seront remplacés par des traits dans le contrat.
+                  </div>
+                </div>
+              </div>
+
               {/* Signature Input Section */}
               <div className="signature-input-section">
                 <h3>Signatures</h3>
@@ -1448,6 +1488,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
                 }}
                 showSignatures={true}
                 currentUser={currentUser}
+                hidePrices={hideContractPrices}
               />
             </div>
           </div>
@@ -2382,6 +2423,50 @@ const ReservationsManagement = ({ onBack, filter }) => {
           max-height: calc(95vh - 100px);
         }
 
+        /* Price Visibility Control */
+        .price-visibility-control {
+          background: #f0f8ff;
+          padding: 1.5rem;
+          border-radius: 12px;
+          margin-bottom: 1.5rem;
+          border: 1px solid #d1e7ff;
+        }
+
+        .price-visibility-control h3 {
+          margin: 0 0 1rem 0;
+          color: #1a1a1a;
+          font-size: 1.2rem;
+        }
+
+        .price-checkbox-group {
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+        }
+
+        .price-checkbox-label {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          font-size: 1rem;
+          font-weight: 600;
+          color: #495057;
+          cursor: pointer;
+        }
+
+        .price-checkbox-label input {
+          width: 20px;
+          height: 20px;
+          cursor: pointer;
+        }
+
+        .price-checkbox-description {
+          font-size: 0.875rem;
+          color: #6c757d;
+          margin-left: 2rem;
+          font-style: italic;
+        }
+
         /* Signature Input Section */
         .signature-input-section {
           background: #f8f9fa;
@@ -2488,7 +2573,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-bottom: 8px;
+          margin-bottom: 2px;
           border-bottom: 2px solid #000;
           padding-bottom: 6px;
         }
@@ -2744,7 +2829,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
           font-size: 10px;
           line-height: 1.1;
           user-select: none;
-          min-height: 60px;
+          min-height: 40px;
           background: #fff;
         }
 
@@ -2778,7 +2863,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
         .signature-box {
           border: 1px solid #000;
           width: 100%;
-          min-height: 80px;
+          min-height: 60px;
           position: relative;
           display: flex;
           align-items: center;
@@ -2794,7 +2879,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
 
         /* Footer */
         .contract-footer {
-          font-size: 10px;
+          font-size: 8px;
           font-weight: 700;
           text-align: center;
           text-transform: uppercase;
@@ -3015,6 +3100,29 @@ const ReservationsManagement = ({ onBack, filter }) => {
 
         .notification-icon {
           font-size: 1.1rem;
+        }
+
+        /* Kilometer Excess Clause */
+        .kilometer-excess-clause {
+          margin: 8px 0;
+          padding: 6px 10px;
+          background: rgba(255, 0, 0, 0.05);
+          border: 1px solid #dc3545;
+          border-radius: 6px;
+          font-size: 9px;
+          line-height: 1.2;
+          text-align: center;
+          user-select: none;
+          page-break-inside: avoid;
+        }
+
+        .kilometer-excess-content {
+          font-family: Arial, sans-serif;
+        }
+
+        .kilometer-excess-content strong {
+          color: #dc3545;
+          font-weight: 700;
         }
 
         @media (max-width: 768px) {

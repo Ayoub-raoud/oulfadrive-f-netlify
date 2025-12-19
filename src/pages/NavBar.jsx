@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
-import { IoCarSportOutline } from 'react-icons/io5';
 import { FiMenu, FiX } from 'react-icons/fi';
+import logo from '../assets/logo1.png';
 
 const Navbar = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -196,7 +196,6 @@ const Navbar = () => {
           .logo-section {
             display: flex;
             align-items: center;
-            gap: 0.75rem;
             transition: transform 0.3s ease;
           }
           
@@ -207,97 +206,38 @@ const Navbar = () => {
           .logo-wrapper {
             display: flex;
             align-items: center;
-            gap: 0.75rem;
             text-decoration: none;
           }
           
-          .logo-icon {
-            width: 40px;
-            height: 40px;
+          .logo-image-container {
             display: flex;
             align-items: center;
             justify-content: center;
-            background: linear-gradient(135deg, #dc2626, #ef4444);
-            border-radius: 10px;
-            padding: 6px;
-            box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
-          }
-          
-          @media (min-width: 768px) {
-            .logo-icon {
-              width: 50px;
-              height: 50px;
-              border-radius: 12px;
-            }
-          }
-          
-          .car-icon {
-            color: white;
-            transition: all 0.3s ease;
-            width: 100%;
-            height: 100%;
-          }
-          
-          .logo-wrapper:hover .car-icon {
-            transform: scale(1.1) rotate(-5deg);
-          }
-          
-          .logo-text-container {
-            display: flex;
-            flex-direction: column;
-          }
-          
-          .logo-text {
-            background: linear-gradient(135deg, #dc2626, #ef4444, #991b1b);
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            font-size: 1.5rem;
-            font-weight: 800;
-            letter-spacing: -0.5px;
-            font-family: 'Inter', 'Arial', sans-serif;
-            line-height: 1;
+            overflow: hidden;
             transition: all 0.3s ease;
           }
           
+          .logo-image {
+            height: 50px;
+            width: auto;
+            object-fit: contain;
+            transition: transform 0.3s ease;
+          }
+          
           @media (min-width: 768px) {
-            .logo-text {
-              font-size: 2rem;
+            .logo-image {
+              height: 60px;
             }
           }
           
           @media (min-width: 1024px) {
-            .logo-text {
-              font-size: 2.4rem;
+            .logo-image {
+              height: 70px;
             }
           }
           
-          .logo-wrapper:hover .logo-text {
-            background: linear-gradient(135deg, #ef4444, #dc2626, #b91c1c);
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-          }
-          
-          .logo-subtitle {
-            color: #6b7280;
-            font-size: 0.65rem;
-            font-weight: 600;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            margin-top: 2px;
-          }
-          
-          @media (min-width: 768px) {
-            .logo-subtitle {
-              font-size: 0.75rem;
-            }
-          }
-          
-          @media (min-width: 1024px) {
-            .logo-subtitle {
-              font-size: 0.8rem;
-            }
+          .logo-wrapper:hover .logo-image {
+            transform: scale(1.05);
           }
           
           .desktop-nav {
@@ -416,7 +356,7 @@ const Navbar = () => {
             color: #dc2626;
           }
           
-          /* Mobile Navigation - Updated to match the second example */
+          /* Mobile Navigation */
           .mobile-nav {
             border-top: 1px solid #e5e5e5;
             background: #ffffff;
@@ -492,15 +432,15 @@ const Navbar = () => {
       <header className={`navbar-header ${!isNavbarVisible ? 'hidden' : ''} ${lastScrollY > 50 ? 'scrolled' : ''}`}>
         <div className="navbar-container">
           <div className="navbar-inner">
-            {/* Enhanced Responsive Logo Section */}
+            {/* Logo Section - Only the logo image */}
             <div className="logo-section">
               <Link to="/" className="logo-wrapper" onClick={() => handleLinkClick('home')}>
-                <div className="logo-icon">
-                  <IoCarSportOutline className="car-icon" />
-                </div>
-                <div className="logo-text-container">
-                  <div className="logo-text">Oulfa Drive</div>
-                  <div className="logo-subtitle">Premium Car Rental</div>
+                <div className="logo-image-container">
+                  <img 
+                    src={logo} 
+                    alt="Oulfa Drive Logo" 
+                    className="logo-image"
+                  />
                 </div>
               </Link>
             </div>
@@ -559,7 +499,7 @@ const Navbar = () => {
             </button>
           </div>
           
-          {/* Mobile Navigation - Updated to match the second example */}
+          {/* Mobile Navigation */}
           {isMenuOpen && (
             <div className="mobile-nav">
               <nav className="mobile-nav-inner">

@@ -295,13 +295,13 @@ function OurCars() {
             setSubmitting(false);
             return;
         }
-
+    
         if (reservationData.total_days <= 0) {
             showAlertPrompt('error', 'La date de fin doit être après la date de début');
             setSubmitting(false);
             return;
         }
-
+    
         // ✅ Check car availability from status field
         const carAvailability = getCarAvailability(selectedCar);
         if (carAvailability !== 'disponible') {
@@ -309,52 +309,51 @@ function OurCars() {
             setSubmitting(false);
             return;
         }
-
+    
         try {
             let clientId;
-
+    
             // If client was found in search, use existing client ID
             if (foundClient) {
                 clientId = foundClient.id;
                 console.log('Using existing client ID:', clientId);
             } else {
-                // Validate required client fields
-                if (!reservationData.nom || !reservationData.prenom || !reservationData.telephone || !reservationData.email || !reservationData.city) {
-                    showAlertPrompt('error', 'Veuillez remplir tous les champs d\'information client');
+                // ✅ MODIFIÉ: Validation moins stricte pour email et city
+                if (!reservationData.nom || !reservationData.prenom || !reservationData.telephone) {
+                    showAlertPrompt('error', 'Veuillez remplir le nom, prénom et téléphone');
                     setSubmitting(false);
                     return;
                 }
-
+    
                 // Check if client already exists (in case they weren't found in initial search)
                 const existingClient = clients.find(client => 
-                    client.telephone === reservationData.telephone || 
-                    client.email === reservationData.email
+                    client.telephone === reservationData.telephone
                 );
-
+    
                 if (existingClient) {
                     // Use existing client
                     clientId = existingClient.id;
                     console.log('Found existing client during submission:', clientId);
                 } else {
-                    // Create new client with proper image fields
+                    // ✅ MODIFIÉ: Envoyer des chaînes vides au lieu de null
                     const clientData = {
                         nom: reservationData.nom,
                         prenom: reservationData.prenom,
                         telephone: reservationData.telephone,
-                        email: reservationData.email,
-                        city: reservationData.city,
+                        email: reservationData.email || '', // Chaîne vide au lieu de null
+                        city: reservationData.city || '',   // Chaîne vide au lieu de null
                         cin_number: '',
                         driver_license_number: '',
                         cin_image: '',
                         driver_license_image: ''
                     };
-
+    
                     console.log('Creating new client with data:', clientData);
                     
                     // Create client using Redux action
                     const clientResult = await dispatch(createClient(clientData)).unwrap();
                     console.log('Client created:', clientResult);
-
+    
                     // Extract client ID from the response
                     clientId = clientResult.client?.id || clientResult.id;
                     
@@ -363,7 +362,10 @@ function OurCars() {
                     }
                 }
             }
-
+    
+            // ✅ REMOVED: Matricule selection logic
+            // We don't need to check or assign matricules anymore
+    
             // Then create the reservation with time fields
             const reservationPayload = {
                 start_date: reservationData.start_date,
@@ -378,15 +380,18 @@ function OurCars() {
                 client_id: clientId,
                 status: 'pending' // Auto-confirm the reservation
             };
-
+    
             console.log('Creating reservation with data:', reservationPayload);
             
             // Create reservation using Redux action
             const reservationResult = await dispatch(createReservation(reservationPayload)).unwrap();
             console.log('Reservation created:', reservationResult);
-
+    
             showAlertPrompt('success', 'Réservation confirmée avec succès !');
             setShowReservationForm(false);
+            
+            // ✅ MODIFIED: Don't refresh data to keep car as "disponible"
+            // We don't want to change the car's status
             
         } catch (error) {
             console.error('Error creating reservation:', error);
@@ -2022,7 +2027,7 @@ function OurCars() {
                                         </div>
 
                                         <div className="form-group">
-                                            <label className="form-label required-field">Email</label>
+                                            <label className="form-label ">Email</label>
                                             <input
                                                 type="email"
                                                 name="email"
@@ -2030,13 +2035,12 @@ function OurCars() {
                                                 onChange={handleReservationInputChange}
                                                 className="form-input"
                                                 placeholder="Entrez votre email"
-                                                required
                                                 disabled={submitting || foundClient}
                                             />
                                         </div>
 
                                         <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                                            <label className="form-label required-field">Ville</label>
+                                            <label className="form-label ">Ville</label>
                                             <input
                                                 type="text"
                                                 name="city"
@@ -2044,7 +2048,6 @@ function OurCars() {
                                                 onChange={handleReservationInputChange}
                                                 className="form-input"
                                                 placeholder="Entrez votre ville"
-                                                required
                                                 disabled={submitting || foundClient}
                                             />
                                         </div>
