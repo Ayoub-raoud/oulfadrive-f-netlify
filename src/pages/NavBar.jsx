@@ -13,7 +13,6 @@ const Navbar = () => {
   const [keySequence, setKeySequence] = useState([]);
   const dispatch = useDispatch();
 
-  // Secret code: OULFA (79-85-76-70-65)
   const secretCode = [79, 85, 76, 70, 65]; // O U L F A
 
   
