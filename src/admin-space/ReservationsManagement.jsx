@@ -355,7 +355,7 @@ const ContractLocation = ({ reservation, showSignatures = false, currentUser, hi
 
       <footer className="contract-footer">
         SMAITI LUXE CAR SARL AU CAPITAL DE 500 000.00 DHS SIEGE SOCIAL:43 OP KASBAT AL AMINE CASABLANCA<br />
-        IF: 68792347 -RC:702167 -TP: 36208941 -CNSS: 6515943 -ICE: 003818317000048 -EMAIL: smaitiluxecar@gmail.com -TELEPHONE :0665921921
+        IF: 68792347 -RC:702167 -TP: 36208941 -CNSS: 6515943 -ICE: 003818317000048 - EMAIL: smaitiluxecar@gmail.com -TELEPHONE :0665921921
       </footer>
     </div>
   );
