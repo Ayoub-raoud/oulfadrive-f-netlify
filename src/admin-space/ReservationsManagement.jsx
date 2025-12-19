@@ -32,7 +32,7 @@ import AdminModal from './AdminModal';
 
 // Import checklist image and logo
 import checklistImage from '../assets/Checklist.png';
-import logoImage from '../assets/logo.png';
+import logoImage from '../assets/lo-brown.png';
 
 // Components for contract
 const FormLine = ({ label, value = '', showPrice = true }) => (
@@ -354,8 +354,8 @@ const ContractLocation = ({ reservation, showSignatures = false, currentUser, hi
       </section>
 
       <footer className="contract-footer">
-        OULFA DRIVE SARL AU CAPITAL 100 000.00 DH SIEGE SOCIAL: BASSATINE AL OULFA GH 3 IMMEUBLE 14 N°56 AL OULFA – CASABLANCA<br />
-        RC: 580419-IF: 53743931 -TP: 35007229 ICE: 003274706000087 -TEL: 0665 92 19 21 / 0660 47 28 40 - EMAIL: OULFADRIVE@GMAIL.COM
+        SMAITI LUXE CAR SARL AU CAPITAL DE 500 000.00 DHS SIEGE SOCIAL:43 OP KASBAT AL AMINE CASABLANCA<br />
+        IF: 68792347 -RC:702167 -TP: 36208941 -CNSS: 6515943 -ICE: 003818317000048 -EMAIL: smaitiluxecar@gmail.com -TELEPHONE :0665921921
       </footer>
     </div>
   );
