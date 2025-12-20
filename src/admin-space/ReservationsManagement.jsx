@@ -355,7 +355,7 @@ const ContractLocation = ({ reservation, showSignatures = false, currentUser, hi
 
       <footer className="contract-footer">
         SMAITI LUXE CAR SARL AU CAPITAL DE 500 000.00 DHS SIEGE SOCIAL:43 OP KASBAT AL AMINE CASABLANCA<br />
-        IF: 68792347 -RC:702167 -TP: 36208941 -CNSS: 6515943 -ICE: 003818317000048 - EMAIL: smaitiluxecar@gmail.com -TELEPHONE :0665921921
+        IF: 68792347 -RC:702167 -TP: 36208941 -CNSS: 6515943 -ICE: 003818317000048 -EMAIL: smaitiluxecar@gmail.com -TELEPHONE :0665921921
       </footer>
     </div>
   );
@@ -2570,32 +2570,35 @@ const ReservationsManagement = ({ onBack, filter }) => {
         }
 
         .contract-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 2px;
-          border-bottom: 2px solid #000;
-          padding-bottom: 6px;
-        }
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start; /* Change from center to flex-start */
+  margin-bottom: 2px;
+  border-bottom: 2px solid #000;
+  padding-bottom: 6px;
+  min-height: 60px; /* Add a minimum height */
+}
 
-        .header-left {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-start;
-          flex: 1;
-        }
-
+.header-left {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between; /* Add this line */
+  flex: 1;
+  height: 100%; /* Add this line */
+}
         .location-text {
-          font-weight: bold;
-          font-size: 12px;
-          margin-bottom: 3px;
-        }
+  font-weight: bold;
+  font-size: 18px;
+  margin-top: 32px;
+}
 
         .phone-number {
-          font-size: 9px;
-          color: #000;
-          font-weight: bold;
-        }
+  font-size: 12px;
+  color: #000;
+  font-weight: bold;
+  margin-top: 30px;
+}
 
         .header-center {
           flex: 1;
@@ -2610,31 +2613,34 @@ const ReservationsManagement = ({ onBack, filter }) => {
           object-fit: contain;
         }
 
-        .header-right {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-end;
-          flex: 1;
-        }
+       .header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between; /* Add this line */
+  flex: 1;
+  height: 100%; /* Add this line */
+}
 
         .arabic-text {
-          font-weight: bold;
-          font-size: 12px;
-          margin-bottom: 3px;
-          font-family: 'Arial', sans-serif;
-          direction: rtl;
-        }
+  font-weight: bold;
+  font-size: 25px;
+  margin-top: 30px;
+  font-family: 'Arial', sans-serif;
+  direction: rtl;
+}
 
         .contract-number-red {
-          font-weight: 900;
-          font-size: 10px;
-          color: #ff0000;
-          font-family: monospace;
-          background: #fff;
-          padding: 2px 4px;
-          border: 1px solid #ff0000;
-          border-radius: 2px;
-        }
+  font-weight: 900;
+  font-size: 12px;
+  color: #ff0000;
+  font-family: monospace;
+  background: #fff;
+  padding: 2px 4px;
+  border: 1px solid #ff0000;
+  border-radius: 2px;
+  margin-top: 20px;
+}
 
         .contract-title {
           text-align: center;
