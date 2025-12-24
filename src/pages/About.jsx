@@ -190,8 +190,8 @@ function AboutUs() {
                             </div>
                             <div className="contact-details">
                                 <h3 className="contact-title">Visitez-Nous</h3>
-                                <p className="contact-info">123 Quartier des Affaires</p>
-                                <p className="contact-info">Centre-Ville, 10001</p>
+                                <p className="contact-info">Angle Boulevard Rachidi et Rue Mohammed Smiha Quartier Gauthie</p>
+                                <p className="contact-info">Casablanca 20000</p>
                             </div>
                         </div>
                         <div className="contact-card">
@@ -200,7 +200,7 @@ function AboutUs() {
                             </div>
                             <div className="contact-details">
                                 <h3 className="contact-title">Appelez-Nous</h3>
-                                <p className="contact-info">+1 (555) 123-4567</p>
+                                <p className="contact-info">+212 665 921 921</p>
                                 <p className="contact-info">Lun-Dim: 8h-22h</p>
                             </div>
                         </div>
@@ -210,8 +210,8 @@ function AboutUs() {
                             </div>
                             <div className="contact-details">
                                 <h3 className="contact-title">Écrivez-Nous</h3>
-                                <p className="contact-info">info@oulfadrive.com</p>
-                                <p className="contact-info">support@oulfadrive.com</p>
+                                <p className="contact-info">oulfadrive@gmail.com</p>
+                                <p className="contact-info">oulfadrive25@gmail.com</p>
                             </div>
                         </div>
                     </div>

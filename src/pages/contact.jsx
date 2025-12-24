@@ -543,12 +543,12 @@ function Contact() {
                                     <div className="contact-info-content">
                                         <h4 className="contact-info-title">Email</h4>
                                         <p className="contact-info-text">
-                                            <a href="mailto:oulfadrive25@gmail.com" className="contact-info-link">
-                                                oulfadrive25@gmail.com
+                                            <a href="mailto:oulfadrive@gmail.com" className="contact-info-link">
+                                                oulfadrive@gmail.com
                                             </a>
                                             <br />
-                                            <a href="mailto:support@oulfadrive.com" className="contact-info-link">
-                                                support@oulfadrive.com
+                                            <a href="mailto:oulfadrive25@gmail.com" className="contact-info-link">
+                                                oulfadrive25@gmail.com
                                             </a>
                                         </p>
                                     </div>

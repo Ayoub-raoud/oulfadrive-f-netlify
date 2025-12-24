@@ -2233,24 +2233,23 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
             </div>
 
             <div className="form-group">
-              <label className="form-label required-field">Email</label>
+              <label className="form-label">Email</label>
               <input
                 type="email"
                 className="form-input"
                 value={formData.email || ''}
                 onChange={(e) => handleChange('email', e.target.value)}
-                required
+                
               />
             </div>
 
             <div className="form-group">
-              <label className="form-label required-field">Ville</label>
+              <label className="form-label">Ville</label>
               <input
                 type="text"
                 className="form-input"
                 value={formData.city || ''}
                 onChange={(e) => handleChange('city', e.target.value)}
-                required
               />
             </div>
 
@@ -2946,27 +2945,27 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
         {renderClientSection()}
 
         <div className="form-section">
-          <h3 className="section-title">
-            <FaCar />
-            Informations Véhicule
-          </h3>
-          <div className="form-group">
-            <label className="form-label required-field">Sélectionner un Véhicule</label>
-            <select
-              className="form-select"
-              value={formData.car_id || ''}
-              onChange={(e) => handleChange('car_id', e.target.value)}
-              required
-            >
-              <option value="">Choisir un véhicule</option>
-              {cars.map(car => (
-                <option key={car.id} value={car.id}>
-                  {car.brand} {car.model} - {car.price_per_day}dh/jour
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+  <h3 className="section-title">
+    <FaCar />
+    Informations Véhicule
+  </h3>
+  <div className="form-group">
+    <label className="form-label required-field">Sélectionner un Véhicule</label>
+    <select
+      className="form-select"
+      value={formData.car_id || ''}
+      onChange={(e) => handleChange('car_id', e.target.value)}
+      required
+    >
+      <option value="">Choisir un véhicule</option>
+      {cars.map(car => (
+        <option key={car.id} value={car.id}>
+          {car.brand} {car.model} ({car.color}) - {car.price_per_day}dh/jour
+        </option>
+      ))}
+    </select>
+  </div>
+</div>
 
         <div className="form-section">
           <h3 className="section-title">

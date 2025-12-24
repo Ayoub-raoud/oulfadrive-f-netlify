@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { IoCarSportOutline } from 'react-icons/io5';
+import logo from '../assets/logo1.png'; // Add this import
 
 const Footer = () => {
   return (
@@ -44,35 +44,29 @@ const Footer = () => {
             gap: 1rem;
           }
           
-          .footer-logo-icon {
-            width: 40px;
-            height: 40px;
+          .footer-logo-container {
             display: flex;
             align-items: center;
             justify-content: center;
-          }
-          
-          .footer-car-icon {
-            color: #dc2626;
-            width: 100%;
-            height: 100%;
+            overflow: hidden;
             transition: all 0.3s ease;
           }
           
-          .footer-logo-section:hover .footer-car-icon {
-            color: #ef4444;
-            transform: scale(1.1);
+          .footer-logo {
+            height: 50px;
+            width: auto;
+            object-fit: contain;
+            transition: transform 0.3s ease;
           }
           
-          .footer-logo-text {
-            background: linear-gradient(135deg, #dc2626, #991b1b);
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            font-size: 1.8rem;
-            font-weight: 800;
-            letter-spacing: -0.5px;
-            font-family: 'Inter', 'Arial', sans-serif;
+          @media (min-width: 768px) {
+            .footer-logo {
+              height: 60px;
+            }
+          }
+          
+          .footer-logo-section:hover .footer-logo {
+            transform: scale(1.05);
           }
           
           .footer-description {
@@ -222,10 +216,15 @@ const Footer = () => {
           {/* Brand Column */}
           <div className="footer-brand">
             <div className="footer-logo-section">
-              <div className="footer-logo-icon">
-                <IoCarSportOutline className="footer-car-icon" size={40} />
+              <div className="footer-logo-container">
+                <Link to="/">
+                  <img 
+                    src={logo} 
+                    alt="Oulfa Drive Logo" 
+                    className="footer-logo"
+                  />
+                </Link>
               </div>
-              <div className="footer-logo-text">Oulfa Drive</div>
             </div>
             <p className="footer-description">
               Premium car rental service offering the finest vehicles for your travel needs. 

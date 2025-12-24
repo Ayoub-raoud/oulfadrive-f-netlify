@@ -5,7 +5,7 @@ import {
   FaPlus, FaEdit, FaTrash, FaFileExport, FaDatabase, FaPrint,
   FaCheck, FaTimes, FaCalendarAlt, FaCar, FaUser, FaMoneyBill,
   FaExclamationTriangle, FaSpinner, FaRedo, FaSearch, FaFilter,
-  FaChevronLeft, FaChevronRight, FaClock, FaArrowLeft
+  FaChevronLeft, FaChevronRight, FaClock, FaArrowLeft, FaPalette
 } from 'react-icons/fa';
 import jsPDF from 'jspdf';
 import {
@@ -31,7 +31,7 @@ import {
 import AdminModal from './AdminModal';
 
 // Import checklist image and logo
-import checklistImage from '../assets/Checklist.png';
+import checklistImage from '../assets/checklist.png';
 import logoImage from '../assets/lo-brown.png';
 
 // Components for contract
@@ -108,28 +108,73 @@ const ContractLocation = ({ reservation, showSignatures = false, currentUser, hi
     }
   }, [reservation]);
 
-  // Helper function to get the receptionist name
-  const getReceptionistName = () => {
-    let userName = '';
-    
-    if (currentUser) {
-      userName = currentUser.Fullname || currentUser.fullname || currentUser.name || currentUser.username || currentUser.email || '';
-    }
-    
-    if (!userName) {
-      try {
-        const storedUser = localStorage.getItem('user');
-        if (storedUser) {
-          const userData = JSON.parse(storedUser);
-          userName = userData.Fullname || userData.fullname || userData.name || userData.username || userData.email || '';
+  // Helper function to extract user info from notes JSON
+  const getUserInfoFromNotes = (notes) => {
+    try {
+      if (notes && notes.trim().startsWith('{')) {
+        const notesObj = JSON.parse(notes);
+        if (notesObj.user_actions) {
+          return notesObj.user_actions;
         }
-      } catch (error) {
-        console.error('Error reading user from localStorage:', error);
       }
+    } catch (e) {
+      console.error('Error parsing notes JSON:', e);
+    }
+    return {};
+  };
+
+  // Get the user who created the reservation (Livrer par)
+  const getReceptionistName = () => {
+  // Pour "Livrer par": Afficher l'utilisateur actuellement connecté
+  let userName = '';
+  
+  // D'abord essayer d'obtenir l'utilisateur du contexte/Redux
+  if (currentUser) {
+    userName = currentUser.Fullname || currentUser.fullname || currentUser.name || currentUser.username || currentUser.email || '';
+  }
+  
+  // Ensuite, essayer de lire depuis localStorage
+  if (!userName) {
+    try {
+      const storedUser = localStorage.getItem('user');
+      if (storedUser) {
+        const userData = JSON.parse(storedUser);
+        userName = userData.Fullname || userData.fullname || userData.name || userData.username || userData.email || '';
+      }
+    } catch (error) {
+      console.error('Error reading user from localStorage:', error);
+    }
+  }
+  
+  // Final fallback
+  return userName || 'Administrateur OULFA DRIVE';
+};
+
+// Get the user who entered the return kilometer (Receptionner par) - RESTE INCHANGÉ
+const getKilometerReceiverName = () => {
+  const userInfo = getUserInfoFromNotes(reservation?.notes || '');
+  
+  // If reservation is completed, show who completed it
+  if (reservation?.status === 'completed') {
+    if (userInfo.completed_by) {
+      return userInfo.completed_by;
     }
     
-    return userName || 'Administrateur OULFA DRIVE';
-  };
+    if (reservation?.completed_by_user) {
+      return reservation.completed_by_user;
+    }
+    
+    if (userInfo.updated_by) {
+      return userInfo.updated_by;
+    }
+    
+    if (reservation?.updated_by_user) {
+      return reservation.updated_by_user;
+    }
+  }
+  
+  return '________';
+};
 
   // Helper function to format dates
   const formatDate = (dateString) => {
@@ -241,8 +286,8 @@ const ContractLocation = ({ reservation, showSignatures = false, currentUser, hi
             <FormLine label="Transmission" value={reservation?.car?.transmission || ''} />
             <FormLine label="Nombre de places" value={reservation?.car?.seats || ''} />
             <FormLine label="Nombre de portes" value={reservation?.car?.doors || ''} />
-            <FormLine label="Livrer par" value={formatDate(reservation?.start_date)} />
-            <FormLine label="Receptionner par" value={getReceptionistName()} />
+            <FormLine label="Livrer par" value={getReceptionistName()} /> {/* CHANGÉ */}
+            <FormLine label="Receptionner par" value={getKilometerReceiverName()} /> {/* CHANGÉ */}
             <FormLine label="Date de départ" value={formatDate(reservation?.start_date)} />
             <FormLine label="Heure" value={reservation?.start_time || '08:00'} />
             <FormLine label="Date de retour" value={formatDate(reservation?.end_date)} />
@@ -592,6 +637,29 @@ const ReservationsManagement = ({ onBack, filter }) => {
     throw lastError;
   };
 
+  // Helper function to get current user name
+  const getCurrentUserName = () => {
+    let userName = '';
+    
+    if (currentUser) {
+      userName = currentUser.Fullname || currentUser.fullname || currentUser.name || currentUser.username || currentUser.email || '';
+    }
+    
+    if (!userName) {
+      try {
+        const storedUser = localStorage.getItem('user');
+        if (storedUser) {
+          const userData = JSON.parse(storedUser);
+          userName = userData.Fullname || userData.fullname || userData.name || userData.username || userData.email || '';
+        }
+      } catch (error) {
+        console.error('Error reading user from localStorage:', error);
+      }
+    }
+    
+    return userName || 'Administrateur';
+  };
+
   // Generate Detailed French Contract PDF - OPTIMIZED FOR ONE PAGE
   const generateContractPDF = async (reservation) => {
     try {
@@ -713,51 +781,52 @@ const ReservationsManagement = ({ onBack, filter }) => {
 
   // Filter and search reservations with fixed date filtering
   const filteredReservations = reservations.filter(reservation => {
-    const matchesSearch = searchTerm === '' || 
-      reservation.client?.nom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      reservation.client?.prenom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      reservation.car?.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      reservation.car?.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      reservation.id.toString().includes(searchTerm);
+  const matchesSearch = searchTerm === '' || 
+    reservation.client?.nom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    reservation.client?.prenom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    reservation.car?.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    reservation.car?.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    reservation.matricule?.matricule_code?.toLowerCase().includes(searchTerm.toLowerCase()) || // ADDED: Search by matricule
+    reservation.id.toString().includes(searchTerm);
 
-    const matchesStatus = statusFilter === 'all' || 
-      (statusFilter === 'overdue' ? reservation.status === 'retard' : reservation.status === statusFilter);
+  const matchesStatus = statusFilter === 'all' || 
+    (statusFilter === 'overdue' ? reservation.status === 'retard' : reservation.status === statusFilter);
 
-    let matchesDate = true;
+  let matchesDate = true;
+  
+  if (dateFilter !== 'all') {
+    const startDate = reservation.start_date;
+    const endDate = reservation.end_date;
     
-    if (dateFilter !== 'all') {
-      const startDate = reservation.start_date;
-      const endDate = reservation.end_date;
-      
-      switch (dateFilter) {
-        case 'today':
-          matchesDate = isToday(startDate) || isToday(endDate);
-          break;
-        case 'this_week':
-          matchesDate = isThisWeek(startDate) || isThisWeek(endDate);
-          break;
-        case 'this_month':
-          matchesDate = isThisMonth(startDate) || isThisMonth(endDate);
-          break;
-        case 'upcoming':
-          matchesDate = isUpcoming(startDate);
-          break;
-        case 'past':
-          matchesDate = isPast(endDate);
-          break;
-        case 'active':
-          matchesDate = isActiveNow(reservation);
-          break;
-        case 'late':
-          matchesDate = reservation.status === 'retard';
-          break;
-        default:
-          matchesDate = true;
-      }
+    switch (dateFilter) {
+      case 'today':
+        matchesDate = isToday(startDate) || isToday(endDate);
+        break;
+      case 'this_week':
+        matchesDate = isThisWeek(startDate) || isThisWeek(endDate);
+        break;
+      case 'this_month':
+        matchesDate = isThisMonth(startDate) || isThisMonth(endDate);
+        break;
+      case 'upcoming':
+        matchesDate = isUpcoming(startDate);
+        break;
+      case 'past':
+        matchesDate = isPast(endDate);
+        break;
+      case 'active':
+        matchesDate = isActiveNow(reservation);
+        break;
+      case 'late':
+        matchesDate = reservation.status === 'retard';
+        break;
+      default:
+        matchesDate = true;
     }
+  }
 
-    return matchesSearch && matchesStatus && matchesDate;
-  });
+  return matchesSearch && matchesStatus && matchesDate;
+});
 
   // Pagination
   const totalPages = Math.ceil(filteredReservations.length / itemsPerPage);
@@ -987,18 +1056,50 @@ const ReservationsManagement = ({ onBack, filter }) => {
       }
 
       // Calculate rental days
-      const calculateRentalDays = (startDate, endDate) => {
-        if (!startDate || !endDate) return 0;
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        start.setHours(0, 0, 0, 0);
-        end.setHours(0, 0, 0, 0);
-        const diffTime = Math.abs(end - start);
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        return diffDays === 0 ? 1 : diffDays;
-      };
-
       const rentalDays = formData.rental_days || calculateRentalDays(formData.start_date, formData.end_date);
+
+      // Get current user name for tracking
+      const currentUserName = getCurrentUserName();
+      
+      // Parse existing notes or create new object
+      let notesObj = {};
+      const existingNotes = formData.notes || '';
+      
+      try {
+        if (existingNotes && existingNotes.trim().startsWith('{')) {
+          notesObj = JSON.parse(existingNotes);
+        } else if (existingNotes) {
+          // If notes is plain text, preserve it
+          notesObj.original_text = existingNotes;
+        }
+      } catch (e) {
+        // If JSON parsing fails, treat as plain text
+        notesObj.original_text = existingNotes;
+      }
+      
+      // Prepare user actions tracking
+      const userActions = notesObj.user_actions || {};
+      
+      // Track user actions based on reservation status and operation type
+      if (modalType === 'create') {
+        userActions.created_by = currentUserName;
+        userActions.created_at = new Date().toISOString();
+      } else {
+        userActions.updated_by = currentUserName;
+        userActions.updated_at = new Date().toISOString();
+      }
+      
+      // Track completion if reservation is being marked as completed with return kilometer
+      if (formData.status === 'completed' && formData.kilometrage_entree) {
+        userActions.completed_by = currentUserName;
+        userActions.completed_at = new Date().toISOString();
+      }
+      
+      // Update notes object
+      notesObj.user_actions = userActions;
+      
+      // Convert back to string for storage
+      const notesString = JSON.stringify(notesObj);
 
       const reservationData = {
         start_date: formData.start_date,
@@ -1014,7 +1115,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
         car_id: formData.car_id,
         client_id: clientId,
         matricule_id: formData.matricule_id || null,
-        notes: formData.notes || '',
+        notes: notesString, // Use the JSON string
         kilometrage_sortie: formData.kilometrage_sortie || null,
         kilometrage_entree: formData.kilometrage_entree || null
       };
@@ -1532,15 +1633,15 @@ const ReservationsManagement = ({ onBack, filter }) => {
       {/* Search and Filter Section */}
       <div className="search-filter-section">
         <div className="search-box">
-          <FaSearch className="search-icon" />
-          <input
-            type="text"
-            placeholder="Rechercher par client, véhicule ou ID..."
-            value={searchTerm}
-            onChange={handleSearch}
-            className="search-input"
-          />
-        </div>
+  <FaSearch className="search-icon" />
+  <input
+    type="text"
+    placeholder="Rechercher par client, véhicule, immatriculation ou ID..."
+    value={searchTerm}
+    onChange={handleSearch}
+    className="search-input"
+  />
+</div>
 
         <div className="filter-group">
           <div className="filter-item">
@@ -1641,7 +1742,23 @@ const ReservationsManagement = ({ onBack, filter }) => {
                         {reservation.client?.prenom} {reservation.client?.nom}
                       </td>
                       <td className="car-info">
-                        {reservation.car?.brand} {reservation.car?.model}
+                        <div className="car-info-container">
+                          <div className="car-brand-model">
+                            {reservation.car?.brand} {reservation.car?.model}
+                          </div>
+                          <div className="car-details">
+                            <span className="car-color">
+                              <FaPalette className="icon-small" />
+                              {reservation.car?.color || 'N/A'}
+                            </span>
+                            {reservation.matricule?.matricule_code && (
+                              <span className="car-matricule">
+                                <FaCar className="icon-small" />
+                                {reservation.matricule.matricule_code}
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </td>
                       <td className="reservation-period">
                         {new Date(reservation.start_date).toLocaleDateString('fr-FR')} - {' '}
@@ -1768,6 +1885,16 @@ const ReservationsManagement = ({ onBack, filter }) => {
                       </div>
                       <div className="reservation-car">
                         <strong>Véhicule:</strong> {confirmationConfig.reservation.car?.brand} {confirmationConfig.reservation.car?.model}
+                        {confirmationConfig.reservation.car?.color && (
+                          <span style={{marginLeft: '10px', color: '#6c757d'}}>
+                            ({confirmationConfig.reservation.car.color})
+                          </span>
+                        )}
+                        {confirmationConfig.reservation.matricule?.matricule_code && (
+                          <div style={{marginTop: '5px', color: '#495057'}}>
+                            <strong>Immatriculation:</strong> {confirmationConfig.reservation.matricule.matricule_code}
+                          </div>
+                        )}
                       </div>
                       <div className="reservation-period">
                         <strong>Période:</strong> {new Date(confirmationConfig.reservation.start_date).toLocaleDateString('fr-FR')} - {new Date(confirmationConfig.reservation.end_date).toLocaleDateString('fr-FR')}
@@ -2128,8 +2255,38 @@ const ReservationsManagement = ({ onBack, filter }) => {
           color: #2c3e50;
         }
 
-        .car-info {
-          color: #495057;
+        /* Updated Car Info Styles */
+        .car-info-container {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .car-brand-model {
+          font-weight: 600;
+          color: #2c3e50;
+        }
+
+        .car-details {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          font-size: 0.75rem;
+          color: #6c757d;
+        }
+
+        .car-color, .car-matricule {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          padding: 2px 6px;
+          background: #f8f9fa;
+          border-radius: 4px;
+          border: 1px solid #e9ecef;
+        }
+
+        .icon-small {
+          font-size: 0.7rem;
         }
 
         .reservation-period {
@@ -2570,35 +2727,36 @@ const ReservationsManagement = ({ onBack, filter }) => {
         }
 
         .contract-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start; /* Change from center to flex-start */
-  margin-bottom: 2px;
-  border-bottom: 2px solid #000;
-  padding-bottom: 6px;
-  min-height: 60px; /* Add a minimum height */
-}
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          margin-bottom: 2px;
+          border-bottom: 2px solid #000;
+          padding-bottom: 6px;
+          min-height: 60px;
+        }
 
-.header-left {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: space-between; /* Add this line */
-  flex: 1;
-  height: 100%; /* Add this line */
-}
+        .header-left {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          justify-content: space-between;
+          flex: 1;
+          height: 100%;
+        }
+
         .location-text {
-  font-weight: bold;
-  font-size: 18px;
-  margin-top: 32px;
-}
+          font-weight: bold;
+          font-size: 18px;
+          margin-top: 32px;
+        }
 
         .phone-number {
-  font-size: 12px;
-  color: #000;
-  font-weight: bold;
-  margin-top: 30px;
-}
+          font-size: 12px;
+          color: #000;
+          font-weight: bold;
+          margin-top: 30px;
+        }
 
         .header-center {
           flex: 1;
@@ -2613,34 +2771,34 @@ const ReservationsManagement = ({ onBack, filter }) => {
           object-fit: contain;
         }
 
-       .header-right {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  justify-content: space-between; /* Add this line */
-  flex: 1;
-  height: 100%; /* Add this line */
-}
+        .header-right {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          justify-content: space-between;
+          flex: 1;
+          height: 100%;
+        }
 
         .arabic-text {
-  font-weight: bold;
-  font-size: 25px;
-  margin-top: 30px;
-  font-family: 'Arial', sans-serif;
-  direction: rtl;
-}
+          font-weight: bold;
+          font-size: 25px;
+          margin-top: 30px;
+          font-family: 'Arial', sans-serif;
+          direction: rtl;
+        }
 
         .contract-number-red {
-  font-weight: 900;
-  font-size: 12px;
-  color: #ff0000;
-  font-family: monospace;
-  background: #fff;
-  padding: 2px 4px;
-  border: 1px solid #ff0000;
-  border-radius: 2px;
-  margin-top: 20px;
-}
+          font-weight: 900;
+          font-size: 12px;
+          color: #ff0000;
+          font-family: monospace;
+          background: #fff;
+          padding: 2px 4px;
+          border: 1px solid #ff0000;
+          border-radius: 2px;
+          margin-top: 20px;
+        }
 
         .contract-title {
           text-align: center;
