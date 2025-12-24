@@ -2960,7 +2960,7 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
       <option value="">Choisir un véhicule</option>
       {cars.map(car => (
         <option key={car.id} value={car.id}>
-          {car.brand} {car.model} ({car.color}) - {car.price_per_day}dh/jour
+          {car.brand} {car.model}({car.color}-{car.year}) - {car.price_per_day}dh/jour
         </option>
       ))}
     </select>

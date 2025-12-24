@@ -1741,25 +1741,26 @@ const ReservationsManagement = ({ onBack, filter }) => {
                       <td className="client-name">
                         {reservation.client?.prenom} {reservation.client?.nom}
                       </td>
-                      <td className="car-info">
-                        <div className="car-info-container">
-                          <div className="car-brand-model">
-                            {reservation.car?.brand} {reservation.car?.model}
-                          </div>
-                          <div className="car-details">
-                            <span className="car-color">
-                              <FaPalette className="icon-small" />
-                              {reservation.car?.color || 'N/A'}
-                            </span>
-                            {reservation.matricule?.matricule_code && (
-                              <span className="car-matricule">
-                                <FaCar className="icon-small" />
-                                {reservation.matricule.matricule_code}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </td>
+                      {/* Dans la partie qui affiche les informations du véhicule dans le tableau */}
+<td className="car-info">
+  <div className="car-info-container">
+    <div className="car-brand-model">
+      {reservation.car?.brand} {reservation.car?.model}
+    </div>
+    <div className="car-details">
+      <span className="car-color-year">
+        <FaPalette className="icon-small" />
+        {reservation.car?.color || 'N/A'} | {reservation.car?.year || 'N/A'}
+      </span>
+      {reservation.matricule?.matricule_code && (
+        <span className="car-matricule">
+          <FaCar className="icon-small" />
+          {reservation.matricule.matricule_code}
+        </span>
+      )}
+    </div>
+  </div>
+</td>
                       <td className="reservation-period">
                         {new Date(reservation.start_date).toLocaleDateString('fr-FR')} - {' '}
                         {new Date(reservation.end_date).toLocaleDateString('fr-FR')}
@@ -3403,6 +3404,55 @@ const ReservationsManagement = ({ onBack, filter }) => {
             flex-direction: column;
           }
         }
+          /* Add to existing .car-details styles */
+.car-details {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+  color: #6c757d;
+}
+
+/* Dans la section .car-details du CSS, remplacez ce qui est existant : */
+.car-details {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+  color: #6c757d;
+  margin-top: 2px;
+}
+
+.car-color-year {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #e9ecef;
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.car-matricule {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: #e9ecef;
+  border-radius: 6px;
+  border: 1px solid #dee2e6;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: #495057;
+  white-space: nowrap;
+}
+
+.icon-small {
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
       `}</style>
     </div>
   );
