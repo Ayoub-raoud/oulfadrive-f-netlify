@@ -860,49 +860,71 @@ const ReservationsManagement = ({ onBack, filter }) => {
   };
 
   const handleCreate = () => {
-    setModalType('create');
-    setEditingItem(null);
-    setFormData({
-      start_date: new Date().toISOString().split('T')[0],
-      end_date: '',
-      start_time: '08:00',
-      end_time: '18:00',
-      rental_days: 1,
-      total_price: 0,
-      amount_paid: 0,
-      remaining_amount: 0,
-      status: 'pending',
-      car_id: '',
-      client_id: '',
-      matricule_id: '',
-      cin_number: '',
-      driver_license_number: '',
-      cin_image: '',
-      driver_license_image: '',
-      notes: ''
-    });
-    setShowModal(true);
-  };
+  setModalType('create');
+  setEditingItem(null);
+  setFormData({
+    start_date: new Date().toISOString().split('T')[0],
+    end_date: '',
+    start_time: '08:00',
+    end_time: '18:00',
+    rental_days: 1,
+    total_price: 0,
+    amount_paid: 0,
+    remaining_amount: 0,
+    status: 'pending',
+    car_id: '',
+    client_id: '',
+    matricule_id: '',
+    cin_number: '',
+    driver_license_number: '',
+    cin_image: '',
+    driver_license_image: '',
+    notes: '' // ✅ Empty string for new reservations
+  });
+  setShowModal(true);
+};
 
   const handleEdit = (reservation) => {
-    setModalType('edit');
-    setEditingItem(reservation);
-    setFormData({
-      ...reservation,
-      start_date: reservation.start_date.split('T')[0],
-      end_date: reservation.end_date.split('T')[0],
-      nom: reservation.client?.nom || '',
-      prenom: reservation.client?.prenom || '',
-      telephone: reservation.client?.telephone || '',
-      email: reservation.client?.email || '',
-      city: reservation.client?.city || '',
-      cin_number: reservation.client?.cin_number || '',
-      driver_license_number: reservation.client?.driver_license_number || '',
-      cin_image: reservation.client?.cin_image || '',
-      driver_license_image: reservation.client?.driver_license_image || ''
-    });
-    setShowModal(true);
-  };
+  setModalType('edit');
+  setEditingItem(reservation);
+  
+  // ✅ FIXED: Parse notes to get just the text (not JSON)
+  let displayNotes = reservation.notes || '';
+  
+  try {
+    // Check if notes is a JSON string
+    if (displayNotes && displayNotes.trim().startsWith('{')) {
+      const notesObj = JSON.parse(displayNotes);
+      // If it's a JSON object with original_text, use that
+      // Otherwise, use the whole string as-is
+      if (notesObj.original_text !== undefined) {
+        displayNotes = notesObj.original_text || '';
+      }
+      // If it doesn't have original_text, keep as empty string
+      // because we want to discard the JSON
+    }
+  } catch (e) {
+    // If parsing fails, keep as is
+    console.log('Notes parsing failed, using as plain text');
+  }
+  
+  setFormData({
+    ...reservation,
+    start_date: reservation.start_date.split('T')[0],
+    end_date: reservation.end_date.split('T')[0],
+    nom: reservation.client?.nom || '',
+    prenom: reservation.client?.prenom || '',
+    telephone: reservation.client?.telephone || '',
+    email: reservation.client?.email || '',
+    city: reservation.client?.city || '',
+    cin_number: reservation.client?.cin_number || '',
+    driver_license_number: reservation.client?.driver_license_number || '',
+    cin_image: reservation.client?.cin_image || '',
+    driver_license_image: reservation.client?.driver_license_image || '',
+    notes: displayNotes // ✅ This is now plain text
+  });
+  setShowModal(true);
+};
 
   const showDeleteConfirmation = (reservation) => {
     setConfirmationConfig({
@@ -927,310 +949,270 @@ const ReservationsManagement = ({ onBack, filter }) => {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSubmitting(true);
-    
-    try {
-      let clientId = formData.client_id;
+  e.preventDefault();
+  setSubmitting(true);
+  
+  try {
+    let clientId = formData.client_id;
 
-      // Client creation logic
-      if (!clientId && formData.nom && formData.prenom) {
-        console.log('Creating new client...');
+    // Client creation logic (unchanged)
+    if (!clientId && formData.nom && formData.prenom) {
+      console.log('Creating new client...');
+      
+      const existingClient = clients.find(client => 
+        client.telephone === formData.telephone || 
+        client.email === formData.email
+      );
+
+      if (existingClient) {
+        clientId = existingClient.id;
+        console.log('Using existing client ID:', clientId);
         
-        const existingClient = clients.find(client => 
-          client.telephone === formData.telephone || 
-          client.email === formData.email
-        );
-
-        if (existingClient) {
-          clientId = existingClient.id;
-          console.log('Using existing client ID:', clientId);
-          
-          if (formData.cin_number || formData.driver_license_number) {
-            console.log('Updating existing client with CIN/driver license info');
-            const updateData = {};
-            if (formData.cin_number) updateData.cin_number = formData.cin_number;
-            if (formData.driver_license_number) updateData.driver_license_number = formData.driver_license_number;
-            if (formData.cin_image) updateData.cin_image = formData.cin_image;
-            if (formData.driver_license_image) updateData.driver_license_image = formData.driver_license_image;
-            
-            try {
-              await dispatch(updateClient({ id: clientId, data: updateData })).unwrap();
-              console.log('Client updated with CIN/driver license info');
-            } catch (updateError) {
-              console.warn('Failed to update client with CIN/driver license info:', updateError);
-            }
-          }
-        } else {
-          const clientData = {
-            nom: formData.nom,
-            prenom: formData.prenom,
-            telephone: formData.telephone,
-            email: formData.email,
-            city: formData.city,
-            cin_number: formData.cin_number || '',
-            driver_license_number: formData.driver_license_number || '',
-            cin_image: formData.cin_image || '',
-            driver_license_image: formData.driver_license_image || '',
-            image_permit: 'default_permit.jpg',
-            image_cn: 'default_cn.jpg'
-          };
-
-          console.log('Client data to create:', clientData);
+        if (formData.cin_number || formData.driver_license_number) {
+          console.log('Updating existing client with CIN/driver license info');
+          const updateData = {};
+          if (formData.cin_number) updateData.cin_number = formData.cin_number;
+          if (formData.driver_license_number) updateData.driver_license_number = formData.driver_license_number;
+          if (formData.cin_image) updateData.cin_image = formData.cin_image;
+          if (formData.driver_license_image) updateData.driver_license_image = formData.driver_license_image;
           
           try {
-            const clientResult = await createClientWithRetry(clientData);
-            console.log('Client creation result:', clientResult);
+            await dispatch(updateClient({ id: clientId, data: updateData })).unwrap();
+            console.log('Client updated with CIN/driver license info');
+          } catch (updateError) {
+            console.warn('Failed to update client with CIN/driver license info:', updateError);
+          }
+        }
+      } else {
+        const clientData = {
+          nom: formData.nom,
+          prenom: formData.prenom,
+          telephone: formData.telephone,
+          email: formData.email,
+          city: formData.city,
+          cin_number: formData.cin_number || '',
+          driver_license_number: formData.driver_license_number || '',
+          cin_image: formData.cin_image || '',
+          driver_license_image: formData.driver_license_image || '',
+          image_permit: 'default_permit.jpg',
+          image_cn: 'default_cn.jpg'
+        };
 
-            if (clientResult.client && clientResult.client.id) {
-              clientId = clientResult.client.id;
-            } else if (clientResult.id) {
-              clientId = clientResult.id;
-            } else if (clientResult.data && clientResult.data.id) {
-              clientId = clientResult.data.id;
-            } else {
-              await new Promise(resolve => setTimeout(resolve, 1500));
-              await dispatch(fetchClients());
-              
-              const newClient = clients.find(c => 
-                c.telephone === formData.telephone && 
-                c.email === formData.email
-              );
-              
-              if (newClient) {
-                clientId = newClient.id;
-              } else {
-                throw new Error('Client created but ID not found after refresh');
-              }
-            }
+        console.log('Client data to create:', clientData);
+        
+        try {
+          const clientResult = await createClientWithRetry(clientData);
+          console.log('Client creation result:', clientResult);
 
-            console.log('Using client ID:', clientId);
-          } catch (clientError) {
-            console.error('Error creating client:', clientError);
-            
-            await new Promise(resolve => setTimeout(resolve, 2000));
+          if (clientResult.client && clientResult.client.id) {
+            clientId = clientResult.client.id;
+          } else if (clientResult.id) {
+            clientId = clientResult.id;
+          } else if (clientResult.data && clientResult.data.id) {
+            clientId = clientResult.data.id;
+          } else {
+            await new Promise(resolve => setTimeout(resolve, 1500));
             await dispatch(fetchClients());
             
-            const fallbackClient = clients.find(c => 
-              c.telephone === formData.telephone || 
+            const newClient = clients.find(c => 
+              c.telephone === formData.telephone && 
               c.email === formData.email
             );
             
-            if (fallbackClient) {
-              clientId = fallbackClient.id;
-              console.log('Using fallback client ID after error:', clientId);
-              showSuccessMessage('Client found after creation error - proceeding with reservation');
+            if (newClient) {
+              clientId = newClient.id;
             } else {
-              console.log('Trying with minimal client data...');
-              const minimalClientData = {
-                nom: formData.nom,
-                prenom: formData.prenom,
-                telephone: formData.telephone,
-                email: formData.email,
-                city: formData.city,
-                image_permit: 'default_permit.jpg',
-                image_cn: 'default_cn.jpg'
-              };
-              
-              try {
-                const minimalResult = await dispatch(createClient(minimalClientData)).unwrap();
-                if (minimalResult.client && minimalResult.client.id) {
-                  clientId = minimalResult.client.id;
-                } else if (minimalResult.id) {
-                  clientId = minimalResult.id;
-                } else {
-                  throw new Error('Could not extract client ID from minimal creation');
-                }
-                console.log('Minimal client creation successful, ID:', clientId);
-                showSuccessMessage('Client created with basic info (CIN/driver license skipped)');
-              } catch (minimalError) {
-                throw new Error(`Unable to create client even with minimal data: ${minimalError.message || minimalError}`);
+              throw new Error('Client created but ID not found after refresh');
+            }
+          }
+
+          console.log('Using client ID:', clientId);
+        } catch (clientError) {
+          console.error('Error creating client:', clientError);
+          
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          await dispatch(fetchClients());
+          
+          const fallbackClient = clients.find(c => 
+            c.telephone === formData.telephone || 
+            c.email === formData.email
+          );
+          
+          if (fallbackClient) {
+            clientId = fallbackClient.id;
+            console.log('Using fallback client ID after error:', clientId);
+            showSuccessMessage('Client found after creation error - proceeding with reservation');
+          } else {
+            console.log('Trying with minimal client data...');
+            const minimalClientData = {
+              nom: formData.nom,
+              prenom: formData.prenom,
+              telephone: formData.telephone,
+              email: formData.email,
+              city: formData.city,
+              image_permit: 'default_permit.jpg',
+              image_cn: 'default_cn.jpg'
+            };
+            
+            try {
+              const minimalResult = await dispatch(createClient(minimalClientData)).unwrap();
+              if (minimalResult.client && minimalResult.client.id) {
+                clientId = minimalResult.client.id;
+              } else if (minimalResult.id) {
+                clientId = minimalResult.id;
+              } else {
+                throw new Error('Could not extract client ID from minimal creation');
               }
+              console.log('Minimal client creation successful, ID:', clientId);
+              showSuccessMessage('Client created with basic info (CIN/driver license skipped)');
+            } catch (minimalError) {
+              throw new Error(`Unable to create client even with minimal data: ${minimalError.message || minimalError}`);
             }
           }
         }
       }
-
-      if (!clientId) {
-        throw new Error('No client available for reservation. Please check client information and try again.');
-      }
-
-      // Calculate rental days
-      const rentalDays = formData.rental_days || calculateRentalDays(formData.start_date, formData.end_date);
-
-      // Get current user name for tracking
-      const currentUserName = getCurrentUserName();
-      
-      // Parse existing notes or create new object
-      let notesObj = {};
-      const existingNotes = formData.notes || '';
-      
-      try {
-        if (existingNotes && existingNotes.trim().startsWith('{')) {
-          notesObj = JSON.parse(existingNotes);
-        } else if (existingNotes) {
-          // If notes is plain text, preserve it
-          notesObj.original_text = existingNotes;
-        }
-      } catch (e) {
-        // If JSON parsing fails, treat as plain text
-        notesObj.original_text = existingNotes;
-      }
-      
-      // Prepare user actions tracking
-      const userActions = notesObj.user_actions || {};
-      
-      // Track user actions based on reservation status and operation type
-      if (modalType === 'create') {
-        userActions.created_by = currentUserName;
-        userActions.created_at = new Date().toISOString();
-      } else {
-        userActions.updated_by = currentUserName;
-        userActions.updated_at = new Date().toISOString();
-      }
-      
-      // Track completion if reservation is being marked as completed with return kilometer
-      if (formData.status === 'completed' && formData.kilometrage_entree) {
-        userActions.completed_by = currentUserName;
-        userActions.completed_at = new Date().toISOString();
-      }
-      
-      // Update notes object
-      notesObj.user_actions = userActions;
-      
-      // Convert back to string for storage
-      const notesString = JSON.stringify(notesObj);
-
-      const reservationData = {
-        start_date: formData.start_date,
-        end_date: formData.end_date,
-        start_time: formData.start_time || '08:00',
-        end_time: formData.end_time || '18:00',
-        total_days: formData.total_days || rentalDays,
-        total_price: formData.total_price || 0,
-        amount_paid: formData.amount_paid || 0,
-        remaining_amount: formData.remaining_amount || (formData.total_price - (formData.amount_paid || 0)),
-        payment_history: formData.payment_history || [],
-        status: formData.status || 'pending',
-        car_id: formData.car_id,
-        client_id: clientId,
-        matricule_id: formData.matricule_id || null,
-        notes: notesString, // Use the JSON string
-        kilometrage_sortie: formData.kilometrage_sortie || null,
-        kilometrage_entree: formData.kilometrage_entree || null
-      };
-
-      console.log('Reservation data to submit:', reservationData);
-
-      let result;
-      if (modalType === 'create') {
-        result = await dispatch(createReservation(reservationData)).unwrap();
-        showSuccessMessage('Reservation created successfully!');
-      } else {
-        result = await dispatch(updateReservation({ id: editingItem.id, data: reservationData })).unwrap();
-        showSuccessMessage('Reservation updated successfully!');
-      }
-      
-      // 🔄 Force refresh matricules to sync status changes
-      setTimeout(() => {
-        dispatch(refreshMatricules());
-      }, 500);
-      
-      // 🔧 SIMPLE MATRICULE UPDATE LOGIC - ONLY FOR COMPLETED RESERVATIONS
-      if (formData.status === 'completed' && formData.matricule_id && formData.kilometrage_entree) {
-        try {
-          console.group('🚗 Matricule Update Process');
-          console.log('Starting matricule update...');
-          console.log('Matricule ID:', formData.matricule_id);
-          console.log('Return Kilometer to set:', formData.kilometrage_entree);
-          
-          // Find the current matricule from Redux store
-          const currentMatricule = matricules.find(m => m.id == formData.matricule_id);
-          
-          if (!currentMatricule) {
-            console.error('❌ Matricule not found with ID:', formData.matricule_id);
-            throw new Error('Matricule not found');
-          }
-          
-          console.log('📋 Found matricule:', currentMatricule.matricule_code);
-          console.log('📊 Current kilometrage:', currentMatricule.kilometrage);
-          
-          // ✅ CORRECT: Update matricule's CURRENT kilometer to the return kilometer
-          const matriculeUpdateData = {
-            kilometrage: formData.kilometrage_entree // Km actuel = Km retour
-          };
-          
-          console.log('🔄 Matricule update data:', matriculeUpdateData);
-          
-          // Use updateMatricule thunk
-          console.log('🔄 Using updateMatricule thunk');
-          const updateResult = await dispatch(updateMatricule({ 
-            id: formData.matricule_id, 
-            data: matriculeUpdateData 
-          })).unwrap();
-          
-          console.log('✅ Matricule update successful:', updateResult);
-          console.groupEnd();
-          
-          showSuccessMessage('Reservation updated and matricule return kilometer saved successfully!');
-          
-        } catch (matriculeError) {
-          console.groupEnd();
-          console.error('❌ Matricule update failed:', matriculeError);
-          
-          // More specific error messages
-          if (matriculeError.message?.includes('Network Error')) {
-            showErrorMessage('Network error: Could not update matricule. Please check your connection.');
-          } else if (matriculeError.message?.includes('404')) {
-            showErrorMessage('Matricule not found on server. Please refresh the page.');
-          } else if (matriculeError.message?.includes('401') || matriculeError.message?.includes('403')) {
-            showErrorMessage('Permission denied: You cannot update matricule information.');
-          } else {
-            showErrorMessage('Reservation updated but failed to update matricule return kilometer: ' + matriculeError.message);
-          }
-          
-          // Don't fail the entire reservation update if matricule update fails
-          console.warn('⚠️ Reservation was updated successfully, but matricule update failed');
-        }
-      } else if (formData.status === 'completed' && formData.matricule_id && !formData.kilometrage_entree) {
-        console.warn('⚠️ Reservation completed but no return kilometer provided for matricule update');
-      } else if (formData.status === 'completed' && !formData.matricule_id) {
-        console.warn('⚠️ Reservation completed but no matricule assigned');
-      }
-      
-      // Show specific message for status changes that affect matricule status
-      if (formData.matricule_id) {
-        if (formData.status === 'confirmed' || formData.status === 'retard') {
-          showSuccessMessage(`Reservation ${modalType === 'create' ? 'created' : 'updated'}! Matricule status changed to inactive.`);
-        } else if (formData.status === 'completed') {
-          showSuccessMessage(`Reservation ${modalType === 'create' ? 'created' : 'updated'}! Matricule status changed to active.`);
-        }
-      }
-      
-      // Refresh all data
-      setShowModal(false);
-      dispatch(fetchReservations());
-      dispatch(fetchClients());
-      dispatch(fetchCars());
-      dispatch(fetchMatricules());
-      
-    } catch (error) {
-      console.error('❌ Error in handleSubmit:', error);
-      const errorMsg = error.message || error;
-      
-      if (errorMsg.includes('MySQL') || errorMsg.includes('database') || errorMsg.includes('connection')) {
-        showErrorMessage('Database connection issue. Please try again in a moment.');
-      } else if (errorMsg.includes('Validation failed')) {
-        showErrorMessage('Please check your input data and try again.');
-      } else if (errorMsg.includes('Client already exists')) {
-        showErrorMessage('A client with this email or phone already exists. Please use the existing client.');
-      } else {
-        showErrorMessage('Error: ' + errorMsg);
-      }
-    } finally {
-      setSubmitting(false);
     }
-  };
+
+    if (!clientId) {
+      throw new Error('No client available for reservation. Please check client information and try again.');
+    }
+
+    // Calculate rental days
+    const rentalDays = formData.rental_days || calculateRentalDays(formData.start_date, formData.end_date);
+
+    // ✅ FIXED: Store ONLY what the user entered in the notes field
+    const notesString = formData.notes || '';
+
+    const reservationData = {
+      start_date: formData.start_date,
+      end_date: formData.end_date,
+      start_time: formData.start_time || '08:00',
+      end_time: formData.end_time || '18:00',
+      total_days: formData.total_days || rentalDays,
+      total_price: formData.total_price || 0,
+      amount_paid: formData.amount_paid || 0,
+      remaining_amount: formData.remaining_amount || (formData.total_price - (formData.amount_paid || 0)),
+      payment_history: formData.payment_history || [],
+      status: formData.status || 'pending',
+      car_id: formData.car_id,
+      client_id: clientId,
+      matricule_id: formData.matricule_id || null,
+      notes: notesString, // ✅ This is now just plain text
+      kilometrage_sortie: formData.kilometrage_sortie || null,
+      kilometrage_entree: formData.kilometrage_entree || null
+    };
+
+    console.log('Reservation data to submit:', reservationData);
+
+    let result;
+    if (modalType === 'create') {
+      result = await dispatch(createReservation(reservationData)).unwrap();
+      showSuccessMessage('Reservation created successfully!');
+    } else {
+      result = await dispatch(updateReservation({ id: editingItem.id, data: reservationData })).unwrap();
+      showSuccessMessage('Reservation updated successfully!');
+    }
+    
+    // 🔄 Force refresh matricules to sync status changes
+    setTimeout(() => {
+      dispatch(refreshMatricules());
+    }, 500);
+    
+    // 🔧 SIMPLE MATRICULE UPDATE LOGIC - ONLY FOR COMPLETED RESERVATIONS
+    if (formData.status === 'completed' && formData.matricule_id && formData.kilometrage_entree) {
+      try {
+        console.group('🚗 Matricule Update Process');
+        console.log('Starting matricule update...');
+        console.log('Matricule ID:', formData.matricule_id);
+        console.log('Return Kilometer to set:', formData.kilometrage_entree);
+        
+        // Find the current matricule from Redux store
+        const currentMatricule = matricules.find(m => m.id == formData.matricule_id);
+        
+        if (!currentMatricule) {
+          console.error('❌ Matricule not found with ID:', formData.matricule_id);
+          throw new Error('Matricule not found');
+        }
+        
+        console.log('📋 Found matricule:', currentMatricule.matricule_code);
+        console.log('📊 Current kilometrage:', currentMatricule.kilometrage);
+        
+        // ✅ CORRECT: Update matricule's CURRENT kilometer to the return kilometer
+        const matriculeUpdateData = {
+          kilometrage: formData.kilometrage_entree // Km actuel = Km retour
+        };
+        
+        console.log('🔄 Matricule update data:', matriculeUpdateData);
+        
+        // Use updateMatricule thunk
+        console.log('🔄 Using updateMatricule thunk');
+        const updateResult = await dispatch(updateMatricule({ 
+          id: formData.matricule_id, 
+          data: matriculeUpdateData 
+        })).unwrap();
+        
+        console.log('✅ Matricule update successful:', updateResult);
+        console.groupEnd();
+        
+        showSuccessMessage('Reservation updated and matricule return kilometer saved successfully!');
+        
+      } catch (matriculeError) {
+        console.groupEnd();
+        console.error('❌ Matricule update failed:', matriculeError);
+        
+        // More specific error messages
+        if (matriculeError.message?.includes('Network Error')) {
+          showErrorMessage('Network error: Could not update matricule. Please check your connection.');
+        } else if (matriculeError.message?.includes('404')) {
+          showErrorMessage('Matricule not found on server. Please refresh the page.');
+        } else if (matriculeError.message?.includes('401') || matriculeError.message?.includes('403')) {
+          showErrorMessage('Permission denied: You cannot update matricule information.');
+        } else {
+          showErrorMessage('Reservation updated but failed to update matricule return kilometer: ' + matriculeError.message);
+        }
+        
+        // Don't fail the entire reservation update if matricule update fails
+        console.warn('⚠️ Reservation was updated successfully, but matricule update failed');
+      }
+    } else if (formData.status === 'completed' && formData.matricule_id && !formData.kilometrage_entree) {
+      console.warn('⚠️ Reservation completed but no return kilometer provided for matricule update');
+    } else if (formData.status === 'completed' && !formData.matricule_id) {
+      console.warn('⚠️ Reservation completed but no matricule assigned');
+    }
+    
+    // Show specific message for status changes that affect matricule status
+    if (formData.matricule_id) {
+      if (formData.status === 'confirmed' || formData.status === 'retard') {
+        showSuccessMessage(`Reservation ${modalType === 'create' ? 'created' : 'updated'}! Matricule status changed to inactive.`);
+      } else if (formData.status === 'completed') {
+        showSuccessMessage(`Reservation ${modalType === 'create' ? 'created' : 'updated'}! Matricule status changed to active.`);
+      }
+    }
+    
+    // Refresh all data
+    setShowModal(false);
+    dispatch(fetchReservations());
+    dispatch(fetchClients());
+    dispatch(fetchCars());
+    dispatch(fetchMatricules());
+    
+  } catch (error) {
+    console.error('❌ Error in handleSubmit:', error);
+    const errorMsg = error.message || error;
+    
+    if (errorMsg.includes('MySQL') || errorMsg.includes('database') || errorMsg.includes('connection')) {
+      showErrorMessage('Database connection issue. Please try again in a moment.');
+    } else if (errorMsg.includes('Validation failed')) {
+      showErrorMessage('Please check your input data and try again.');
+    } else if (errorMsg.includes('Client already exists')) {
+      showErrorMessage('A client with this email or phone already exists. Please use the existing client.');
+    } else {
+      showErrorMessage('Error: ' + errorMsg);
+    }
+  } finally {
+    setSubmitting(false);
+  }
+};
 
   const showSuccessMessage = (message) => {
     const existingNotifications = document.querySelectorAll('.success-notification, .error-notification');

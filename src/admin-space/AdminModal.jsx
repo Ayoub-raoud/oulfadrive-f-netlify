@@ -3241,17 +3241,17 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
         </div>
 
         <div className="form-section">
-          <h3 className="section-title">Notes Supplémentaires</h3>
-          <div className="form-group">
-            <textarea
-              className="form-textarea"
-              rows="3"
-              value={formData.notes || ''}
-              onChange={(e) => handleChange('notes', e.target.value)}
-              placeholder="Toutes notes supplémentaires ou exigences particulières..."
-            />
-          </div>
-        </div>
+  <h3 className="section-title">Notes Supplémentaires</h3>
+  <div className="form-group">
+    <textarea
+      className="form-textarea"
+      rows="3"
+      value={formData.notes || ''}
+      onChange={(e) => handleChange('notes', e.target.value)}
+      placeholder="Toutes notes supplémentaires ou exigences particulières..."
+    />
+  </div>
+</div>
       </>
     );
   };
