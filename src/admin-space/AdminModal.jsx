@@ -180,30 +180,31 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
 
   // CORRECTION: Utilisation de useMemo pour filteredClients au lieu de useEffect
   const filteredClients = useMemo(() => {
-    if (!clientSearch.trim() || isNewClient || !clients || !Array.isArray(clients)) {
-      return [];
-    }
-    
-    const searchTerm = clientSearch.toLowerCase().trim();
-    
-    return clients
-      .filter(client => {
-        if (!client || typeof client !== 'object') return false;
-        
-        const fullName = `${client.prenom || ''} ${client.nom || ''}`.toLowerCase();
-        const email = (client.email || '').toLowerCase();
-        const telephone = (client.telephone || '').toLowerCase();
-        const city = (client.city || '').toLowerCase();
-        
-        return (
-          fullName.includes(searchTerm) ||
-          email.includes(searchTerm) ||
-          telephone.includes(searchTerm) ||
-          city.includes(searchTerm)
-        );
-      })
-      .slice(0, 10);
-  }, [clientSearch, isNewClient, clients]);
+  if (!clientSearch.trim() || isNewClient || !clients || !Array.isArray(clients)) {
+    return [];
+  }
+  
+  const searchTerm = clientSearch.toLowerCase().trim();
+  
+  return clients
+    .filter(client => {
+      if (!client || typeof client !== 'object') return false;
+      
+      const prenom = (client.prenom || '').toLowerCase();
+      const nom = (client.nom || '').toLowerCase();
+      const telephone = (client.telephone || '').toLowerCase();
+      const fullName = `${prenom} ${nom}`;
+      
+      // Only show exact or close matches
+      return (
+        prenom.includes(searchTerm) ||
+        nom.includes(searchTerm) ||
+        fullName.includes(searchTerm) ||
+        telephone.includes(searchTerm)
+      );
+    })
+    .slice(0, 10);
+}, [clientSearch, isNewClient, clients]);
 
   useEffect(() => {
     if (type === 'reservations' && formData.car_id) {
@@ -558,27 +559,30 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
   };
 
   const handleNewClient = () => {
-    setSelectedClient(null);
-    setIsNewClient(true);
-    setFormData(prev => ({
-      ...prev,
-      client_id: '',
-      nom: '',
-      prenom: '',
-      telephone: '',
-      email: '',
-      city: '',
-      cin_number: '',
-      driver_license_number: '',
-      cin_image: '',
-      driver_license_image: '',
-      date_naissance: '',
-      lieu_naissance: '',
-      cin_delivre_le: '',
-      permis_delivre_le: ''
-    }));
-    setClientSearch('');
-  };
+  setSelectedClient(null);
+  setIsNewClient(true);
+  
+  // Also clear the client search to avoid confusion
+  setClientSearch('');
+  
+  setFormData(prev => ({
+    ...prev,
+    client_id: '', // Clear any existing client ID
+    nom: '',
+    prenom: '',
+    telephone: '',
+    email: '',
+    city: '',
+    cin_number: '',
+    driver_license_number: '',
+    cin_image: '',
+    driver_license_image: '',
+    date_naissance: '',
+    lieu_naissance: '',
+    cin_delivre_le: '',
+    permis_delivre_le: ''
+  }));
+};
 
   const handleViewFile = (fileUrl, isPdf = false) => {
     if (!fileUrl) return;
@@ -2188,14 +2192,20 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
             </div>
             
             <div className="form-group">
-              <button 
-                type="button" 
-                className="btn-secondary btn-small"
-                onClick={handleNewClient}
-              >
-                <FaPlus /> Nouveau Client
-              </button>
-            </div>
+  <button 
+    type="button" 
+    className={`btn-secondary btn-small ${isNewClient ? 'active' : ''}`}
+    onClick={handleNewClient}
+  >
+    <FaPlus /> {isNewClient ? 'Nouveau Client (actif)' : 'Nouveau Client'}
+  </button>
+  
+  {isNewClient && (
+    <div className="new-client-notice">
+      <FaInfoCircle /> Mode création de nouveau client activé
+    </div>
+  )}
+</div>
           </>
         ) : (
           <div className="form-grid">

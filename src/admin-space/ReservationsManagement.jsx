@@ -955,126 +955,105 @@ const ReservationsManagement = ({ onBack, filter }) => {
   try {
     let clientId = formData.client_id;
 
-    // Client creation logic (unchanged)
-    if (!clientId && formData.nom && formData.prenom) {
-      console.log('Creating new client...');
+    // ✅ FIXED: Only create new client if client_id is empty AND we have prenom and telephone
+    // This means user clicked "Nouveau Client" in the modal
+    if (!clientId && formData.prenom && formData.telephone) {
+      console.log('Creating NEW client (no existing client_id)...');
       
-      const existingClient = clients.find(client => 
-        client.telephone === formData.telephone || 
-        client.email === formData.email
-      );
+      // ✅ IMPORTANT: When in "Nouveau Client" mode, DO NOT check for existing clients
+      // Just create a new one with the provided information
+      const clientData = {
+        nom: formData.nom || '',
+        prenom: formData.prenom || '',
+        telephone: formData.telephone || '',
+        email: formData.email || '', // Optional
+        city: formData.city || '', // Optional
+        cin_number: formData.cin_number || '',
+        driver_license_number: formData.driver_license_number || '',
+        cin_image: formData.cin_image || '',
+        driver_license_image: formData.driver_license_image || '',
+        image_permit: 'default_permit.jpg',
+        image_cn: 'default_cn.jpg'
+      };
 
-      if (existingClient) {
-        clientId = existingClient.id;
-        console.log('Using existing client ID:', clientId);
-        
-        if (formData.cin_number || formData.driver_license_number) {
-          console.log('Updating existing client with CIN/driver license info');
-          const updateData = {};
-          if (formData.cin_number) updateData.cin_number = formData.cin_number;
-          if (formData.driver_license_number) updateData.driver_license_number = formData.driver_license_number;
-          if (formData.cin_image) updateData.cin_image = formData.cin_image;
-          if (formData.driver_license_image) updateData.driver_license_image = formData.driver_license_image;
-          
-          try {
-            await dispatch(updateClient({ id: clientId, data: updateData })).unwrap();
-            console.log('Client updated with CIN/driver license info');
-          } catch (updateError) {
-            console.warn('Failed to update client with CIN/driver license info:', updateError);
-          }
-        }
-      } else {
-        const clientData = {
-          nom: formData.nom,
-          prenom: formData.prenom,
-          telephone: formData.telephone,
-          email: formData.email,
-          city: formData.city,
-          cin_number: formData.cin_number || '',
-          driver_license_number: formData.driver_license_number || '',
-          cin_image: formData.cin_image || '',
-          driver_license_image: formData.driver_license_image || '',
-          image_permit: 'default_permit.jpg',
-          image_cn: 'default_cn.jpg'
-        };
+      console.log('Creating new client with data:', clientData);
+      
+      try {
+        const clientResult = await createClientWithRetry(clientData);
+        console.log('Client creation result:', clientResult);
 
-        console.log('Client data to create:', clientData);
-        
-        try {
-          const clientResult = await createClientWithRetry(clientData);
-          console.log('Client creation result:', clientResult);
-
-          if (clientResult.client && clientResult.client.id) {
-            clientId = clientResult.client.id;
-          } else if (clientResult.id) {
-            clientId = clientResult.id;
-          } else if (clientResult.data && clientResult.data.id) {
-            clientId = clientResult.data.id;
-          } else {
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            await dispatch(fetchClients());
-            
-            const newClient = clients.find(c => 
-              c.telephone === formData.telephone && 
-              c.email === formData.email
-            );
-            
-            if (newClient) {
-              clientId = newClient.id;
-            } else {
-              throw new Error('Client created but ID not found after refresh');
-            }
-          }
-
-          console.log('Using client ID:', clientId);
-        } catch (clientError) {
-          console.error('Error creating client:', clientError);
-          
-          await new Promise(resolve => setTimeout(resolve, 2000));
+        // Extract client ID from response
+        if (clientResult.client && clientResult.client.id) {
+          clientId = clientResult.client.id;
+        } else if (clientResult.id) {
+          clientId = clientResult.id;
+        } else if (clientResult.data && clientResult.data.id) {
+          clientId = clientResult.data.id;
+        } else {
+          // Wait and refresh clients list to find the new client
+          await new Promise(resolve => setTimeout(resolve, 1500));
           await dispatch(fetchClients());
           
-          const fallbackClient = clients.find(c => 
-            c.telephone === formData.telephone || 
-            c.email === formData.email
+          // Find the newly created client by exact telephone match
+          const newClient = clients.find(c => 
+            c.telephone === formData.telephone
           );
           
-          if (fallbackClient) {
-            clientId = fallbackClient.id;
-            console.log('Using fallback client ID after error:', clientId);
-            showSuccessMessage('Client found after creation error - proceeding with reservation');
+          if (newClient) {
+            clientId = newClient.id;
+            console.log('Found new client after creation:', clientId);
           } else {
-            console.log('Trying with minimal client data...');
-            const minimalClientData = {
-              nom: formData.nom,
-              prenom: formData.prenom,
-              telephone: formData.telephone,
-              email: formData.email,
-              city: formData.city,
-              image_permit: 'default_permit.jpg',
-              image_cn: 'default_cn.jpg'
-            };
-            
-            try {
-              const minimalResult = await dispatch(createClient(minimalClientData)).unwrap();
-              if (minimalResult.client && minimalResult.client.id) {
-                clientId = minimalResult.client.id;
-              } else if (minimalResult.id) {
-                clientId = minimalResult.id;
-              } else {
-                throw new Error('Could not extract client ID from minimal creation');
-              }
-              console.log('Minimal client creation successful, ID:', clientId);
-              showSuccessMessage('Client created with basic info (CIN/driver license skipped)');
-            } catch (minimalError) {
-              throw new Error(`Unable to create client even with minimal data: ${minimalError.message || minimalError}`);
-            }
+            throw new Error('Client created but not found after refresh');
           }
+        }
+        
+        console.log('✅ New client created with ID:', clientId);
+        showSuccessMessage('Nouveau client créé avec succès!');
+        
+      } catch (clientError) {
+        console.error('❌ Error creating new client:', clientError);
+        
+        // Try a more minimal approach if the first attempt fails
+        try {
+          console.log('Trying minimal client creation...');
+          const minimalClientData = {
+            prenom: formData.prenom || '',
+            telephone: formData.telephone || '',
+            nom: formData.nom || '',
+            image_permit: 'default_permit.jpg',
+            image_cn: 'default_cn.jpg'
+          };
+          
+          const minimalResult = await dispatch(createClient(minimalClientData)).unwrap();
+          console.log('Minimal client creation result:', minimalResult);
+          
+          if (minimalResult.id) {
+            clientId = minimalResult.id;
+          } else if (minimalResult.client && minimalResult.client.id) {
+            clientId = minimalResult.client.id;
+          } else {
+            throw new Error('Could not extract client ID from minimal creation');
+          }
+          
+          console.log('✅ Minimal client created with ID:', clientId);
+          showSuccessMessage('Client créé avec informations minimales');
+          
+        } catch (minimalError) {
+          console.error('❌ Minimal client creation also failed:', minimalError);
+          throw new Error(`Impossible de créer le client: ${minimalError.message || minimalError}`);
         }
       }
     }
 
+    // ✅ If clientId is still empty, check if it's an existing client search
+    if (!clientId && formData.client_id) {
+      // This should not happen, but just in case
+      clientId = formData.client_id;
+      console.log('Using existing client ID from form:', clientId);
+    }
+
     if (!clientId) {
-      throw new Error('No client available for reservation. Please check client information and try again.');
+      throw new Error('Aucun client sélectionné ou créé. Veuillez sélectionner un client existant ou créer un nouveau client.');
     }
 
     // Calculate rental days
@@ -1095,7 +1074,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
       payment_history: formData.payment_history || [],
       status: formData.status || 'pending',
       car_id: formData.car_id,
-      client_id: clientId,
+      client_id: clientId, // ✅ This is either existing client ID or newly created one
       matricule_id: formData.matricule_id || null,
       notes: notesString, // ✅ This is now just plain text
       kilometrage_sortie: formData.kilometrage_sortie || null,
@@ -1107,10 +1086,10 @@ const ReservationsManagement = ({ onBack, filter }) => {
     let result;
     if (modalType === 'create') {
       result = await dispatch(createReservation(reservationData)).unwrap();
-      showSuccessMessage('Reservation created successfully!');
+      showSuccessMessage('Réservation créée avec succès!');
     } else {
       result = await dispatch(updateReservation({ id: editingItem.id, data: reservationData })).unwrap();
-      showSuccessMessage('Reservation updated successfully!');
+      showSuccessMessage('Réservation mise à jour avec succès!');
     }
     
     // 🔄 Force refresh matricules to sync status changes
@@ -1154,7 +1133,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
         console.log('✅ Matricule update successful:', updateResult);
         console.groupEnd();
         
-        showSuccessMessage('Reservation updated and matricule return kilometer saved successfully!');
+        showSuccessMessage('Réservation mise à jour et kilométrage de retour enregistré avec succès!');
         
       } catch (matriculeError) {
         console.groupEnd();
@@ -1162,30 +1141,30 @@ const ReservationsManagement = ({ onBack, filter }) => {
         
         // More specific error messages
         if (matriculeError.message?.includes('Network Error')) {
-          showErrorMessage('Network error: Could not update matricule. Please check your connection.');
+          showErrorMessage('Erreur réseau: Impossible de mettre à jour le matricule. Veuillez vérifier votre connexion.');
         } else if (matriculeError.message?.includes('404')) {
-          showErrorMessage('Matricule not found on server. Please refresh the page.');
+          showErrorMessage('Matricule non trouvé sur le serveur. Veuillez actualiser la page.');
         } else if (matriculeError.message?.includes('401') || matriculeError.message?.includes('403')) {
-          showErrorMessage('Permission denied: You cannot update matricule information.');
+          showErrorMessage('Permission refusée: Vous ne pouvez pas mettre à jour les informations du matricule.');
         } else {
-          showErrorMessage('Reservation updated but failed to update matricule return kilometer: ' + matriculeError.message);
+          showErrorMessage('Réservation mise à jour mais échec de l\'enregistrement du kilométrage de retour: ' + matriculeError.message);
         }
         
         // Don't fail the entire reservation update if matricule update fails
-        console.warn('⚠️ Reservation was updated successfully, but matricule update failed');
+        console.warn('⚠️ Réservation mise à jour avec succès, mais échec de la mise à jour du matricule');
       }
     } else if (formData.status === 'completed' && formData.matricule_id && !formData.kilometrage_entree) {
-      console.warn('⚠️ Reservation completed but no return kilometer provided for matricule update');
+      console.warn('⚠️ Réservation terminée mais aucun kilométrage de retour fourni pour la mise à jour du matricule');
     } else if (formData.status === 'completed' && !formData.matricule_id) {
-      console.warn('⚠️ Reservation completed but no matricule assigned');
+      console.warn('⚠️ Réservation terminée mais aucun matricule assigné');
     }
     
     // Show specific message for status changes that affect matricule status
     if (formData.matricule_id) {
       if (formData.status === 'confirmed' || formData.status === 'retard') {
-        showSuccessMessage(`Reservation ${modalType === 'create' ? 'created' : 'updated'}! Matricule status changed to inactive.`);
+        showSuccessMessage(`Réservation ${modalType === 'create' ? 'créée' : 'mise à jour'}! Statut du matricule changé à inactif.`);
       } else if (formData.status === 'completed') {
-        showSuccessMessage(`Reservation ${modalType === 'create' ? 'created' : 'updated'}! Matricule status changed to active.`);
+        showSuccessMessage(`Réservation ${modalType === 'create' ? 'créée' : 'mise à jour'}! Statut du matricule changé à actif.`);
       }
     }
     
@@ -1201,13 +1180,17 @@ const ReservationsManagement = ({ onBack, filter }) => {
     const errorMsg = error.message || error;
     
     if (errorMsg.includes('MySQL') || errorMsg.includes('database') || errorMsg.includes('connection')) {
-      showErrorMessage('Database connection issue. Please try again in a moment.');
+      showErrorMessage('Problème de connexion à la base de données. Veuillez réessayer dans un moment.');
     } else if (errorMsg.includes('Validation failed')) {
-      showErrorMessage('Please check your input data and try again.');
+      showErrorMessage('Veuillez vérifier vos données et réessayer.');
     } else if (errorMsg.includes('Client already exists')) {
-      showErrorMessage('A client with this email or phone already exists. Please use the existing client.');
+      showErrorMessage('Un client avec ce téléphone existe déjà. Veuillez utiliser le client existant.');
+    } else if (errorMsg.includes('Impossible de créer le client')) {
+      showErrorMessage('Erreur de création du client: ' + errorMsg);
+    } else if (errorMsg.includes('Aucun client sélectionné')) {
+      showErrorMessage('Veuillez sélectionner ou créer un client pour la réservation.');
     } else {
-      showErrorMessage('Error: ' + errorMsg);
+      showErrorMessage('Erreur: ' + errorMsg);
     }
   } finally {
     setSubmitting(false);
