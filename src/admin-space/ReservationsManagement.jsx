@@ -955,14 +955,15 @@ const ReservationsManagement = ({ onBack, filter }) => {
   try {
     let clientId = formData.client_id;
 
-    // Client creation logic
+    // Client creation logic - CORRIGÉ sans useSelector dans la fonction
     if (!clientId && formData.nom && formData.prenom) {
       console.log('Creating new client...');
       
-      // 🔄 RÉFRESHIMMÉDIATEMENT LES CLIENTS AVANT DE CHERCHER
-      await dispatch(fetchClients(true)); // forceRefresh = true
+      // ✅ CORRECTION: Obtenir la liste actuelle des clients depuis Redux state
+      // NE PAS utiliser useSelector ici
+      const currentClients = clients; // Utilisez directement la variable clients du useSelector en haut du composant
       
-      const existingClient = clients.find(client => 
+      const existingClient = currentClients.find(client => 
         client.telephone === formData.telephone || 
         client.email === formData.email
       );
@@ -1004,16 +1005,18 @@ const ReservationsManagement = ({ onBack, filter }) => {
         console.log('Client data to create:', clientData);
         
         try {
-          const clientResult = await createClientWithRetry(clientData);
+          // Créer le client
+          const clientResult = await dispatch(createClient(clientData)).unwrap();
           console.log('Client creation result:', clientResult);
-
-          // 🔄 RÉFRESHIMMÉDIATEMENT LES CLIENTS APRÈS CRÉATION
-          await dispatch(fetchClients(true)); // forceRefresh = true
           
-          // Mettre à jour la variable clients avec la nouvelle liste
-          const updatedClientsResponse = await dispatch(fetchClients()).unwrap();
-          const updatedClients = updatedClientsResponse.clients || updatedClientsResponse.data || updatedClientsResponse;
+          // ✅ CORRECTION: Rafraîchir la liste des clients après création
+          await dispatch(fetchClients());
           
+          // Attendre un peu pour que Redux mette à jour le state
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          // Maintenant le composant va se re-render avec la nouvelle liste
+          // On utilise directement l'ID retourné par l'API
           if (clientResult.client && clientResult.client.id) {
             clientId = clientResult.client.id;
           } else if (clientResult.id) {
@@ -1021,14 +1024,20 @@ const ReservationsManagement = ({ onBack, filter }) => {
           } else if (clientResult.data && clientResult.data.id) {
             clientId = clientResult.data.id;
           } else {
-            // Recherche dans la liste actualisée
-            const newClient = updatedClients.find(c => 
+            // Si l'API ne retourne pas l'ID, attendre plus longtemps et réessayer
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await dispatch(fetchClients());
+            
+            // Après le refresh, chercher le client dans la liste mise à jour
+            // Le composant aura maintenant les clients frais dans `clients`
+            const refreshedClients = clients; // Cette variable sera mise à jour par le re-render
+            const finalClient = refreshedClients.find(c => 
               c.telephone === formData.telephone && 
               c.email === formData.email
             );
             
-            if (newClient) {
-              clientId = newClient.id;
+            if (finalClient) {
+              clientId = finalClient.id;
             } else {
               throw new Error('Client created but ID not found after refresh');
             }
@@ -1038,61 +1047,35 @@ const ReservationsManagement = ({ onBack, filter }) => {
         } catch (clientError) {
           console.error('Error creating client:', clientError);
           
-          // 🔄 ESSAYER ENCORE UNE FOIS DE RÉFRESHI LES CLIENTS
-          await dispatch(fetchClients(true));
-          const refreshResponse = await dispatch(fetchClients()).unwrap();
-          const refreshedClients = refreshResponse.clients || refreshResponse.data || refreshResponse;
+          // Essayer avec des données minimales
+          console.log('Trying with minimal client data...');
+          const minimalClientData = {
+            nom: formData.nom,
+            prenom: formData.prenom,
+            telephone: formData.telephone,
+            email: formData.email,
+            city: formData.city,
+            image_permit: 'default_permit.jpg',
+            image_cn: 'default_cn.jpg'
+          };
           
-          const fallbackClient = refreshedClients.find(c => 
-            c.telephone === formData.telephone || 
-            c.email === formData.email
-          );
-          
-          if (fallbackClient) {
-            clientId = fallbackClient.id;
-            console.log('Using fallback client ID after error:', clientId);
-            showSuccessMessage('Client found after creation error - proceeding with reservation');
-          } else {
-            console.log('Trying with minimal client data...');
-            const minimalClientData = {
-              nom: formData.nom,
-              prenom: formData.prenom,
-              telephone: formData.telephone,
-              email: formData.email,
-              city: formData.city,
-              image_permit: 'default_permit.jpg',
-              image_cn: 'default_cn.jpg'
-            };
+          try {
+            const minimalResult = await dispatch(createClient(minimalClientData)).unwrap();
             
-            try {
-              const minimalResult = await dispatch(createClient(minimalClientData)).unwrap();
-              // 🔄 RÉFRESHI APRÈS CRÉATION MINIMALE
-              await dispatch(fetchClients(true));
-              const minimalRefreshResponse = await dispatch(fetchClients()).unwrap();
-              const minimalRefreshedClients = minimalRefreshResponse.clients || minimalRefreshResponse.data || minimalRefreshResponse;
-              
-              if (minimalResult.client && minimalResult.client.id) {
-                clientId = minimalResult.client.id;
-              } else if (minimalResult.id) {
-                clientId = minimalResult.id;
-              } else {
-                // Recherche dans la liste actualisée
-                const minimalClient = minimalRefreshedClients.find(c => 
-                  c.telephone === formData.telephone && 
-                  c.email === formData.email
-                );
-                
-                if (minimalClient) {
-                  clientId = minimalClient.id;
-                } else {
-                  throw new Error('Could not extract client ID from minimal creation');
-                }
-              }
-              console.log('Minimal client creation successful, ID:', clientId);
-              showSuccessMessage('Client created with basic info (CIN/driver license skipped)');
-            } catch (minimalError) {
-              throw new Error(`Unable to create client even with minimal data: ${minimalError.message || minimalError}`);
+            // Rafraîchir après création minimale aussi
+            await dispatch(fetchClients());
+            
+            if (minimalResult.client && minimalResult.client.id) {
+              clientId = minimalResult.client.id;
+            } else if (minimalResult.id) {
+              clientId = minimalResult.id;
+            } else {
+              throw new Error('Could not extract client ID from minimal creation');
             }
+            console.log('Minimal client creation successful, ID:', clientId);
+            showSuccessMessage('Client created with basic info (CIN/driver license skipped)');
+          } catch (minimalError) {
+            throw new Error(`Unable to create client even with minimal data: ${minimalError.message || minimalError}`);
           }
         }
       }
@@ -1105,7 +1088,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
     // Calculate rental days
     const rentalDays = formData.rental_days || calculateRentalDays(formData.start_date, formData.end_date);
 
-    // ✅ FIXED: Store ONLY what the user entered in the notes field
+    // Store ONLY what the user entered in the notes field
     const notesString = formData.notes || '';
 
     const reservationData = {
@@ -1122,7 +1105,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
       car_id: formData.car_id,
       client_id: clientId,
       matricule_id: formData.matricule_id || null,
-      notes: notesString, // ✅ This is now just plain text
+      notes: notesString, // Plain text
       kilometrage_sortie: formData.kilometrage_sortie || null,
       kilometrage_entree: formData.kilometrage_entree || null
     };
@@ -1162,7 +1145,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
         console.log('📋 Found matricule:', currentMatricule.matricule_code);
         console.log('📊 Current kilometrage:', currentMatricule.kilometrage);
         
-        // ✅ CORRECT: Update matricule's CURRENT kilometer to the return kilometer
+        // Update matricule's CURRENT kilometer to the return kilometer
         const matriculeUpdateData = {
           kilometrage: formData.kilometrage_entree // Km actuel = Km retour
         };
@@ -1214,12 +1197,15 @@ const ReservationsManagement = ({ onBack, filter }) => {
       }
     }
     
-    // Refresh all data
+    // ✅ CORRECTION: Rafraîchir toutes les données après création/mise à jour
+    await Promise.all([
+      dispatch(fetchReservations()),
+      dispatch(fetchClients()), // Important pour avoir la liste à jour
+      dispatch(fetchCars()),
+      dispatch(fetchMatricules())
+    ]);
+    
     setShowModal(false);
-    dispatch(fetchReservations());
-    dispatch(fetchClients());
-    dispatch(fetchCars());
-    dispatch(fetchMatricules());
     
   } catch (error) {
     console.error('❌ Error in handleSubmit:', error);
