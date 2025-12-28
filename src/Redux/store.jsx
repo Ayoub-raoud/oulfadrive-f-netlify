@@ -41,7 +41,7 @@ api.interceptors.response.use(
 const CACHE_CONFIG = {
   accidents: { ttl: 5 * 60 * 1000 },
   cars: { ttl: 10 * 1000 },
-  clients: { ttl: 0 },
+  clients: { ttl: 10 * 1000 },
   matricules: { ttl: 10 * 1000 },
   reservations: { ttl: 10 * 1000 },
   contacts: { ttl: 10 * 1000 },
