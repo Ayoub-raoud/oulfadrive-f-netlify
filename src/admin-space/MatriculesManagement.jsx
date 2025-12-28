@@ -2330,8 +2330,10 @@ const calculateRentalDays = (startDate, endDate) => {
 
         .data-table td {
           padding: 1rem 1.25rem;
-          border-bottom: 1px solid #f8f9fa;
-          color: #495057;
+    border-bottom: 1px solid #f8f9fa;
+    color: #495057;
+    height: 90px;
+    vertical-align: middle;
         }
 
         .data-table tr:hover {

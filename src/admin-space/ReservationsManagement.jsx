@@ -955,9 +955,12 @@ const ReservationsManagement = ({ onBack, filter }) => {
   try {
     let clientId = formData.client_id;
 
-    // Client creation logic (unchanged)
+    // Client creation logic
     if (!clientId && formData.nom && formData.prenom) {
       console.log('Creating new client...');
+      
+      // 🔄 RÉFRESHIMMÉDIATEMENT LES CLIENTS AVANT DE CHERCHER
+      await dispatch(fetchClients(true)); // forceRefresh = true
       
       const existingClient = clients.find(client => 
         client.telephone === formData.telephone || 
@@ -1004,6 +1007,13 @@ const ReservationsManagement = ({ onBack, filter }) => {
           const clientResult = await createClientWithRetry(clientData);
           console.log('Client creation result:', clientResult);
 
+          // 🔄 RÉFRESHIMMÉDIATEMENT LES CLIENTS APRÈS CRÉATION
+          await dispatch(fetchClients(true)); // forceRefresh = true
+          
+          // Mettre à jour la variable clients avec la nouvelle liste
+          const updatedClientsResponse = await dispatch(fetchClients()).unwrap();
+          const updatedClients = updatedClientsResponse.clients || updatedClientsResponse.data || updatedClientsResponse;
+          
           if (clientResult.client && clientResult.client.id) {
             clientId = clientResult.client.id;
           } else if (clientResult.id) {
@@ -1011,10 +1021,8 @@ const ReservationsManagement = ({ onBack, filter }) => {
           } else if (clientResult.data && clientResult.data.id) {
             clientId = clientResult.data.id;
           } else {
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            await dispatch(fetchClients());
-            
-            const newClient = clients.find(c => 
+            // Recherche dans la liste actualisée
+            const newClient = updatedClients.find(c => 
               c.telephone === formData.telephone && 
               c.email === formData.email
             );
@@ -1030,10 +1038,12 @@ const ReservationsManagement = ({ onBack, filter }) => {
         } catch (clientError) {
           console.error('Error creating client:', clientError);
           
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          await dispatch(fetchClients());
+          // 🔄 ESSAYER ENCORE UNE FOIS DE RÉFRESHI LES CLIENTS
+          await dispatch(fetchClients(true));
+          const refreshResponse = await dispatch(fetchClients()).unwrap();
+          const refreshedClients = refreshResponse.clients || refreshResponse.data || refreshResponse;
           
-          const fallbackClient = clients.find(c => 
+          const fallbackClient = refreshedClients.find(c => 
             c.telephone === formData.telephone || 
             c.email === formData.email
           );
@@ -1056,12 +1066,27 @@ const ReservationsManagement = ({ onBack, filter }) => {
             
             try {
               const minimalResult = await dispatch(createClient(minimalClientData)).unwrap();
+              // 🔄 RÉFRESHI APRÈS CRÉATION MINIMALE
+              await dispatch(fetchClients(true));
+              const minimalRefreshResponse = await dispatch(fetchClients()).unwrap();
+              const minimalRefreshedClients = minimalRefreshResponse.clients || minimalRefreshResponse.data || minimalRefreshResponse;
+              
               if (minimalResult.client && minimalResult.client.id) {
                 clientId = minimalResult.client.id;
               } else if (minimalResult.id) {
                 clientId = minimalResult.id;
               } else {
-                throw new Error('Could not extract client ID from minimal creation');
+                // Recherche dans la liste actualisée
+                const minimalClient = minimalRefreshedClients.find(c => 
+                  c.telephone === formData.telephone && 
+                  c.email === formData.email
+                );
+                
+                if (minimalClient) {
+                  clientId = minimalClient.id;
+                } else {
+                  throw new Error('Could not extract client ID from minimal creation');
+                }
               }
               console.log('Minimal client creation successful, ID:', clientId);
               showSuccessMessage('Client created with basic info (CIN/driver license skipped)');

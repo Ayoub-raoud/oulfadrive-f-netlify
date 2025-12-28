@@ -1185,21 +1185,27 @@ const showNotificationErrorMessage = (message) => {
   };
 
   // Calculer les réservations en retard
-  const calculateOverdueReservations = () => {
-    if (!reservations || reservations.length === 0) return [];
+  // Update calculateOverdueReservations to match what the filter will show
+const calculateOverdueReservations = () => {
+  if (!reservations || reservations.length === 0) return [];
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
-    return reservations.filter(reservation => {
-      if (reservation.status !== 'confirmed' && reservation.status !== 'retard') return false;
-      
+  return reservations.filter(reservation => {
+    // If status is already 'retard', include it
+    if (reservation.status === 'retard') return true;
+    
+    // If status is 'confirmed' and end_date has passed, include it
+    if (reservation.status === 'confirmed') {
       const endDate = new Date(reservation.end_date);
       endDate.setHours(0, 0, 0, 0);
-      
       return endDate < today;
-    });
-  };
+    }
+    
+    return false;
+  });
+};
 
   // Fonction pour obtenir les voitures les plus louées
   const getMostRentedCars = () => {
@@ -1844,7 +1850,7 @@ const showNotificationErrorMessage = (message) => {
           {/* Carte Réservations en Retard */}
           <div 
             className="stat-card clickable urgent" 
-            onClick={() => handleNavigation('reservations', 'Réservations en Retard', 'overdue')}
+            onClick={() => handleNavigation('reservations', 'Réservations en Retard', 'retard')}
           >
             <div className="stat-header">
               <div className="stat-icon">
@@ -3229,7 +3235,7 @@ const showNotificationErrorMessage = (message) => {
     width: 32px;
     height: 32px;
   }
-}
+} 
       `}</style>
     </div>
   );
