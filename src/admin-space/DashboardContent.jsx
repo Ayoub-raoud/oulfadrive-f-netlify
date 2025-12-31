@@ -406,7 +406,7 @@ const DashboardContent = () => {
           id: `tax-${matricule.id}-${daysDiff}`,
           type: 'car_tax',
           subType: type,
-          message: `Taxe de voiture pour ${matricule.matricule_code} (${carInfo}) ${message}`,
+          message: `Vignette pour ${matricule.matricule_code} (${carInfo}) ${message}`,
           daysRemaining: daysDiff,
           taxDate: matricule.date_taxe_voiture,
           timestamp: new Date().toISOString(),

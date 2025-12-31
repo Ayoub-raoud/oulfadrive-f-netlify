@@ -1,11 +1,12 @@
-
 import React, { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   FaPlus, FaEdit, FaTrash, FaFileExport, FaDatabase, FaPrint,
   FaCheck, FaTimes, FaCalendarAlt, FaCar, FaUser, FaMoneyBill,
   FaExclamationTriangle, FaSpinner, FaRedo, FaSearch, FaFilter,
-  FaChevronLeft, FaChevronRight, FaClock, FaArrowLeft, FaPalette
+  FaChevronLeft, FaChevronRight, FaClock, FaArrowLeft, FaPalette,
+  FaUserFriends, FaUserPlus, FaPhone, FaEye, FaEyeSlash, FaIdCard,
+  FaKey, FaGasPump, FaTachometerAlt, FaMapMarkerAlt, FaFileSignature
 } from 'react-icons/fa';
 import jsPDF from 'jspdf';
 import {
@@ -35,11 +36,11 @@ import checklistImage from '../assets/Checklist.png';
 import logoImage from '../assets/lo-brown.png';
 
 // Components for contract
-const FormLine = ({ label, value = '', showPrice = true }) => (
+const FormLine = ({ label, value = '', show = true, replaceWithDots = true }) => (
   <div className="form-line">
     <label>{label} :</label>
     <div className="dots-line">
-      {showPrice ? value : '_________'}
+      {show ? value : (replaceWithDots ? '_________' : '')}
     </div>
   </div>
 );
@@ -60,25 +61,27 @@ const CarDiagram = () => (
   </div>
 );
 
-const ObservationBox = ({ title, isHalf = false, children, showPrice = true }) => (
+const ObservationBox = ({ title, isHalf = false, children, show = true, replaceWithDots = true }) => (
   <div className={`observation-box ${isHalf ? 'half-width' : ''}`}>
     <label className="obs-title">{title} :</label>
     <div className="observation-content">
-      {showPrice ? children : '_________'}
+      {show ? children : (replaceWithDots ? '_________' : '')}
     </div>
   </div>
 );
 
-const SignatureBlock = ({ label, signature = '' }) => (
-  <div className="signature-block">
-    <div className="signature-label">{label}</div>
-    <div className="signature-box">
-      {signature && <div className="signature-text">{signature}</div>}
+const SignatureBlock = ({ label, signature = '', show = true }) => (
+  show ? (
+    <div className="signature-block">
+      <div className="signature-label">{label}</div>
+      <div className="signature-box">
+        {signature && <div className="signature-text">{signature}</div>}
+      </div>
     </div>
-  </div>
+  ) : null
 );
 
-const ContractLocation = ({ reservation, showSignatures = false, currentUser, hidePrices = false }) => {
+const ContractLocation = ({ reservation, showSignatures = false, currentUser, hideOptions = {} }) => {
   const [paperwork, setPaperwork] = useState({
     circulation: false,
     carteGrise: false,
@@ -125,51 +128,51 @@ const ContractLocation = ({ reservation, showSignatures = false, currentUser, hi
 
   // Get the user who created the reservation (Livrer par)
   const getReceptionistName = () => {
-  // Pour "Livrer par": Afficher l'utilisateur actuellement connecté
-  let userName = '';
-  
-  // D'abord essayer d'obtenir l'utilisateur du contexte/Redux
-  if (currentUser) {
-    userName = currentUser.Fullname || currentUser.fullname || currentUser.name || currentUser.username || currentUser.email || '';
-  }
-  
-  // Ensuite, essayer de lire depuis localStorage
-  if (!userName) {
-    try {
-      const storedUser = localStorage.getItem('user');
-      if (storedUser) {
-        const userData = JSON.parse(storedUser);
-        userName = userData.Fullname || userData.fullname || userData.name || userData.username || userData.email || '';
+    let userName = '';
+    
+    if (currentUser) {
+      userName = currentUser.Fullname || currentUser.fullname || currentUser.name || currentUser.username || currentUser.email || '';
+    }
+    
+    if (!userName) {
+      try {
+        const storedUser = localStorage.getItem('user');
+        if (storedUser) {
+          const userData = JSON.parse(storedUser);
+          userName = userData.Fullname || userData.fullname || userData.name || userData.username || userData.email || '';
+        }
+      } catch (error) {
+        console.error('Error reading user from localStorage:', error);
       }
-    } catch (error) {
-      console.error('Error reading user from localStorage:', error);
     }
-  }
-  
-  // Final fallback
-  return userName || 'Administrateur OULFA DRIVE';
-};
+    
+    return userName || 'Administrateur OULFA DRIVE';
+  };
 
-// Get the user who entered the return kilometer (Receptionner par) - RESTE INCHANGÉ
+ // Get the user who entered the return kilometer (Receptionner par)
 const getKilometerReceiverName = () => {
-  const userInfo = getUserInfoFromNotes(reservation?.notes || '');
-  
-  // If reservation is completed, show who completed it
-  if (reservation?.status === 'completed') {
-    if (userInfo.completed_by) {
-      return userInfo.completed_by;
+  if (reservation?.reception_notes) {
+    const notes = reservation.reception_notes;
+    
+    // BEST PATTERN: Match "Réceptionné par: [anything until] le [date]" or end of string
+    const match = notes.match(/Réceptionné par:\s*(.+?)(?:\s+le\s+|$)/i);
+    if (match && match[1]) {
+      return match[1].trim();
     }
     
-    if (reservation?.completed_by_user) {
-      return reservation.completed_by_user;
+    // SIMPLER PATTERN: Just get everything after "Réceptionné par:" and before "le"
+    const simpleMatch = notes.match(/Réceptionné par:\s*(.*?)(?:\s+le\s+|$)/i);
+    if (simpleMatch && simpleMatch[1]) {
+      return simpleMatch[1].trim();
     }
     
-    if (userInfo.updated_by) {
-      return userInfo.updated_by;
-    }
-    
-    if (reservation?.updated_by_user) {
-      return reservation.updated_by_user;
+    // FALLBACK: Split by "le" and take the first part
+    if (notes.includes('le')) {
+      const parts = notes.split('le')[0];
+      const namePart = parts.replace(/Réceptionné par:\s*/i, '').trim();
+      if (namePart) {
+        return namePart;
+      }
     }
   }
   
@@ -218,6 +221,21 @@ const getKilometerReceiverName = () => {
     return diffDays === 0 ? 1 : diffDays;
   };
 
+  // Get second driver information
+  const getSecondDriverInfo = () => {
+    if (!reservation?.has_second_driver) {
+      return null;
+    }
+    
+    if (reservation?.second_driver_client) {
+      return reservation.second_driver_client;
+    }
+    
+    return null;
+  };
+
+  const secondDriver = getSecondDriverInfo();
+
   return (
     <div className="contract-container" id="contract-print">
       <header className="contract-header">
@@ -242,34 +260,222 @@ const getKilometerReceiverName = () => {
           {/* LOCATAIRE SECTION - Top Left */}
           <div className="section-block">
             <h2 className="section-header-contract">LOCATAIRE</h2>
-            <FormLine label="Nom" value={reservation?.client?.nom || ''} />
-            <FormLine label="Prénom" value={reservation?.client?.prenom || ''} />
-            <FormLine label="Date de Naissance" value={formatDate(reservation?.client?.date_naissance) || ''} />
-            <FormLine label="Lieu de Naissance" value={reservation?.client?.lieu_naissance || ''} />
-            <FormLine label="Pièce d'identité (CIN / Passeport)" value={reservation?.client?.cin_number || ''} />
-            <FormLine label="Expire le" value={formatDate(reservation?.client?.cin_delivre_le) || ''} />
-            <FormLine label="Permis de Conduire N°" value={reservation?.client?.driver_license_number || ''} />
-            <FormLine label="Expire le" value={formatDate(reservation?.client?.permis_delivre_le) || ''} />
-            <FormLine label="Adresse" value={reservation?.client?.city || ''} />
-            <FormLine label="Tél." value={reservation?.client?.telephone || ''} />
-            <FormLine label="Email" value={reservation?.client?.email || ''} />
-            <FormLine label="Fax" value="" />
+            <FormLine 
+              label="Nom" 
+              value={reservation?.client?.nom || ''} 
+              show={!hideOptions.hideLocataireInfo}
+              replaceWithDots={!hideOptions.replaceLocataireWithDots}
+            />
+            <FormLine 
+              label="Prénom" 
+              value={reservation?.client?.prenom || ''} 
+              show={!hideOptions.hideLocataireInfo}
+              replaceWithDots={!hideOptions.replaceLocataireWithDots}
+            />
+            <FormLine 
+              label="Date de Naissance" 
+              value={formatDate(reservation?.client?.date_naissance) || ''} 
+              show={!hideOptions.hideLocataireInfo}
+              replaceWithDots={!hideOptions.replaceLocataireWithDots}
+            />
+            <FormLine 
+              label="Lieu de Naissance" 
+              value={reservation?.client?.lieu_naissance || ''} 
+              show={!hideOptions.hideLocataireInfo}
+              replaceWithDots={!hideOptions.replaceLocataireWithDots}
+            />
+            <FormLine 
+              label="Pièce d'identité (CIN / Passeport)" 
+              value={reservation?.client?.cin_number || ''} 
+              show={!hideOptions.hideLocataireInfo}
+              replaceWithDots={!hideOptions.replaceLocataireWithDots}
+            />
+            <FormLine 
+              label="Expire le" 
+              value={formatDate(reservation?.client?.cin_delivre_le) || ''} 
+              show={!hideOptions.hideLocataireInfo}
+              replaceWithDots={!hideOptions.replaceLocataireWithDots}
+            />
+            <FormLine 
+              label="Permis de Conduire N°" 
+              value={reservation?.client?.driver_license_number || ''} 
+              show={!hideOptions.hideLocataireInfo}
+              replaceWithDots={!hideOptions.replaceLocataireWithDots}
+            />
+            <FormLine 
+              label="Expire le" 
+              value={formatDate(reservation?.client?.permis_delivre_le) || ''} 
+              show={!hideOptions.hideLocataireInfo}
+              replaceWithDots={!hideOptions.replaceLocataireWithDots}
+            />
+            <FormLine 
+              label="Adresse" 
+              value={reservation?.client?.city || ''} 
+              show={!hideOptions.hideLocataireInfo}
+              replaceWithDots={!hideOptions.replaceLocataireWithDots}
+            />
+            <FormLine 
+              label="Tél." 
+              value={reservation?.client?.telephone || ''} 
+              show={!hideOptions.hideLocataireInfo}
+              replaceWithDots={!hideOptions.replaceLocataireWithDots}
+            />
+            <FormLine 
+              label="Email" 
+              value={reservation?.client?.email || ''} 
+              show={!hideOptions.hideLocataireInfo}
+              replaceWithDots={!hideOptions.replaceLocataireWithDots}
+            />
+            <FormLine 
+              label="Fax" 
+              value="" 
+              show={!hideOptions.hideLocataireInfo}
+              replaceWithDots={!hideOptions.replaceLocataireWithDots}
+            />
           </div>
 
           {/* DEUXIEME CONDUCTEUR SECTION - Bottom Left */}
           <div className="section-block">
             <h2 className="section-header-contract">DEUXIEME CONDUCTEUR</h2>
-            <FormLine label="Nom" value="" />
-            <FormLine label="Prénom" value="" />
-            <FormLine label="Date de Naissance" value="" />
-            <FormLine label="Lieu de Naissance" value="" />
-            <FormLine label="Pièce d'identité (CIN / Passeport)" value="" />
-            <FormLine label="Délivré le" value="" />
-            <FormLine label="Permis de Conduire N°" value="" />
-            <FormLine label="Délivré le" value="" />
-            <FormLine label="Adresse" value="" />
-            <FormLine label="Tél." value="" />
-            <FormLine label="Fax" value="" />
+            {secondDriver ? (
+              <>
+                <FormLine 
+                  label="Nom" 
+                  value={secondDriver.nom || ''} 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Prénom" 
+                  value={secondDriver.prenom || ''} 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Date de Naissance" 
+                  value={formatDate(secondDriver.date_naissance) || ''} 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Lieu de Naissance" 
+                  value={secondDriver.lieu_naissance || ''} 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Pièce d'identité (CIN / Passeport)" 
+                  value={secondDriver.cin_number || ''} 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Délivré le" 
+                  value={formatDate(secondDriver.cin_delivre_le) || ''} 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Permis de Conduire N°" 
+                  value={secondDriver.driver_license_number || ''} 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Délivré le" 
+                  value={formatDate(secondDriver.permis_delivre_le) || ''} 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Adresse" 
+                  value={secondDriver.city || ''} 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Tél." 
+                  value={secondDriver.telephone || ''} 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Fax" 
+                  value="" 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+              </>
+            ) : (
+              <>
+                <FormLine 
+                  label="Nom" 
+                  value="" 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Prénom" 
+                  value="" 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Date de Naissance" 
+                  value="" 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Lieu de Naissance" 
+                  value="" 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Pièce d'identité (CIN / Passeport)" 
+                  value="" 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Délivré le" 
+                  value="" 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Permis de Conduire N°" 
+                  value="" 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Délivré le" 
+                  value="" 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Adresse" 
+                  value="" 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Tél." 
+                  value="" 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+                <FormLine 
+                  label="Fax" 
+                  value="" 
+                  show={!hideOptions.hideSecondDriverInfo}
+                  replaceWithDots={!hideOptions.replaceSecondDriverWithDots}
+                />
+              </>
+            )}
           </div>
         </div>
 
@@ -277,27 +483,122 @@ const getKilometerReceiverName = () => {
         <div className="right-column">
           <div className="section-block full-height">
             <h2 className="section-header-contract">INFORMATION SUR LE VÉHICULE</h2>
-            <FormLine label="Immatriculation" value={reservation?.matricule?.matricule_code || ''} />
-            <FormLine label="Marque" value={reservation?.car?.brand || ''} />
-            <FormLine label="Modèle" value={reservation?.car?.model || ''} />
-            <FormLine label="Couleur" value={reservation?.car?.color || ''} />
-            <FormLine label="Année" value={reservation?.car?.year || ''} />
-            <FormLine label="Type de carburant" value={reservation?.car?.fuel_type || ''} />
-            <FormLine label="Transmission" value={reservation?.car?.transmission || ''} />
-            <FormLine label="Nombre de places" value={reservation?.car?.seats || ''} />
-            <FormLine label="Nombre de portes" value={reservation?.car?.doors || ''} />
-            <FormLine label="Livrer par" value={getReceptionistName()} /> {/* CHANGÉ */}
-            <FormLine label="Receptionner par" value={getKilometerReceiverName()} /> {/* CHANGÉ */}
-            <FormLine label="Date de départ" value={formatDate(reservation?.start_date)} />
-            <FormLine label="Heure" value={reservation?.start_time || '08:00'} />
-            <FormLine label="Date de retour" value={formatDate(reservation?.end_date)} />
-            <FormLine label="Heure" value={reservation?.end_time || '18:00'} />
-            <FormLine label="Carburant" value="" />
-            <FormLine label="Km départ" value={reservation?.kilometrage_sortie || ''} />
+            <FormLine 
+              label="Immatriculation" 
+              value={reservation?.matricule?.matricule_code || ''} 
+              show={!hideOptions.hideVehicleInfo}
+              replaceWithDots={!hideOptions.replaceVehicleWithDots}
+            />
+            <FormLine 
+              label="Marque" 
+              value={reservation?.car?.brand || ''} 
+              show={!hideOptions.hideVehicleInfo}
+              replaceWithDots={!hideOptions.replaceVehicleWithDots}
+            />
+            <FormLine 
+              label="Modèle" 
+              value={reservation?.car?.model || ''} 
+              show={!hideOptions.hideVehicleInfo}
+              replaceWithDots={!hideOptions.replaceVehicleWithDots}
+            />
+            <FormLine 
+              label="Couleur" 
+              value={reservation?.car?.color || ''} 
+              show={!hideOptions.hideVehicleInfo}
+              replaceWithDots={!hideOptions.replaceVehicleWithDots}
+            />
+            <FormLine 
+              label="Année" 
+              value={reservation?.car?.year || ''} 
+              show={!hideOptions.hideVehicleInfo}
+              replaceWithDots={!hideOptions.replaceVehicleWithDots}
+            />
+            <FormLine 
+              label="Type de carburant" 
+              value={reservation?.car?.fuel_type || ''} 
+              show={!hideOptions.hideVehicleInfo}
+              replaceWithDots={!hideOptions.replaceVehicleWithDots}
+            />
+            <FormLine 
+              label="Transmission" 
+              value={reservation?.car?.transmission || ''} 
+              show={!hideOptions.hideVehicleInfo}
+              replaceWithDots={!hideOptions.replaceVehicleWithDots}
+            />
+            <FormLine 
+              label="Nombre de places" 
+              value={reservation?.car?.seats || ''} 
+              show={!hideOptions.hideVehicleInfo}
+              replaceWithDots={!hideOptions.replaceVehicleWithDots}
+            />
+            <FormLine 
+              label="Nombre de portes" 
+              value={reservation?.car?.doors || ''} 
+              show={!hideOptions.hideVehicleInfo}
+              replaceWithDots={!hideOptions.replaceVehicleWithDots}
+            />
+            <FormLine 
+              label="Livrer par" 
+              value={getReceptionistName()} 
+              show={!hideOptions.hideDeliveryInfo}
+              replaceWithDots={!hideOptions.replaceDeliveryWithDots}
+            />
+            <FormLine 
+              label="Receptionner par" 
+              value={getKilometerReceiverName()} 
+              show={!hideOptions.hideDeliveryInfo}
+              replaceWithDots={!hideOptions.replaceDeliveryWithDots}
+            />
+            <FormLine 
+              label="Date de départ" 
+              value={formatDate(reservation?.start_date)} 
+              show={!hideOptions.hideRentalDates}
+              replaceWithDots={!hideOptions.replaceRentalDatesWithDots}
+            />
+            <FormLine 
+              label="Heure" 
+              value={reservation?.start_time || '08:00'} 
+              show={!hideOptions.hideRentalDates}
+              replaceWithDots={!hideOptions.replaceRentalDatesWithDots}
+            />
+            <FormLine 
+              label="Date de retour" 
+              value={formatDate(reservation?.end_date)} 
+              show={!hideOptions.hideRentalDates}
+              replaceWithDots={!hideOptions.replaceRentalDatesWithDots}
+            />
+            <FormLine 
+              label="Heure" 
+              value={reservation?.end_time || '18:00'} 
+              show={!hideOptions.hideRentalDates}
+              replaceWithDots={!hideOptions.replaceRentalDatesWithDots}
+            />
+            <FormLine 
+              label="Carburant" 
+              value="" 
+              show={!hideOptions.hideVehicleInfo}
+              replaceWithDots={!hideOptions.replaceVehicleWithDots}
+            />
+            <FormLine 
+              label="Km départ" 
+              value={reservation?.kilometrage_sortie || ''} 
+              show={!hideOptions.hideKilometerInfo}
+              replaceWithDots={!hideOptions.replaceKilometerWithDots}
+            />
             {reservation?.status === 'completed' ? (
-              <FormLine label="Km retour" value={reservation?.kilometrage_entree || ''} />
+              <FormLine 
+                label="Km retour" 
+                value={reservation?.kilometrage_entree || ''} 
+                show={!hideOptions.hideKilometerInfo}
+                replaceWithDots={!hideOptions.replaceKilometerWithDots}
+              />
             ) : (
-              <FormLine label="Km retour" value="" />
+              <FormLine 
+                label="Km retour" 
+                value="" 
+                show={!hideOptions.hideKilometerInfo}
+                replaceWithDots={!hideOptions.replaceKilometerWithDots}
+              />
             )}
             <FormLine
               label="Kilométrage actuel"
@@ -308,13 +609,45 @@ const getKilometerReceiverName = () => {
                     ? reservation?.kilometrage_sortie
                     : reservation?.matricule_kilometrage_at_start || ''
               }
+              show={!hideOptions.hideKilometerInfo}
+              replaceWithDots={!hideOptions.replaceKilometerWithDots}
             />
-            <FormLine label="Nombre de jours" value={calculateRentalDays()} />
-            <FormLine label="Prix unitaire" value={`${reservation?.car?.price_per_day || ''} DH`} showPrice={!hidePrices} />
-            <FormLine label="Montant T.T.C" value={`${reservation?.total_price || ''} DH`} showPrice={!hidePrices} />
-            <FormLine label="Montant payé" value={`${reservation?.amount_paid || ''} DH`} showPrice={!hidePrices} />
-            <FormLine label="Montant restant" value={`${reservation?.remaining_amount || ''} DH`} showPrice={!hidePrices} />
-            <FormLine label="Montant de la franchise" value="" />
+            <FormLine 
+              label="Nombre de jours" 
+              value={calculateRentalDays()} 
+              show={!hideOptions.hideRentalInfo}
+              replaceWithDots={!hideOptions.replaceRentalInfoWithDots}
+            />
+            <FormLine 
+              label="Prix unitaire" 
+              value={`${reservation?.car?.price_per_day || ''} DH`} 
+              show={!hideOptions.hidePrices}
+              replaceWithDots={!hideOptions.replacePricesWithDots}
+            />
+            <FormLine 
+              label="Montant T.T.C" 
+              value={`${reservation?.total_price || ''} DH`} 
+              show={!hideOptions.hidePrices}
+              replaceWithDots={!hideOptions.replacePricesWithDots}
+            />
+            <FormLine 
+              label="Montant payé" 
+              value={`${reservation?.amount_paid || ''} DH`} 
+              show={!hideOptions.hidePrices}
+              replaceWithDots={!hideOptions.replacePricesWithDots}
+            />
+            <FormLine 
+              label="Montant restant" 
+              value={`${reservation?.remaining_amount || ''} DH`} 
+              show={!hideOptions.hidePrices}
+              replaceWithDots={!hideOptions.replacePricesWithDots}
+            />
+            <FormLine 
+              label="Montant de la franchise" 
+              value="" 
+              show={!hideOptions.hidePrices}
+              replaceWithDots={!hideOptions.replacePricesWithDots}
+            />
           </div>
         </div>
       </section>
@@ -355,18 +688,31 @@ const getKilometerReceiverName = () => {
       </section>
 
       <section className="observations-section">
-        <ObservationBox title="Observation">
+        <ObservationBox 
+          title="Observation"
+          show={!hideOptions.hideObservations}
+          replaceWithDots={!hideOptions.replaceObservationsWithDots}
+        >
           <div className="observation-text">
             Véhicule loué en bon état général. Le client s'engage à retourner le véhicule dans le même état.
             {reservation?.notes && ` Notes: ${reservation.notes}`}
           </div>
         </ObservationBox>
-        <ObservationBox title="Assurance Supplémentaire">
+        <ObservationBox 
+          title="Assurance Supplémentaire"
+          show={!hideOptions.hideInsuranceInfo}
+          replaceWithDots={!hideOptions.replaceInsuranceWithDots}
+        >
           <div className="observation-text">
             Assurance tous risques incluse. Franchise applicable en cas de sinistre.
           </div>
         </ObservationBox>
-        <ObservationBox title="Caution & Garantie" isHalf showPrice={!hidePrices}>
+        <ObservationBox 
+          title="Caution & Garantie" 
+          isHalf 
+          show={!hideOptions.hideGuaranteeInfo}
+          replaceWithDots={!hideOptions.replaceGuaranteeWithDots}
+        >
           <div className="observation-text">
             Caution: {reservation?.amount_paid ? `${reservation.amount_paid} DH` : '_________'} DH<br/>
             Montant restant: {reservation?.remaining_amount ? `${reservation.remaining_amount} DH` : '_________'} DH
@@ -387,14 +733,17 @@ const getKilometerReceiverName = () => {
         <SignatureBlock 
           label="Signature Agent" 
           signature={showSignatures ? signatures.agent : ''}
+          show={!hideOptions.hideSignatures}
         />
         <SignatureBlock 
           label="Signature du locataire" 
           signature={showSignatures ? signatures.locataire : ''}
+          show={!hideOptions.hideSignatures}
         />
         <SignatureBlock 
           label="Deuxieme conducteur" 
           signature={showSignatures ? signatures.secondConducteur : ''}
+          show={!hideOptions.hideSignatures}
         />
       </section>
 
@@ -456,21 +805,45 @@ const ReservationsManagement = ({ onBack, filter }) => {
     autorisation: false
   });
   
-  // NEW: State for hiding prices in contract - PERSISTENT throughout component lifecycle
-  const [hideContractPrices, setHideContractPrices] = useState(false);
+  // Updated: State for hiding various contract fields
+  const [hideContractOptions, setHideContractOptions] = useState({
+    hidePrices: false,
+    replacePricesWithDots: true,
+    hideLocataireInfo: false,
+    replaceLocataireWithDots: true,
+    hideSecondDriverInfo: false,
+    replaceSecondDriverWithDots: true,
+    hideVehicleInfo: false,
+    replaceVehicleWithDots: true,
+    hideDeliveryInfo: false,
+    replaceDeliveryWithDots: true,
+    hideRentalDates: false,
+    replaceRentalDatesWithDots: true,
+    hideKilometerInfo: false,
+    replaceKilometerWithDots: true,
+    hideRentalInfo: false,
+    replaceRentalInfoWithDots: true,
+    hideObservations: false,
+    replaceObservationsWithDots: true,
+    hideInsuranceInfo: false,
+    replaceInsuranceWithDots: true,
+    hideGuaranteeInfo: false,
+    replaceGuaranteeWithDots: true,
+    hideSignatures: false
+  });
 
-  // Search and Filter states - UPDATED: Initialize with filter prop
+  // Search and Filter states
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState(filter || 'all');
   const [dateFilter, setDateFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 12;
 
-  // NEW: Handle filter prop changes
+  // Handle filter prop changes
   useEffect(() => {
     if (filter) {
       setStatusFilter(filter);
-      setCurrentPage(1); // Reset to first page when filter changes
+      setCurrentPage(1);
     }
   }, [filter]);
 
@@ -488,7 +861,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
   useEffect(() => {
     const interval = setInterval(() => {
       dispatch(checkLateReservations());
-    }, 60000); // Check every minute
+    }, 60000);
 
     return () => clearInterval(interval);
   }, [dispatch]);
@@ -562,47 +935,41 @@ const ReservationsManagement = ({ onBack, filter }) => {
     return today >= startDate && today <= endDate;
   };
 
-  // ✅ FIXED: Calculate rental days correctly (same day = 1, next day = 1)
+  // Calculate rental days correctly (same day = 1, next day = 1)
   const calculateRentalDays = (startDate, endDate) => {
     if (!startDate || !endDate) return 0;
     
     const start = new Date(startDate);
     const end = new Date(endDate);
     
-    // Reset times to compare only dates for day calculation
     start.setHours(0, 0, 0, 0);
     end.setHours(0, 0, 0, 0);
     
-    // Calculate difference in days (exclusive - same day = 0, next day = 1)
     const diffTime = Math.abs(end - start);
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     
-    // Same day counts as 1 day rental, next day also counts as 1 day
     return diffDays === 0 ? 1 : diffDays;
   };
 
-  // ✅ NEW: Calculate days remaining with late days included
+  // Calculate days remaining with late days included
   const calculateDaysRemaining = (reservation) => {
     if (!reservation.end_date) return '';
     
     const today = new Date();
     const end = new Date(reservation.end_date);
     
-    // Reset times to compare only dates
     today.setHours(0, 0, 0, 0);
     end.setHours(0, 0, 0, 0);
     
     const diffTime = end - today;
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     
-    // If reservation is late, show positive number of late days
     if ((reservation.status === 'retard' || reservation.status === 'confirmed') && diffDays < 0) {
       const lateDays = Math.abs(diffDays);
       if (lateDays === 1) return '+1 jour de retard';
       return `+${lateDays} jours de retard`;
     }
     
-    // Normal remaining days calculation
     if (diffDays < 0) return 'Terminé';
     if (diffDays === 0) return 'Dernier jour';
     if (diffDays === 1) return '1 jour restant';
@@ -660,14 +1027,13 @@ const ReservationsManagement = ({ onBack, filter }) => {
     return userName || 'Administrateur';
   };
 
-  // Generate Detailed French Contract PDF - OPTIMIZED FOR ONE PAGE
+  // Generate Detailed French Contract PDF
   const generateContractPDF = async (reservation) => {
     try {
       const doc = new jsPDF('p', 'mm', 'a4');
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       
-      // Add contract content as HTML image
       const contractElement = document.getElementById('contract-print');
       
       if (!contractElement) {
@@ -675,10 +1041,8 @@ const ReservationsManagement = ({ onBack, filter }) => {
         return;
       }
 
-      // Create a clone of the contract element for printing
       const contractClone = contractElement.cloneNode(true);
       
-      // Apply optimized styles for PDF printing
       contractClone.style.width = '210mm';
       contractClone.style.height = 'auto';
       contractClone.style.padding = '10px';
@@ -686,7 +1050,6 @@ const ReservationsManagement = ({ onBack, filter }) => {
       contractClone.style.fontSize = '8px';
       contractClone.style.lineHeight = '1.1';
       
-      // Create a temporary container
       const tempContainer = document.createElement('div');
       tempContainer.style.position = 'fixed';
       tempContainer.style.left = '-9999px';
@@ -698,15 +1061,14 @@ const ReservationsManagement = ({ onBack, filter }) => {
       tempContainer.appendChild(contractClone);
       document.body.appendChild(tempContainer);
 
-      // Use html2canvas to capture the contract as image
       const html2canvas = await import('html2canvas');
       
       const canvas = await html2canvas.default(contractClone, {
-        scale: 1.2, // Reduced scale to fit everything
+        scale: 1.2,
         useCORS: true,
         allowTaint: true,
-        width: 794, // A4 width in pixels at 96 DPI
-        height: 1123, // A4 height in pixels at 96 DPI
+        width: 794,
+        height: 1123,
         scrollX: 0,
         scrollY: 0,
         windowWidth: 794,
@@ -717,33 +1079,33 @@ const ReservationsManagement = ({ onBack, filter }) => {
       const imgWidth = pageWidth;
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
       
-      // Check if content fits on one page
       if (imgHeight > pageHeight) {
-        console.log('Scaling contract to fit one page...');
-        // Scale to fit one page
         const scale = pageHeight / imgHeight;
         const scaledWidth = imgWidth * scale;
         const scaledHeight = imgHeight * scale;
         
         doc.addImage(imgData, 'PNG', (pageWidth - scaledWidth) / 2, 0, scaledWidth, scaledHeight);
       } else {
-        // Center the content vertically if it's smaller than the page
         const verticalOffset = (pageHeight - imgHeight) / 2;
         doc.addImage(imgData, 'PNG', 0, verticalOffset, imgWidth, imgHeight);
       }
       
-      // Clean up
       document.body.removeChild(tempContainer);
       
-      // Save and open PDF
       const pdfBlob = doc.output('blob');
       const pdfUrl = URL.createObjectURL(pdfBlob);
       
-      // Open in new window and download
       window.open(pdfUrl, '_blank');
-      doc.save(`contrat-location-${reservation.id}${hideContractPrices ? '-sans-prix' : ''}.pdf`);
       
-      // Clean up URL after a delay
+      // Generate filename with options summary
+      const optionsSummary = Object.entries(hideContractOptions)
+        .filter(([key, value]) => key.startsWith('hide') && value)
+        .map(([key]) => key.replace('hide', '').toLowerCase())
+        .join('-');
+      
+      const filename = `contrat-location-${reservation.id}${optionsSummary ? '-' + optionsSummary : ''}.pdf`;
+      doc.save(filename);
+      
       setTimeout(() => {
         URL.revokeObjectURL(pdfUrl);
       }, 1000);
@@ -758,7 +1120,6 @@ const ReservationsManagement = ({ onBack, filter }) => {
   const handlePrintContract = (reservation) => {
     try {
       setSelectedContractReservation(reservation);
-      // Small delay to ensure the contract is rendered
       setTimeout(() => {
         generateContractPDF(reservation);
       }, 500);
@@ -770,63 +1131,104 @@ const ReservationsManagement = ({ onBack, filter }) => {
 
   const handleViewContract = (reservation) => {
     setSelectedContractReservation(reservation);
-    // DO NOT reset hideContractPrices here - keep the checkbox state
     setShowContract(true);
   };
 
-  // Handle hide prices checkbox change - UPDATED: simple toggle
-  const handleHidePricesChange = () => {
-    setHideContractPrices(!hideContractPrices);
+  // Handle hide options changes
+  const handleHideOptionChange = (option, value) => {
+    setHideContractOptions(prev => ({
+      ...prev,
+      [option]: value
+    }));
   };
 
-  // Filter and search reservations with fixed date filtering
+  // Toggle between hide completely and replace with dots
+  const handleReplaceOptionChange = (option, value) => {
+    setHideContractOptions(prev => ({
+      ...prev,
+      [option]: value
+    }));
+  };
+
+  // Reset all hide options
+  const handleResetHideOptions = () => {
+    setHideContractOptions({
+      hidePrices: false,
+      replacePricesWithDots: true,
+      hideLocataireInfo: false,
+      replaceLocataireWithDots: true,
+      hideSecondDriverInfo: false,
+      replaceSecondDriverWithDots: true,
+      hideVehicleInfo: false,
+      replaceVehicleWithDots: true,
+      hideDeliveryInfo: false,
+      replaceDeliveryWithDots: true,
+      hideRentalDates: false,
+      replaceRentalDatesWithDots: true,
+      hideKilometerInfo: false,
+      replaceKilometerWithDots: true,
+      hideRentalInfo: false,
+      replaceRentalInfoWithDots: true,
+      hideObservations: false,
+      replaceObservationsWithDots: true,
+      hideInsuranceInfo: false,
+      replaceInsuranceWithDots: true,
+      hideGuaranteeInfo: false,
+      replaceGuaranteeWithDots: true,
+      hideSignatures: false
+    });
+  };
+
+  // Filter and search reservations
   const filteredReservations = reservations.filter(reservation => {
-  const matchesSearch = searchTerm === '' || 
-    reservation.client?.nom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    reservation.client?.prenom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    reservation.car?.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    reservation.car?.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    reservation.matricule?.matricule_code?.toLowerCase().includes(searchTerm.toLowerCase()) || // ADDED: Search by matricule
-    reservation.id.toString().includes(searchTerm);
+    const matchesSearch = searchTerm === '' || 
+      reservation.client?.nom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      reservation.client?.prenom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      reservation.second_driver_client?.nom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      reservation.second_driver_client?.prenom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      reservation.car?.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      reservation.car?.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      reservation.matricule?.matricule_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      reservation.id.toString().includes(searchTerm);
 
-  const matchesStatus = statusFilter === 'all' || 
-    (statusFilter === 'overdue' ? reservation.status === 'retard' : reservation.status === statusFilter);
+    const matchesStatus = statusFilter === 'all' || 
+      (statusFilter === 'overdue' ? reservation.status === 'retard' : reservation.status === statusFilter);
 
-  let matchesDate = true;
-  
-  if (dateFilter !== 'all') {
-    const startDate = reservation.start_date;
-    const endDate = reservation.end_date;
+    let matchesDate = true;
     
-    switch (dateFilter) {
-      case 'today':
-        matchesDate = isToday(startDate) || isToday(endDate);
-        break;
-      case 'this_week':
-        matchesDate = isThisWeek(startDate) || isThisWeek(endDate);
-        break;
-      case 'this_month':
-        matchesDate = isThisMonth(startDate) || isThisMonth(endDate);
-        break;
-      case 'upcoming':
-        matchesDate = isUpcoming(startDate);
-        break;
-      case 'past':
-        matchesDate = isPast(endDate);
-        break;
-      case 'active':
-        matchesDate = isActiveNow(reservation);
-        break;
-      case 'late':
-        matchesDate = reservation.status === 'retard';
-        break;
-      default:
-        matchesDate = true;
+    if (dateFilter !== 'all') {
+      const startDate = reservation.start_date;
+      const endDate = reservation.end_date;
+      
+      switch (dateFilter) {
+        case 'today':
+          matchesDate = isToday(startDate) || isToday(endDate);
+          break;
+        case 'this_week':
+          matchesDate = isThisWeek(startDate) || isThisWeek(endDate);
+          break;
+        case 'this_month':
+          matchesDate = isThisMonth(startDate) || isThisMonth(endDate);
+          break;
+        case 'upcoming':
+          matchesDate = isUpcoming(startDate);
+          break;
+        case 'past':
+          matchesDate = isPast(endDate);
+          break;
+        case 'active':
+          matchesDate = isActiveNow(reservation);
+          break;
+        case 'late':
+          matchesDate = reservation.status === 'retard';
+          break;
+        default:
+          matchesDate = true;
+      }
     }
-  }
 
-  return matchesSearch && matchesStatus && matchesDate;
-});
+    return matchesSearch && matchesStatus && matchesDate;
+  });
 
   // Pagination
   const totalPages = Math.ceil(filteredReservations.length / itemsPerPage);
@@ -860,70 +1262,72 @@ const ReservationsManagement = ({ onBack, filter }) => {
   };
 
   const handleCreate = () => {
-  setModalType('create');
-  setEditingItem(null);
-  setFormData({
-    start_date: new Date().toISOString().split('T')[0],
-    end_date: '',
-    start_time: '08:00',
-    end_time: '18:00',
-    rental_days: 1,
-    total_price: 0,
-    amount_paid: 0,
-    remaining_amount: 0,
-    status: 'pending',
-    car_id: '',
-    client_id: '',
-    matricule_id: '',
-    cin_number: '',
-    driver_license_number: '',
-    cin_image: '',
-    driver_license_image: '',
-    notes: '' // ✅ Empty string for new reservations
-  });
-  setShowModal(true);
-};
+    setModalType('create');
+    setEditingItem(null);
+    setFormData({
+      start_date: new Date().toISOString().split('T')[0],
+      end_date: '',
+      start_time: '08:00',
+      end_time: '18:00',
+      rental_days: 1,
+      total_price: 0,
+      amount_paid: 0,
+      remaining_amount: 0,
+      status: 'pending',
+      car_id: '',
+      client_id: '',
+      matricule_id: '',
+      has_second_driver: false,
+      second_driver_client_id: '',
+      cin_number: '',
+      driver_license_number: '',
+      cin_image: '',
+      driver_license_image: '',
+      notes: ''
+    });
+    setShowModal(true);
+  };
 
   const handleEdit = (reservation) => {
-  setModalType('edit');
-  setEditingItem(reservation);
-  
-  // ✅ FIXED: Parse notes to get just the text (not JSON)
-  let displayNotes = reservation.notes || '';
-  
-  try {
-    // Check if notes is a JSON string
-    if (displayNotes && displayNotes.trim().startsWith('{')) {
-      const notesObj = JSON.parse(displayNotes);
-      // If it's a JSON object with original_text, use that
-      // Otherwise, use the whole string as-is
-      if (notesObj.original_text !== undefined) {
-        displayNotes = notesObj.original_text || '';
-      }
-      // If it doesn't have original_text, keep as empty string
-      // because we want to discard the JSON
+    setModalType('edit');
+    setEditingItem(reservation);
+    
+    let displayNotes = reservation.notes || '';
+    
+    try {
+        if (displayNotes && displayNotes.trim().startsWith('{')) {
+            const notesObj = JSON.parse(displayNotes);
+            if (notesObj.original_text !== undefined) {
+                displayNotes = notesObj.original_text || '';
+            }
+        }
+    } catch (e) {
+        console.log('Notes parsing failed, using as plain text');
     }
-  } catch (e) {
-    // If parsing fails, keep as is
-    console.log('Notes parsing failed, using as plain text');
-  }
-  
-  setFormData({
-    ...reservation,
-    start_date: reservation.start_date.split('T')[0],
-    end_date: reservation.end_date.split('T')[0],
-    nom: reservation.client?.nom || '',
-    prenom: reservation.client?.prenom || '',
-    telephone: reservation.client?.telephone || '',
-    email: reservation.client?.email || '',
-    city: reservation.client?.city || '',
-    cin_number: reservation.client?.cin_number || '',
-    driver_license_number: reservation.client?.driver_license_number || '',
-    cin_image: reservation.client?.cin_image || '',
-    driver_license_image: reservation.client?.driver_license_image || '',
-    notes: displayNotes // ✅ This is now plain text
-  });
-  setShowModal(true);
+    
+    // Prepare second driver data
+    const hasSecondDriver = reservation.has_second_driver || false;
+    const secondDriverClientId = reservation.second_driver_client_id || '';
+    
+    setFormData({
+        ...reservation,
+        start_date: reservation.start_date.split('T')[0],
+        end_date: reservation.end_date.split('T')[0],
+        nom: reservation.client?.nom || '',
+        prenom: reservation.client?.prenom || '',
+        telephone: reservation.client?.telephone || '',
+        email: reservation.client?.email || '',
+        city: reservation.client?.city || '',
+        cin_number: reservation.client?.cin_number || '',
+        driver_license_number: reservation.client?.driver_license_number || '',
+        cin_image: reservation.client?.cin_image || '',
+        driver_license_image: reservation.client?.driver_license_image || '',
+        // IMPORTANT: Ensure both fields are set
+        has_second_driver: hasSecondDriver,
+        second_driver_client_id: secondDriverClientId,
+        notes: displayNotes
+    });
+    setShowModal(true);
 };
 
   const showDeleteConfirmation = (reservation) => {
@@ -954,35 +1358,38 @@ const ReservationsManagement = ({ onBack, filter }) => {
   
   try {
     let clientId = formData.client_id;
+    let secondDriverClientId = formData.second_driver_client_id;
 
-    // ✅ FIXED: Only create new client if client_id is empty AND we have prenom and telephone
-    // This means user clicked "Nouveau Client" in the modal
+    // ============================================
+    // 1. GESTION DU CLIENT PRINCIPAL (LOCATAIRE)
+    // ============================================
     if (!clientId && formData.prenom && formData.telephone) {
-      console.log('Creating NEW client (no existing client_id)...');
+      console.log('Creating NEW primary client (no existing client_id)...');
       
-      // ✅ IMPORTANT: When in "Nouveau Client" mode, DO NOT check for existing clients
-      // Just create a new one with the provided information
       const clientData = {
         nom: formData.nom || '',
         prenom: formData.prenom || '',
         telephone: formData.telephone || '',
-        email: formData.email || '', // Optional
-        city: formData.city || '', // Optional
+        email: formData.email || '',
+        city: formData.city || '',
         cin_number: formData.cin_number || '',
         driver_license_number: formData.driver_license_number || '',
         cin_image: formData.cin_image || '',
         driver_license_image: formData.driver_license_image || '',
+        date_naissance: formData.date_naissance || '',
+        lieu_naissance: formData.lieu_naissance || '',
+        cin_delivre_le: formData.cin_delivre_le || '',
+        permis_delivre_le: formData.permis_delivre_le || '',
         image_permit: 'default_permit.jpg',
         image_cn: 'default_cn.jpg'
       };
 
-      console.log('Creating new client with data:', clientData);
+      console.log('Creating new primary client with data:', clientData);
       
       try {
         const clientResult = await createClientWithRetry(clientData);
-        console.log('Client creation result:', clientResult);
+        console.log('Primary client creation result:', clientResult);
 
-        // Extract client ID from response
         if (clientResult.client && clientResult.client.id) {
           clientId = clientResult.client.id;
         } else if (clientResult.id) {
@@ -990,78 +1397,145 @@ const ReservationsManagement = ({ onBack, filter }) => {
         } else if (clientResult.data && clientResult.data.id) {
           clientId = clientResult.data.id;
         } else {
-          // Wait and refresh clients list to find the new client
+          // Wait and search for the new client
           await new Promise(resolve => setTimeout(resolve, 1500));
           await dispatch(fetchClients());
           
-          // Find the newly created client by exact telephone match
           const newClient = clients.find(c => 
             c.telephone === formData.telephone
           );
           
           if (newClient) {
             clientId = newClient.id;
-            console.log('Found new client after creation:', clientId);
+            console.log('Found new primary client after creation:', clientId);
           } else {
-            throw new Error('Client created but not found after refresh');
+            throw new Error('Primary client created but not found after refresh');
           }
         }
         
-        console.log('✅ New client created with ID:', clientId);
-        showSuccessMessage('Nouveau client créé avec succès!');
+        console.log('✅ New primary client created with ID:', clientId);
+        showSuccessMessage('Nouveau client (locataire) créé avec succès!');
         
       } catch (clientError) {
-        console.error('❌ Error creating new client:', clientError);
-        
-        // Try a more minimal approach if the first attempt fails
-        try {
-          console.log('Trying minimal client creation...');
-          const minimalClientData = {
-            prenom: formData.prenom || '',
-            telephone: formData.telephone || '',
-            nom: formData.nom || '',
-            image_permit: 'default_permit.jpg',
-            image_cn: 'default_cn.jpg'
-          };
-          
-          const minimalResult = await dispatch(createClient(minimalClientData)).unwrap();
-          console.log('Minimal client creation result:', minimalResult);
-          
-          if (minimalResult.id) {
-            clientId = minimalResult.id;
-          } else if (minimalResult.client && minimalResult.client.id) {
-            clientId = minimalResult.client.id;
-          } else {
-            throw new Error('Could not extract client ID from minimal creation');
-          }
-          
-          console.log('✅ Minimal client created with ID:', clientId);
-          showSuccessMessage('Client créé avec informations minimales');
-          
-        } catch (minimalError) {
-          console.error('❌ Minimal client creation also failed:', minimalError);
-          throw new Error(`Impossible de créer le client: ${minimalError.message || minimalError}`);
-        }
+        console.error('❌ Error creating new primary client:', clientError);
+        throw new Error(`Impossible de créer le client principal: ${clientError.message || clientError}`);
       }
     }
 
-    // ✅ If clientId is still empty, check if it's an existing client search
-    if (!clientId && formData.client_id) {
-      // This should not happen, but just in case
-      clientId = formData.client_id;
-      console.log('Using existing client ID from form:', clientId);
-    }
-
     if (!clientId) {
-      throw new Error('Aucun client sélectionné ou créé. Veuillez sélectionner un client existant ou créer un nouveau client.');
+      throw new Error('Aucun client principal sélectionné ou créé. Veuillez sélectionner ou créer un client pour la réservation.');
     }
 
-    // Calculate rental days
-    const rentalDays = formData.rental_days || calculateRentalDays(formData.start_date, formData.end_date);
+    // ============================================
+    // 2. GESTION DU DEUXIÈME CONDUCTEUR
+    // ============================================
+    if (formData.has_second_driver) {
+      console.log('Processing second driver...');
+      
+      // Case 1: Second driver is an existing client
+      if (secondDriverClientId && secondDriverClientId !== 'temp_pending') {
+        console.log('Second driver is an existing client with ID:', secondDriverClientId);
+        
+        // Verify the client exists
+        const secondDriverClient = clients.find(c => c.id === secondDriverClientId);
+        if (!secondDriverClient) {
+          console.warn('⚠️ Second driver client not found, will skip second driver');
+          secondDriverClientId = null;
+          formData.has_second_driver = false;
+        } else {
+          console.log('✅ Second driver client verified:', secondDriverClient.prenom, secondDriverClient.nom);
+        }
+      }
+      // Case 2: Second driver is a new client (from temp data)
+      else if (formData.second_driver_temp_data) {
+        console.log('Creating new second driver from temp data...');
+        
+        const secondDriverData = {
+          nom: formData.second_driver_temp_data.nom || '',
+          prenom: formData.second_driver_temp_data.prenom || '',
+          telephone: formData.second_driver_temp_data.telephone || '',
+          email: formData.second_driver_temp_data.email || '',
+          city: formData.second_driver_temp_data.city || '',
+          cin_number: formData.second_driver_temp_data.cin_number || '',
+          driver_license_number: formData.second_driver_temp_data.driver_license_number || '',
+          cin_image: formData.second_driver_temp_data.cin_image || '',
+          driver_license_image: formData.second_driver_temp_data.driver_license_image || '',
+          date_naissance: formData.second_driver_temp_data.date_naissance || '',
+          lieu_naissance: formData.second_driver_temp_data.lieu_naissance || '',
+          cin_delivre_le: formData.second_driver_temp_data.cin_delivre_le || '',
+          permis_delivre_le: formData.second_driver_temp_data.permis_delivre_le || '',
+          image_permit: 'default_permit.jpg',
+          image_cn: 'default_cn.jpg'
+        };
+        
+        // Validation des champs requis pour le deuxième conducteur
+        if (!secondDriverData.prenom || !secondDriverData.nom || !secondDriverData.telephone) {
+          throw new Error('Le deuxième conducteur doit avoir au moins un prénom, nom et téléphone');
+        }
+        
+        try {
+          // Create the second driver client
+          console.log('Creating second driver client:', secondDriverData);
+          const secondDriverResult = await createClientWithRetry(secondDriverData);
+          console.log('Second driver client creation result:', secondDriverResult);
+          
+          // Extract the new client ID
+          let newSecondDriverId;
+          if (secondDriverResult.client && secondDriverResult.client.id) {
+            newSecondDriverId = secondDriverResult.client.id;
+          } else if (secondDriverResult.id) {
+            newSecondDriverId = secondDriverResult.id;
+          } else if (secondDriverResult.data && secondDriverResult.data.id) {
+            newSecondDriverId = secondDriverResult.data.id;
+          } else {
+            // Wait and search for the new client
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            await dispatch(fetchClients());
+            
+            const newSecondDriverClient = clients.find(c => 
+              c.telephone === secondDriverData.telephone
+            );
+            
+            if (newSecondDriverClient) {
+              newSecondDriverId = newSecondDriverClient.id;
+            } else {
+              throw new Error('Second driver client created but not found after refresh');
+            }
+          }
+          
+          secondDriverClientId = newSecondDriverId;
+          console.log('✅ New second driver client created with ID:', secondDriverClientId);
+          showSuccessMessage('Deuxième conducteur créé avec succès!');
+          
+        } catch (secondDriverError) {
+          console.error('❌ Error creating second driver client:', secondDriverError);
+          
+          // If we can't create the second driver, disable second driver
+          showErrorMessage('Impossible de créer le deuxième conducteur. La réservation sera créée sans deuxième conducteur.');
+          formData.has_second_driver = false;
+          secondDriverClientId = null;
+        }
+      } else if (secondDriverClientId === 'temp_pending' || !secondDriverClientId) {
+        // This happens when the user checked "has second driver" but didn't select/create one
+        console.warn('⚠️ No second driver data provided. Disabling second driver.');
+        showErrorMessage('Aucun deuxième conducteur sélectionné. La réservation sera créée sans deuxième conducteur.');
+        formData.has_second_driver = false;
+        secondDriverClientId = null;
+      }
+      
+      // Check that the second driver is not the same as the primary client
+      if (secondDriverClientId && secondDriverClientId === clientId) {
+        throw new Error('Le deuxième conducteur ne peut pas être le même que le locataire');
+      }
+    }
 
-    // ✅ FIXED: Store ONLY what the user entered in the notes field
+    // ============================================
+    // 3. PRÉPARATION DES DONNÉES DE RÉSERVATION
+    // ============================================
+    const rentalDays = formData.rental_days || calculateRentalDays(formData.start_date, formData.end_date);
     const notesString = formData.notes || '';
 
+    // Prepare the reservation data for API
     const reservationData = {
       start_date: formData.start_date,
       end_date: formData.end_date,
@@ -1074,15 +1548,20 @@ const ReservationsManagement = ({ onBack, filter }) => {
       payment_history: formData.payment_history || [],
       status: formData.status || 'pending',
       car_id: formData.car_id,
-      client_id: clientId, // ✅ This is either existing client ID or newly created one
+      client_id: clientId,
       matricule_id: formData.matricule_id || null,
-      notes: notesString, // ✅ This is now just plain text
+      has_second_driver: formData.has_second_driver || false,
+      second_driver_client_id: formData.has_second_driver ? secondDriverClientId : null,
+      notes: notesString,
       kilometrage_sortie: formData.kilometrage_sortie || null,
       kilometrage_entree: formData.kilometrage_entree || null
     };
 
     console.log('Reservation data to submit:', reservationData);
 
+    // ============================================
+    // 4. CRÉATION/MISE À JOUR DE LA RÉSERVATION
+    // ============================================
     let result;
     if (modalType === 'create') {
       result = await dispatch(createReservation(reservationData)).unwrap();
@@ -1092,12 +1571,13 @@ const ReservationsManagement = ({ onBack, filter }) => {
       showSuccessMessage('Réservation mise à jour avec succès!');
     }
     
-    // 🔄 Force refresh matricules to sync status changes
+    // ============================================
+    // 5. MISE À JOUR DU MATRICULE
+    // ============================================
     setTimeout(() => {
       dispatch(refreshMatricules());
     }, 500);
     
-    // 🔧 SIMPLE MATRICULE UPDATE LOGIC - ONLY FOR COMPLETED RESERVATIONS
     if (formData.status === 'completed' && formData.matricule_id && formData.kilometrage_entree) {
       try {
         console.group('🚗 Matricule Update Process');
@@ -1105,7 +1585,6 @@ const ReservationsManagement = ({ onBack, filter }) => {
         console.log('Matricule ID:', formData.matricule_id);
         console.log('Return Kilometer to set:', formData.kilometrage_entree);
         
-        // Find the current matricule from Redux store
         const currentMatricule = matricules.find(m => m.id == formData.matricule_id);
         
         if (!currentMatricule) {
@@ -1116,14 +1595,12 @@ const ReservationsManagement = ({ onBack, filter }) => {
         console.log('📋 Found matricule:', currentMatricule.matricule_code);
         console.log('📊 Current kilometrage:', currentMatricule.kilometrage);
         
-        // ✅ CORRECT: Update matricule's CURRENT kilometer to the return kilometer
         const matriculeUpdateData = {
-          kilometrage: formData.kilometrage_entree // Km actuel = Km retour
+          kilometrage: formData.kilometrage_entree
         };
         
         console.log('🔄 Matricule update data:', matriculeUpdateData);
         
-        // Use updateMatricule thunk
         console.log('🔄 Using updateMatricule thunk');
         const updateResult = await dispatch(updateMatricule({ 
           id: formData.matricule_id, 
@@ -1139,7 +1616,6 @@ const ReservationsManagement = ({ onBack, filter }) => {
         console.groupEnd();
         console.error('❌ Matricule update failed:', matriculeError);
         
-        // More specific error messages
         if (matriculeError.message?.includes('Network Error')) {
           showErrorMessage('Erreur réseau: Impossible de mettre à jour le matricule. Veuillez vérifier votre connexion.');
         } else if (matriculeError.message?.includes('404')) {
@@ -1150,7 +1626,6 @@ const ReservationsManagement = ({ onBack, filter }) => {
           showErrorMessage('Réservation mise à jour mais échec de l\'enregistrement du kilométrage de retour: ' + matriculeError.message);
         }
         
-        // Don't fail the entire reservation update if matricule update fails
         console.warn('⚠️ Réservation mise à jour avec succès, mais échec de la mise à jour du matricule');
       }
     } else if (formData.status === 'completed' && formData.matricule_id && !formData.kilometrage_entree) {
@@ -1159,7 +1634,9 @@ const ReservationsManagement = ({ onBack, filter }) => {
       console.warn('⚠️ Réservation terminée mais aucun matricule assigné');
     }
     
-    // Show specific message for status changes that affect matricule status
+    // ============================================
+    // 6. MESSAGES DE CONFIRMATION
+    // ============================================
     if (formData.matricule_id) {
       if (formData.status === 'confirmed' || formData.status === 'retard') {
         showSuccessMessage(`Réservation ${modalType === 'create' ? 'créée' : 'mise à jour'}! Statut du matricule changé à inactif.`);
@@ -1168,7 +1645,9 @@ const ReservationsManagement = ({ onBack, filter }) => {
       }
     }
     
-    // Refresh all data
+    // ============================================
+    // 7. RAFRAÎCHISSEMENT DES DONNÉES
+    // ============================================
     setShowModal(false);
     dispatch(fetchReservations());
     dispatch(fetchClients());
@@ -1179,6 +1658,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
     console.error('❌ Error in handleSubmit:', error);
     const errorMsg = error.message || error;
     
+    // Gestion des erreurs spécifiques
     if (errorMsg.includes('MySQL') || errorMsg.includes('database') || errorMsg.includes('connection')) {
       showErrorMessage('Problème de connexion à la base de données. Veuillez réessayer dans un moment.');
     } else if (errorMsg.includes('Validation failed')) {
@@ -1189,6 +1669,12 @@ const ReservationsManagement = ({ onBack, filter }) => {
       showErrorMessage('Erreur de création du client: ' + errorMsg);
     } else if (errorMsg.includes('Aucun client sélectionné')) {
       showErrorMessage('Veuillez sélectionner ou créer un client pour la réservation.');
+    } else if (errorMsg.includes('Le deuxième conducteur ne peut pas être le même que le locataire')) {
+      showErrorMessage('Le deuxième conducteur ne peut pas être le même que le locataire.');
+    } else if (errorMsg.includes('Veuillez sélectionner un deuxième conducteur')) {
+      showErrorMessage('Veuillez sélectionner un deuxième conducteur ou décocher la case.');
+    } else if (errorMsg.includes('Le deuxième conducteur doit avoir au moins')) {
+      showErrorMessage('Le deuxième conducteur doit avoir au moins un prénom, nom et téléphone.');
     } else {
       showErrorMessage('Erreur: ' + errorMsg);
     }
@@ -1242,7 +1728,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
     }, 8000);
   };
 
-  // ✅ UPDATED: Add the new "retard" status badge
+  // Get status badge
   const getStatusBadge = (status) => {
     const statusConfig = {
       pending: { class: 'status-badge status-pending', text: 'En attente', icon: FaClock },
@@ -1270,12 +1756,13 @@ const ReservationsManagement = ({ onBack, filter }) => {
       return;
     }
 
-    const headers = ['ID', 'Client', 'Car', 'Start Date', 'End Date', 'Total Days', 'Total Price', 'Status'];
+    const headers = ['ID', 'Client', 'Second Driver', 'Car', 'Start Date', 'End Date', 'Total Days', 'Total Price', 'Status'];
     const csvContent = [
       headers.join(','),
       ...filteredReservations.map(reservation => [
         reservation.id,
         `"${reservation.client?.prenom} ${reservation.client?.nom}"`,
+        `"${reservation.has_second_driver ? `${reservation.second_driver_client?.prenom} ${reservation.second_driver_client?.nom}` : 'None'}"`,
         `"${reservation.car?.brand} ${reservation.car?.model}"`,
         new Date(reservation.start_date).toLocaleDateString(),
         new Date(reservation.end_date).toLocaleDateString(),
@@ -1304,7 +1791,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
     dispatch(fetchClients());
     dispatch(fetchCars());
     dispatch(fetchMatricules());
-    dispatch(checkLateReservations()); // Also check for late reservations
+    dispatch(checkLateReservations());
     showSuccessMessage('Data refreshed successfully!');
   };
 
@@ -1405,7 +1892,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
 
   return (
     <div className="reservations-management">
-      {/* Hidden contract for printing - OPTIMIZED FOR ONE PAGE */}
+      {/* Hidden contract for printing */}
       {selectedContractReservation && (
         <div style={{ display: 'none' }}>
           <ContractLocation 
@@ -1415,7 +1902,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
               paperwork: contractPaperwork
             }}
             currentUser={currentUser}
-            hidePrices={hideContractPrices}
+            hideOptions={hideContractOptions}
           />
         </div>
       )}
@@ -1436,7 +1923,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
                 </button>
                 <button 
                   className="btn btn-secondary" 
-                  onClick={() => setShowContract(false)} // Just close, don't reset checkbox
+                  onClick={() => setShowContract(false)}
                 >
                   <FaTimes className="btn-icon" />
                   Fermer
@@ -1445,59 +1932,448 @@ const ReservationsManagement = ({ onBack, filter }) => {
             </div>
             <div className="contract-modal-content">
               {/* Price Visibility Control */}
-              <div className="price-visibility-control">
-                <h3>Options d'affichage</h3>
-                <div className="price-checkbox-group">
-                  <label className="price-checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={hideContractPrices}
-                      onChange={handleHidePricesChange}
-                    />
-                    Masquer les prix dans le contrat
-                  </label>
-                  <div className="price-checkbox-description">
-                    Si coché, tous les montants (prix unitaire, montant TTC, montant payé, montant restant) seront remplacés par des traits dans le contrat.
-                  </div>
-                </div>
-              </div>
+          <div className="price-visibility-control">
+  <h3>Options d'affichage du contrat</h3>
+  
+  {/* Reset Button */}
+  <div className="options-reset-section">
+    <button 
+      className="btn btn-secondary btn-reset-options"
+      onClick={handleResetHideOptions}
+    >
+      <FaRedo className="btn-icon" />
+      Réinitialiser toutes les options
+    </button>
+  </div>
 
-              {/* Signature Input Section */}
-              <div className="signature-input-section">
-                <h3>Signatures</h3>
-                <div className="signature-inputs">
-                  <div className="signature-input-group">
-                    <label>Signature Agent:</label>
-                    <input
-                      type="text"
-                      value={contractSignatures.agent}
-                      onChange={(e) => handleSignatureChange('agent', e.target.value)}
-                      placeholder="Nom de l'agent"
-                      className="signature-input"
-                    />
-                  </div>
-                  <div className="signature-input-group">
-                    <label>Signature Locataire:</label>
-                    <input
-                      type="text"
-                      value={contractSignatures.locataire}
-                      onChange={(e) => handleSignatureChange('locataire', e.target.value)}
-                      placeholder="Nom du locataire"
-                      className="signature-input"
-                    />
-                  </div>
-                  <div className="signature-input-group">
-                    <label>Deuxième Conducteur:</label>
-                    <input
-                      type="text"
-                      value={contractSignatures.secondConducteur}
-                      onChange={(e) => handleSignatureChange('secondConducteur', e.target.value)}
-                      placeholder="Nom du conducteur"
-                      className="signature-input"
-                    />
-                  </div>
-                </div>
-              </div>
+  {/* Options Grid - 4 per row */}
+  <div className="options-grid">
+    
+    {/* 1. PRICES SECTION */}
+    <div className="options-section">
+      <h4><FaMoneyBill className="section-icon" /> Prix et Montants</h4>
+      <div className="options-group">
+        <div className="option-item">
+          <label className="option-label">
+            <input
+              type="checkbox"
+              checked={hideContractOptions.hidePrices}
+              onChange={(e) => handleHideOptionChange('hidePrices', e.target.checked)}
+            />
+            Masquer tous les prix
+          </label>
+          <div className="option-subgroup">
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="pricesOption"
+                checked={hideContractOptions.replacePricesWithDots}
+                onChange={() => handleReplaceOptionChange('replacePricesWithDots', true)}
+              />
+              {hideContractOptions.hidePrices ? 'Masquer complètement' : 'Afficher normalement'}
+            </label>
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="pricesOption"
+                checked={!hideContractOptions.replacePricesWithDots}
+                onChange={() => handleReplaceOptionChange('replacePricesWithDots', false)}
+              />
+              Remplacer par des traits
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* 2. CLIENT INFO SECTION */}
+    <div className="options-section">
+      <h4><FaUser className="section-icon" /> Informations du Locataire</h4>
+      <div className="options-group">
+        <div className="option-item">
+          <label className="option-label">
+            <input
+              type="checkbox"
+              checked={hideContractOptions.hideLocataireInfo}
+              onChange={(e) => handleHideOptionChange('hideLocataireInfo', e.target.checked)}
+            />
+            Masquer les informations du locataire
+          </label>
+          <div className="option-subgroup">
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="locataireOption"
+                checked={hideContractOptions.replaceLocataireWithDots}
+                onChange={() => handleReplaceOptionChange('replaceLocataireWithDots', true)}
+              />
+              {hideContractOptions.hideLocataireInfo ? 'Masquer complètement' : 'Afficher normalement'}
+            </label>
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="locataireOption"
+                checked={!hideContractOptions.replaceLocataireWithDots}
+                onChange={() => handleReplaceOptionChange('replaceLocataireWithDots', false)}
+              />
+              Remplacer par des traits
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* 3. SECOND DRIVER SECTION */}
+    <div className="options-section">
+      <h4><FaUserFriends className="section-icon" /> Deuxième Conducteur</h4>
+      <div className="options-group">
+        <div className="option-item">
+          <label className="option-label">
+            <input
+              type="checkbox"
+              checked={hideContractOptions.hideSecondDriverInfo}
+              onChange={(e) => handleHideOptionChange('hideSecondDriverInfo', e.target.checked)}
+            />
+            Masquer les informations du deuxième conducteur
+          </label>
+          <div className="option-subgroup">
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="secondDriverOption"
+                checked={hideContractOptions.replaceSecondDriverWithDots}
+                onChange={() => handleReplaceOptionChange('replaceSecondDriverWithDots', true)}
+              />
+              {hideContractOptions.hideSecondDriverInfo ? 'Masquer complètement' : 'Afficher normalement'}
+            </label>
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="secondDriverOption"
+                checked={!hideContractOptions.replaceSecondDriverWithDots}
+                onChange={() => handleReplaceOptionChange('replaceSecondDriverWithDots', false)}
+              />
+              Remplacer par des traits
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* 4. VEHICLE INFO SECTION */}
+    <div className="options-section">
+      <h4><FaCar className="section-icon" /> Informations du Véhicule</h4>
+      <div className="options-group">
+        <div className="option-item">
+          <label className="option-label">
+            <input
+              type="checkbox"
+              checked={hideContractOptions.hideVehicleInfo}
+              onChange={(e) => handleHideOptionChange('hideVehicleInfo', e.target.checked)}
+            />
+            Masquer les informations du véhicule
+          </label>
+          <div className="option-subgroup">
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="vehicleOption"
+                checked={hideContractOptions.replaceVehicleWithDots}
+                onChange={() => handleReplaceOptionChange('replaceVehicleWithDots', true)}
+              />
+              {hideContractOptions.hideVehicleInfo ? 'Masquer complètement' : 'Afficher normalement'}
+            </label>
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="vehicleOption"
+                checked={!hideContractOptions.replaceVehicleWithDots}
+                onChange={() => handleReplaceOptionChange('replaceVehicleWithDots', false)}
+              />
+              Remplacer par des traits
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* 5. DELIVERY INFO SECTION */}
+    <div className="options-section">
+      <h4><FaKey className="section-icon" /> Livraison et Réception</h4>
+      <div className="options-group">
+        <div className="option-item">
+          <label className="option-label">
+            <input
+              type="checkbox"
+              checked={hideContractOptions.hideDeliveryInfo}
+              onChange={(e) => handleHideOptionChange('hideDeliveryInfo', e.target.checked)}
+            />
+            Masquer "Livrer par" et "Réceptionner par"
+          </label>
+          <div className="option-subgroup">
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="deliveryOption"
+                checked={hideContractOptions.replaceDeliveryWithDots}
+                onChange={() => handleReplaceOptionChange('replaceDeliveryWithDots', true)}
+              />
+              {hideContractOptions.hideDeliveryInfo ? 'Masquer complètement' : 'Afficher normalement'}
+            </label>
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="deliveryOption"
+                checked={!hideContractOptions.replaceDeliveryWithDots}
+                onChange={() => handleReplaceOptionChange('replaceDeliveryWithDots', false)}
+              />
+              Remplacer par des traits
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* 6. RENTAL DATES SECTION */}
+    <div className="options-section">
+      <h4><FaCalendarAlt className="section-icon" /> Dates de Location</h4>
+      <div className="options-group">
+        <div className="option-item">
+          <label className="option-label">
+            <input
+              type="checkbox"
+              checked={hideContractOptions.hideRentalDates}
+              onChange={(e) => handleHideOptionChange('hideRentalDates', e.target.checked)}
+            />
+            Masquer les dates de location
+          </label>
+          <div className="option-subgroup">
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="rentalDatesOption"
+                checked={hideContractOptions.replaceRentalDatesWithDots}
+                onChange={() => handleReplaceOptionChange('replaceRentalDatesWithDots', true)}
+              />
+              {hideContractOptions.hideRentalDates ? 'Masquer complètement' : 'Afficher normalement'}
+            </label>
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="rentalDatesOption"
+                checked={!hideContractOptions.replaceRentalDatesWithDots}
+                onChange={() => handleReplaceOptionChange('replaceRentalDatesWithDots', false)}
+              />
+              Remplacer par des traits
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* 7. KILOMETER INFO SECTION */}
+    <div className="options-section">
+      <h4><FaTachometerAlt className="section-icon" /> Kilométrage</h4>
+      <div className="options-group">
+        <div className="option-item">
+          <label className="option-label">
+            <input
+              type="checkbox"
+              checked={hideContractOptions.hideKilometerInfo}
+              onChange={(e) => handleHideOptionChange('hideKilometerInfo', e.target.checked)}
+            />
+            Masquer le kilométrage
+          </label>
+          <div className="option-subgroup">
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="kilometerOption"
+                checked={hideContractOptions.replaceKilometerWithDots}
+                onChange={() => handleReplaceOptionChange('replaceKilometerWithDots', true)}
+              />
+              {hideContractOptions.hideKilometerInfo ? 'Masquer complètement' : 'Afficher normalement'}
+            </label>
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="kilometerOption"
+                checked={!hideContractOptions.replaceKilometerWithDots}
+                onChange={() => handleReplaceOptionChange('replaceKilometerWithDots', false)}
+              />
+              Remplacer par des traits
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* 8. RENTAL INFO SECTION */}
+    <div className="options-section">
+      <h4><FaClock className="section-icon" /> Informations de Location</h4>
+      <div className="options-group">
+        <div className="option-item">
+          <label className="option-label">
+            <input
+              type="checkbox"
+              checked={hideContractOptions.hideRentalInfo}
+              onChange={(e) => handleHideOptionChange('hideRentalInfo', e.target.checked)}
+            />
+            Masquer "Nombre de jours"
+          </label>
+          <div className="option-subgroup">
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="rentalInfoOption"
+                checked={hideContractOptions.replaceRentalInfoWithDots}
+                onChange={() => handleReplaceOptionChange('replaceRentalInfoWithDots', true)}
+              />
+              {hideContractOptions.hideRentalInfo ? 'Masquer complètement' : 'Afficher normalement'}
+            </label>
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="rentalInfoOption"
+                checked={!hideContractOptions.replaceRentalInfoWithDots}
+                onChange={() => handleReplaceOptionChange('replaceRentalInfoWithDots', false)}
+              />
+              Remplacer par des traits
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* 9. OBSERVATIONS SECTION */}
+    <div className="options-section">
+      <h4><FaMapMarkerAlt className="section-icon" /> Observations</h4>
+      <div className="options-group">
+        <div className="option-item">
+          <label className="option-label">
+            <input
+              type="checkbox"
+              checked={hideContractOptions.hideObservations}
+              onChange={(e) => handleHideOptionChange('hideObservations', e.target.checked)}
+            />
+            Masquer les observations
+          </label>
+          <div className="option-subgroup">
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="observationsOption"
+                checked={hideContractOptions.replaceObservationsWithDots}
+                onChange={() => handleReplaceOptionChange('replaceObservationsWithDots', true)}
+              />
+              {hideContractOptions.hideObservations ? 'Masquer complètement' : 'Afficher normalement'}
+            </label>
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="observationsOption"
+                checked={!hideContractOptions.replaceObservationsWithDots}
+                onChange={() => handleReplaceOptionChange('replaceObservationsWithDots', false)}
+              />
+              Remplacer par des traits
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* 10. INSURANCE INFO SECTION */}
+    <div className="options-section">
+      <h4><FaIdCard className="section-icon" /> Assurance Supplémentaire</h4>
+      <div className="options-group">
+        <div className="option-item">
+          <label className="option-label">
+            <input
+              type="checkbox"
+              checked={hideContractOptions.hideInsuranceInfo}
+              onChange={(e) => handleHideOptionChange('hideInsuranceInfo', e.target.checked)}
+            />
+            Masquer les informations d'assurance
+          </label>
+          <div className="option-subgroup">
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="insuranceOption"
+                checked={hideContractOptions.replaceInsuranceWithDots}
+                onChange={() => handleReplaceOptionChange('replaceInsuranceWithDots', true)}
+              />
+              {hideContractOptions.hideInsuranceInfo ? 'Masquer complètement' : 'Afficher normalement'}
+            </label>
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="insuranceOption"
+                checked={!hideContractOptions.replaceInsuranceWithDots}
+                onChange={() => handleReplaceOptionChange('replaceInsuranceWithDots', false)}
+              />
+              Remplacer par des traits
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* 11. GUARANTEE INFO SECTION */}
+    <div className="options-section">
+      <h4><FaMoneyBill className="section-icon" /> Caution et Garantie</h4>
+      <div className="options-group">
+        <div className="option-item">
+          <label className="option-label">
+            <input
+              type="checkbox"
+              checked={hideContractOptions.hideGuaranteeInfo}
+              onChange={(e) => handleHideOptionChange('hideGuaranteeInfo', e.target.checked)}
+            />
+            Masquer "Caution & Garantie"
+          </label>
+          <div className="option-subgroup">
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="guaranteeOption"
+                checked={hideContractOptions.replaceGuaranteeWithDots}
+                onChange={() => handleReplaceOptionChange('replaceGuaranteeWithDots', true)}
+              />
+              {hideContractOptions.hideGuaranteeInfo ? 'Masquer complètement' : 'Afficher normalement'}
+            </label>
+            <label className="option-sub-label">
+              <input
+                type="radio"
+                name="guaranteeOption"
+                checked={!hideContractOptions.replaceGuaranteeWithDots}
+                onChange={() => handleReplaceOptionChange('replaceGuaranteeWithDots', false)}
+              />
+              Remplacer par des traits
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* 12. SIGNATURES SECTION */}
+    <div className="options-section">
+      <h4><FaFileSignature className="section-icon" /> Signatures</h4>
+      <div className="options-group">
+        <div className="option-item">
+          <label className="option-label">
+            <input
+              type="checkbox"
+              checked={hideContractOptions.hideSignatures}
+              onChange={(e) => handleHideOptionChange('hideSignatures', e.target.checked)}
+            />
+            Masquer toutes les signatures
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
               {/* Paperwork Checkboxes */}
               <div className="paperwork-checkboxes">
@@ -1554,7 +2430,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
                 }}
                 showSignatures={true}
                 currentUser={currentUser}
-                hidePrices={hideContractPrices}
+                hideOptions={hideContractOptions}
               />
             </div>
           </div>
@@ -1598,15 +2474,15 @@ const ReservationsManagement = ({ onBack, filter }) => {
       {/* Search and Filter Section */}
       <div className="search-filter-section">
         <div className="search-box">
-  <FaSearch className="search-icon" />
-  <input
-    type="text"
-    placeholder="Rechercher par client, véhicule, immatriculation ou ID..."
-    value={searchTerm}
-    onChange={handleSearch}
-    className="search-input"
-  />
-</div>
+          <FaSearch className="search-icon" />
+          <input
+            type="text"
+            placeholder="Rechercher par client, deuxième conducteur, véhicule, immatriculation ou ID..."
+            value={searchTerm}
+            onChange={handleSearch}
+            className="search-input"
+          />
+        </div>
 
         <div className="filter-group">
           <div className="filter-item">
@@ -1683,7 +2559,8 @@ const ReservationsManagement = ({ onBack, filter }) => {
               <thead>
                 <tr>
                   <th>ID</th>
-                  <th>Client</th>
+                  <th>Locataire</th>
+                  <th>2ème Conducteur</th>
                   <th>Véhicule</th>
                   <th>Période</th>
                   <th>Jours</th>
@@ -1695,37 +2572,59 @@ const ReservationsManagement = ({ onBack, filter }) => {
               </thead>
               <tbody>
                 {currentReservations.map(reservation => {
-                  // ✅ FIXED: Use the corrected calculateRentalDays function
                   const totalDays = calculateRentalDays(reservation.start_date, reservation.end_date);
-                  // ✅ UPDATED: Pass the entire reservation to calculate days remaining
                   const daysRemaining = calculateDaysRemaining(reservation);
                   
                   return (
                     <tr key={reservation.id}>
                       <td className="reservation-id">#{reservation.id}</td>
                       <td className="client-name">
-                        {reservation.client?.prenom} {reservation.client?.nom}
+                        <div className="client-info-cell">
+                          <div className="client-name-main">
+                            {reservation.client?.prenom} {reservation.client?.nom}
+                          </div>
+                          <div className="client-phone">
+                            <FaPhone className="icon-small" /> {reservation.client?.telephone}
+                          </div>
+                        </div>
                       </td>
-                      {/* Dans la partie qui affiche les informations du véhicule dans le tableau */}
-<td className="car-info">
-  <div className="car-info-container">
-    <div className="car-brand-model">
-      {reservation.car?.brand} {reservation.car?.model}
-    </div>
-    <div className="car-details">
-      <span className="car-color-year">
-        <FaPalette className="icon-small" />
-        {reservation.car?.color || 'N/A'} | {reservation.car?.year || 'N/A'}
-      </span>
-      {reservation.matricule?.matricule_code && (
-        <span className="car-matricule">
-          <FaCar className="icon-small" />
-          {reservation.matricule.matricule_code}
-        </span>
-      )}
-    </div>
-  </div>
-</td>
+                      <td className="second-driver-cell">
+                        {reservation.has_second_driver ? (
+                          <div className="client-info-cell">
+                            <div className="client-name-main">
+                              <FaUserFriends className="icon-small" />
+                              {reservation.second_driver_client?.prenom} {reservation.second_driver_client?.nom}
+                            </div>
+                            <div className="client-phone">
+                              <FaPhone className="icon-small" /> {reservation.second_driver_client?.telephone}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="no-second-driver">
+                            <FaUserPlus className="icon-small" />
+                            Aucun
+                          </span>
+                        )}
+                      </td>
+                      <td className="car-info">
+                        <div className="car-info-container">
+                          <div className="car-brand-model">
+                            {reservation.car?.brand} {reservation.car?.model}
+                          </div>
+                          <div className="car-details">
+                            <span className="car-color-year">
+                              <FaPalette className="icon-small" />
+                              {reservation.car?.color || 'N/A'} | {reservation.car?.year || 'N/A'}
+                            </span>
+                            {reservation.matricule?.matricule_code && (
+                              <span className="car-matricule">
+                                <FaCar className="icon-small" />
+                                {reservation.matricule.matricule_code}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
                       <td className="reservation-period">
                         {new Date(reservation.start_date).toLocaleDateString('fr-FR')} - {' '}
                         {new Date(reservation.end_date).toLocaleDateString('fr-FR')}
@@ -1824,6 +2723,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
           cars={cars}
           matricules={matricules}
           submitting={submitting}
+          currentUser={currentUser}
         />
       )}
 
@@ -1849,6 +2749,11 @@ const ReservationsManagement = ({ onBack, filter }) => {
                       <div className="reservation-client">
                         <strong>Client:</strong> {confirmationConfig.reservation.client?.prenom} {confirmationConfig.reservation.client?.nom}
                       </div>
+                      {confirmationConfig.reservation.has_second_driver && (
+                        <div className="reservation-second-driver">
+                          <strong>2ème Conducteur:</strong> {confirmationConfig.reservation.second_driver_client?.prenom} {confirmationConfig.reservation.second_driver_client?.nom}
+                        </div>
+                      )}
                       <div className="reservation-car">
                         <strong>Véhicule:</strong> {confirmationConfig.reservation.car?.brand} {confirmationConfig.reservation.car?.model}
                         {confirmationConfig.reservation.car?.color && (
@@ -1890,6 +2795,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
           </div>
         </div>
       )}
+
 
       <style jsx>{`
         .reservations-management {
@@ -2546,7 +3452,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
           max-height: calc(95vh - 100px);
         }
 
-        /* Price Visibility Control */
+        /* Price Visibility Control - UPDATED */
         .price-visibility-control {
           background: #f0f8ff;
           padding: 1.5rem;
@@ -2556,38 +3462,145 @@ const ReservationsManagement = ({ onBack, filter }) => {
         }
 
         .price-visibility-control h3 {
-          margin: 0 0 1rem 0;
+          margin: 0 0 1.5rem 0;
           color: #1a1a1a;
-          font-size: 1.2rem;
+          font-size: 1.3rem;
+          border-bottom: 2px solid #d1e7ff;
+          padding-bottom: 0.75rem;
         }
 
-        .price-checkbox-group {
+        /* Options Reset Section */
+        .options-reset-section {
+          margin-bottom: 1.5rem;
+          padding-bottom: 1.5rem;
+          border-bottom: 2px solid #e9ecef;
+        }
+.options-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+@media (max-width: 1200px) {
+  .options-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .options-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .options-grid {
+    grid-template-columns: 1fr;
+  }
+}
+        .btn-reset-options {
+          background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+          color: #495057;
+          border: 1px solid #dee2e6;
+        }
+
+        .btn-reset-options:hover {
+          background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%);
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Options Sections */
+        .options-section {
+  background: white;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 1rem;
+  transition: all 0.3s ease;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+        .options-section:hover {
+          border-color: #667eea;
+          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.1);
+        }
+
+        .options-section h4 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem 0;
+  color: #2c3e50;
+  font-size: 0.95rem;
+  font-weight: 600;
+  min-height: 2.5rem;
+}
+
+        .section-icon {
+  font-size: 0.85rem;
+  color: #667eea;
+}
+
+.options-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex-grow: 1;
+}
+
+.option-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.option-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+  color: #495057;
+  cursor: pointer;
+  padding: 0.25rem 0;
+  font-size: 0.85rem;
+}
+        .option-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+        .option-subgroup {
+          margin-left: 1.5rem;
           display: flex;
           flex-direction: column;
-          gap: 0.5rem;
+          gap: 0.25rem;
         }
 
-        .price-checkbox-label {
+        .option-sub-label {
           display: flex;
           align-items: center;
-          gap: 0.75rem;
-          font-size: 1rem;
-          font-weight: 600;
-          color: #495057;
-          cursor: pointer;
-        }
-
-        .price-checkbox-label input {
-          width: 20px;
-          height: 20px;
-          cursor: pointer;
-        }
-
-        .price-checkbox-description {
-          font-size: 0.875rem;
+          gap: 0.5rem;
+          font-size: 0.8rem;
           color: #6c757d;
-          margin-left: 2rem;
-          font-style: italic;
+          cursor: pointer;
+          padding: 0.125rem 0;
+        }
+
+        .option-sub-label input[type="radio"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+        .option-sub-label:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
 
         /* Signature Input Section */
@@ -3368,6 +4381,19 @@ const ReservationsManagement = ({ onBack, filter }) => {
           .confirmation-actions {
             flex-direction: column;
           }
+
+          /* Responsive options sections */
+          .options-section {
+            padding: 0.75rem;
+          }
+
+          .option-subgroup {
+            margin-left: 1rem;
+          }
+
+          .signature-input-group {
+            min-width: 100%;
+          }
         }
           /* Add to existing .car-details styles */
 .car-details {
@@ -3388,35 +4414,126 @@ const ReservationsManagement = ({ onBack, filter }) => {
   margin-top: 2px;
 }
 
+/* Version avec des couleurs très vives */
 .car-color-year {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 8px;
-  background: #f8f9fa;
-  border-radius: 6px;
-  border: 1px solid #e9ecef;
-  font-size: 0.7rem;
+  padding: 4px 12px;
+  background: linear-gradient(135deg, #ffcc00 0%, #ff9900 100%); /* Orange vif */
+  border-radius: 10px;
+  border: 2px solid #ff6600; /* Bordure orange foncé */
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #ffffff; /* Blanc */
   white-space: nowrap;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 3px 6px rgba(255, 102, 0, 0.3);
 }
 
 .car-matricule {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 8px;
-  background: #e9ecef;
-  border-radius: 6px;
-  border: 1px solid #dee2e6;
-  font-size: 0.7rem;
-  font-weight: 500;
-  color: #495057;
+  padding: 4px 12px;
+  background: linear-gradient(135deg, #00cc66 0%, #009933 100%); /* Vert vif */
+  border-radius: 10px;
+  border: 2px solid #006633; /* Bordure vert foncé */
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #ffffff; /* Blanc */
   white-space: nowrap;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 3px 6px rgba(0, 102, 51, 0.3);
 }
 
 .icon-small {
   font-size: 0.7rem;
-  opacity: 0.7;
+  color: currentColor; /* Utilise la couleur du parent */
+}
+  /* Add to the existing CSS */
+.selected-client-card {
+    border: 2px solid #3b82f6;
+    border-radius: 12px;
+    padding: 1.5rem;
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+    margin-top: 1rem;
+}
+
+.selected-client-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #d1e7ff;
+}
+
+.selected-client-header h4 {
+    margin: 0;
+    color: #1e40af;
+    font-size: 1.1rem;
+}
+
+.btn-remove-client {
+    background: none;
+    border: none;
+    color: #dc2626;
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 6px;
+    transition: all 0.3s ease;
+}
+
+.btn-remove-client:hover {
+    background: #fee2e2;
+}
+
+.selected-client-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+.client-name,
+.client-contact,
+.client-email,
+.client-cin,
+.client-license {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: #374151;
+}
+
+.client-name {
+    font-weight: 600;
+    font-size: 1rem;
+    color: #1e3a8a;
+}
+
+.btn-change-driver {
+    width: 100%;
+    padding: 0.75rem;
+    background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+    border: 1px solid #d1d5db;
+    color: #4b5563;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    transition: all 0.3s ease;
+}
+
+.btn-change-driver:hover {
+    background: linear-gradient(135deg, #e5e7eb 0%, #d1d5db 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
       `}</style>
     </div>

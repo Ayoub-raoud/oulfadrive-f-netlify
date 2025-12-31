@@ -7,7 +7,7 @@ import {
   FaCheck, FaBan, FaOilCan, FaTachometerAlt, FaCalendarCheck,
   FaTools, FaVial, FaShieldAlt, FaFilePdf, FaDownload, FaEye,
   FaEdit, FaSave, FaList, FaCalculator, FaHistory as FaHistoryIcon,
-  FaRoad, FaRuler, FaSyncAlt, FaCheckCircle, FaExclamationCircle
+  FaRoad, FaRuler, FaSyncAlt, FaCheckCircle, FaExclamationCircle,FaEnvelope ,FaPhone ,FaSearch ,FaUserPlus,FaMapMarkerAlt
 } from 'react-icons/fa';
 
 const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit, clients = [], matricules = [], cars = [], submitting = false }) => {
@@ -16,7 +16,356 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
   const [useRentalDays, setUseRentalDays] = useState(false);
   const [carMatricules, setCarMatricules] = useState([]);
   const [isNewClient, setIsNewClient] = useState(false);
+  const [blurTimeoutId, setBlurTimeoutId] = useState(null);
+
   const [showExpertFields, setShowExpertFields] = useState(false);
+  const [showSecondDriver, setShowSecondDriver] = useState(formData.has_second_driver || false);
+const [secondDriverSearch, setSecondDriverSearch] = useState('');
+const [selectedSecondDriver, setSelectedSecondDriver] = useState(null);
+const [carSearch, setCarSearch] = useState('');
+const [matriculeSearch, setMatriculeSearch] = useState('');
+const [showCarDropdown, setShowCarDropdown] = useState(false);
+const [showMatriculeDropdown, setShowMatriculeDropdown] = useState(false);
+
+useEffect(() => {
+  return () => {
+    if (blurTimeoutId) {
+      clearTimeout(blurTimeoutId);
+    }
+  };
+}, [blurTimeoutId]);
+
+// ✅ FIXED: Use useMemo for filtered cars
+const filteredCars = useMemo(() => {
+  if (!carSearch.trim()) {
+    return [];
+  }
+  
+  const searchTerm = carSearch.toLowerCase().trim();
+  
+  return cars
+    .filter(car => {
+      if (!car || typeof car !== 'object') return false;
+      
+      const brand = (car.brand || '').toLowerCase();
+      const model = (car.model || '').toLowerCase();
+      const color = (car.color || '').toLowerCase();
+      const year = (car.year || '').toString();
+      const searchString = `${brand} ${model} ${color} ${year}`;
+      
+      return searchString.includes(searchTerm);
+    })
+    .slice(0, 10);
+}, [carSearch, cars]);
+
+// ✅ FIXED: Use useMemo for filtered matricules
+const filteredMatricules = useMemo(() => {
+  if (!matriculeSearch.trim()) {
+    return [];
+  }
+  
+  const searchTerm = matriculeSearch.toLowerCase().trim();
+  
+  return matricules
+    .filter(matricule => {
+      if (!matricule || typeof matricule !== 'object') return false;
+      
+      const code = (matricule.matricule_code || '').toLowerCase();
+      const carId = matricule.car_id;
+      const car = cars.find(c => c.id == carId);
+      const carInfo = car ? `${car.brand} ${car.model} ${car.color}`.toLowerCase() : '';
+      const searchString = `${code} ${carInfo}`;
+      
+      return searchString.includes(searchTerm);
+    })
+    .slice(0, 10);
+}, [matriculeSearch, matricules, cars]);
+
+// ✅ FIXED: Use useMemo for initial car search value
+const initialCarSearch = useMemo(() => {
+  if (modalType === 'edit' && formData.car_id) {
+    const car = cars.find(c => c.id == formData.car_id);
+    return car ? `${car.brand} ${car.model} ${car.year} - ${car.color}` : '';
+  }
+  return '';
+}, [modalType, formData.car_id, cars]);
+
+// ✅ FIXED: Use useMemo for initial matricule search value
+const initialMatriculeSearch = useMemo(() => {
+  if (modalType === 'edit' && type === 'reservations' && formData.matricule_id) {
+    const matricule = matricules.find(m => m.id == formData.matricule_id);
+    return matricule ? matricule.matricule_code : '';
+  }
+  return '';
+}, [modalType, type, formData.matricule_id, matricules]);
+
+// ✅ FIXED: Initialize search fields once
+useEffect(() => {
+  if (modalType === 'edit') {
+    if (formData.car_id && !carSearch && initialCarSearch) {
+      setCarSearch(initialCarSearch);
+    }
+    if (type === 'reservations' && formData.matricule_id && !matriculeSearch && initialMatriculeSearch) {
+      setMatriculeSearch(initialMatriculeSearch);
+    }
+  }
+}, [modalType, initialCarSearch, initialMatriculeSearch]);
+
+// Add this function for car selection
+const handleCarSelect = (car) => {
+  handleChange('car_id', car.id);
+  setCarSearch(`${car.brand} ${car.model} ${car.year} - ${car.color}`);
+  setShowCarDropdown(false);
+  
+  // If we're in reservations, filter matricules for this car
+  if (type === 'reservations') {
+    const carMatricules = matricules.filter(m => m.car_id == car.id);
+    setCarMatricules(carMatricules);
+  }
+};
+
+// Add this function for matricule selection
+const handleMatriculeSelect = (matricule) => {
+  handleChange('matricule_id', matricule.id);
+  setMatriculeSearch(matricule.matricule_code);
+  setShowMatriculeDropdown(false);
+  
+  // Auto-fill departure kilometerage
+  if (type === 'reservations') {
+    const shouldAutoFill = 
+      modalType === 'create' || 
+      !formData.kilometrage_sortie || 
+      formData.kilometrage_sortie === 0;
+    
+    if (shouldAutoFill) {
+      handleChange('kilometrage_sortie', matricule.kilometrage);
+    }
+  }
+  
+  // Auto-select vehicle if not already selected
+  if (!formData.car_id && matricule.car_id) {
+    const car = cars.find(c => c.id == matricule.car_id);
+    if (car) {
+      handleChange('car_id', car.id);
+      setCarSearch(`${car.brand} ${car.model} ${car.year} - ${car.color}`);
+    }
+  }
+};
+
+// Dans la section des états, ajouter :
+const [isNewSecondDriver, setIsNewSecondDriver] = useState(false);
+const [newSecondDriverData, setNewSecondDriverData] = useState({
+  prenom: '',
+  nom: '',
+  telephone: '',
+  email: '',
+  city: '',
+  cin_number: '',
+  driver_license_number: '',
+  cin_image: '',
+  driver_license_image: '',
+  date_naissance: '',
+  lieu_naissance: '',
+  cin_delivre_le: '',
+  permis_delivre_le: ''
+});
+
+// ✅ FIXED: Single useEffect for second driver initialization
+useEffect(() => {
+  if (modalType === 'edit') {
+    const hasSecondDriver = formData.has_second_driver || false;
+    
+    if (hasSecondDriver && formData.second_driver_client_id) {
+      setShowSecondDriver(true);
+      
+      // Only update if we don't already have the same client selected
+      if (!selectedSecondDriver || selectedSecondDriver.id != formData.second_driver_client_id) {
+        const secondDriverClient = clients.find(c => c.id == formData.second_driver_client_id);
+        if (secondDriverClient) {
+          setSelectedSecondDriver(secondDriverClient);
+          setSecondDriverSearch(`${secondDriverClient.prenom} ${secondDriverClient.nom}`);
+        }
+      }
+    } else if (!hasSecondDriver) {
+      setShowSecondDriver(false);
+      setSelectedSecondDriver(null);
+      setSecondDriverSearch('');
+    }
+  }
+}, [modalType, formData.has_second_driver, formData.second_driver_client_id]);
+
+// ✅ FIXED: Use useMemo for filtered second drivers
+const filteredSecondDrivers = useMemo(() => {
+  if (!secondDriverSearch.trim()) {
+    return [];
+  }
+  
+  const searchTerm = secondDriverSearch.toLowerCase().trim();
+  
+  return clients
+    .filter(client => {
+      if (!client || typeof client !== 'object') return false;
+      if (client.id == formData.client_id) return false; // Exclude primary client
+      
+      const prenom = (client.prenom || '').toLowerCase();
+      const nom = (client.nom || '').toLowerCase();
+      const telephone = (client.telephone || '').toLowerCase();
+      const fullName = `${prenom} ${nom}`;
+      
+      return (
+        prenom.includes(searchTerm) ||
+        nom.includes(searchTerm) ||
+        fullName.includes(searchTerm) ||
+        telephone.includes(searchTerm)
+      );
+    })
+    .slice(0, 10);
+}, [secondDriverSearch, clients, formData.client_id]);
+
+// Handle second driver selection
+const handleSecondDriverSelect = (client) => {
+  setSelectedSecondDriver(client);
+  setSecondDriverSearch(`${client.prenom} ${client.nom}`);
+  
+  // IMPORTANT: Update both fields
+  handleChange('second_driver_client_id', client.id);
+  handleChange('has_second_driver', true);
+  
+  // If it's a temporary client, store the data
+  if (client.is_temp) {
+    handleChange('second_driver_temp_data', {
+      nom: client.nom || '',
+      prenom: client.prenom || '',
+      telephone: client.telephone || '',
+      email: client.email || '',
+      city: client.city || '',
+      cin_number: client.cin_number || '',
+      driver_license_number: client.driver_license_number || '',
+      cin_image: client.cin_image || '',
+      driver_license_image: client.driver_license_image || '',
+      date_naissance: client.date_naissance || '',
+      lieu_naissance: client.lieu_naissance || '',
+      cin_delivre_le: client.cin_delivre_le || '',
+      permis_delivre_le: client.permis_delivre_le || ''
+    });
+  } else {
+    // Clear any temp data if selecting an existing client
+    handleChange('second_driver_temp_data', null);
+  }
+  
+  // Clear the dropdown
+  setFilteredSecondDrivers([]);
+};
+
+// Clear second driver
+const handleClearSecondDriver = () => {
+    setSelectedSecondDriver(null);
+    setSecondDriverSearch('');
+    
+    // IMPORTANT: Update both fields
+    handleChange('second_driver_client_id', '');
+    handleChange('has_second_driver', false);
+};
+
+// Handle creating new client as second driver
+const handleNewSecondDriver = () => {
+  setIsNewSecondDriver(true);
+  setSelectedSecondDriver(null);
+  setSecondDriverSearch('');
+  
+  // Initialize new client data
+  setNewSecondDriverData({
+    prenom: '',
+    nom: '',
+    telephone: '',
+    email: '',
+    city: '',
+    cin_number: '',
+    driver_license_number: '',
+    cin_image: '',
+    driver_license_image: '',
+    date_naissance: '',
+    lieu_naissance: '',
+    cin_delivre_le: '',
+    permis_delivre_le: ''
+  });
+};
+
+// In AdminModal.jsx - Update the handleCreateSecondDriver function
+const handleCreateSecondDriver = async () => {
+  // Validate required fields
+  if (!newSecondDriverData.prenom || !newSecondDriverData.nom || !newSecondDriverData.telephone) {
+    alert('Veuillez remplir au moins le prénom, nom et téléphone');
+    return;
+  }
+
+  try {
+    console.log('Creating second driver on server...');
+    
+    // Create the client data for the API
+    const clientData = {
+      nom: newSecondDriverData.nom || '',
+      prenom: newSecondDriverData.prenom || '',
+      telephone: newSecondDriverData.telephone || '',
+      email: newSecondDriverData.email || '',
+      city: newSecondDriverData.city || '',
+      cin_number: newSecondDriverData.cin_number || '',
+      driver_license_number: newSecondDriverData.driver_license_number || '',
+      cin_image: newSecondDriverData.cin_image || '',
+      driver_license_image: newSecondDriverData.driver_license_image || '',
+      date_naissance: newSecondDriverData.date_naissance || '',
+      lieu_naissance: newSecondDriverData.lieu_naissance || '',
+      cin_delivre_le: newSecondDriverData.cin_delivre_le || '',
+      permis_delivre_le: newSecondDriverData.permis_delivre_le || '',
+      image_permit: 'default_permit.jpg',
+      image_cn: 'default_cn.jpg'
+    };
+
+    console.log('Client data ready for creation:', clientData);
+    
+    // IMPORTANT: We'll store the data and create the client in the main form submission
+    // This prevents duplicate client creation issues
+    
+    // Store the second driver data in formData
+    handleChange('second_driver_temp_data', clientData);
+    
+    // Create a temporary placeholder for the UI
+    const tempPlaceholder = {
+      id: 'temp_pending', // Temporary ID for UI display only
+      ...newSecondDriverData,
+      is_temp: true, // Mark as temp for UI display
+      is_pending_creation: true // Mark as pending creation
+    };
+
+    // Select the temporary placeholder for UI
+    setSelectedSecondDriver(tempPlaceholder);
+    setSecondDriverSearch(`${newSecondDriverData.prenom} ${newSecondDriverData.nom}`);
+    
+    // Clear the form
+    setIsNewSecondDriver(false);
+    setNewSecondDriverData({
+      prenom: '',
+      nom: '',
+      telephone: '',
+      email: '',
+      city: '',
+      cin_number: '',
+      driver_license_number: '',
+      cin_image: '',
+      driver_license_image: '',
+      date_naissance: '',
+      lieu_naissance: '',
+      cin_delivre_le: '',
+      permis_delivre_le: ''
+    });
+
+    console.log('Second driver data saved for later creation:', clientData);
+    
+  } catch (error) {
+    console.error('❌ Erreur lors de l\'enregistrement des données du deuxième conducteur:', error);
+    alert('Erreur lors de l\'enregistrement des données du deuxième conducteur. Veuillez réessayer.');
+  }
+};
   
   const [showAddPayment, setShowAddPayment] = useState(false);
   const [newPayment, setNewPayment] = useState({
@@ -178,33 +527,32 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
     return false;
   };
 
-  // CORRECTION: Utilisation de useMemo pour filteredClients au lieu de useEffect
+  // ✅ FIXED: Use useMemo for filtered clients
   const filteredClients = useMemo(() => {
-  if (!clientSearch.trim() || isNewClient || !clients || !Array.isArray(clients)) {
-    return [];
-  }
-  
-  const searchTerm = clientSearch.toLowerCase().trim();
-  
-  return clients
-    .filter(client => {
-      if (!client || typeof client !== 'object') return false;
-      
-      const prenom = (client.prenom || '').toLowerCase();
-      const nom = (client.nom || '').toLowerCase();
-      const telephone = (client.telephone || '').toLowerCase();
-      const fullName = `${prenom} ${nom}`;
-      
-      // Only show exact or close matches
-      return (
-        prenom.includes(searchTerm) ||
-        nom.includes(searchTerm) ||
-        fullName.includes(searchTerm) ||
-        telephone.includes(searchTerm)
-      );
-    })
-    .slice(0, 10);
-}, [clientSearch, isNewClient, clients]);
+    if (!clientSearch.trim() || isNewClient || !clients || !Array.isArray(clients)) {
+      return [];
+    }
+    
+    const searchTerm = clientSearch.toLowerCase().trim();
+    
+    return clients
+      .filter(client => {
+        if (!client || typeof client !== 'object') return false;
+        
+        const prenom = (client.prenom || '').toLowerCase();
+        const nom = (client.nom || '').toLowerCase();
+        const telephone = (client.telephone || '').toLowerCase();
+        const fullName = `${prenom} ${nom}`;
+        
+        return (
+          prenom.includes(searchTerm) ||
+          nom.includes(searchTerm) ||
+          fullName.includes(searchTerm) ||
+          telephone.includes(searchTerm)
+        );
+      })
+      .slice(0, 10);
+  }, [clientSearch, isNewClient, clients]);
 
   useEffect(() => {
     if (type === 'reservations' && formData.car_id) {
@@ -213,7 +561,17 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
     }
   }, [formData.car_id, matricules, type]);
 
+  // ✅ FIXED: Optimized maintenance fields effect
   useEffect(() => {
+    // Only update if values have changed
+    const shouldUpdate = 
+      maintenanceFields.oil !== formData.oil ||
+      maintenanceFields.filter_oil !== formData.filter_oil ||
+      JSON.stringify(additionalMaintenance) !== JSON.stringify(formData.additional_maintenance) ||
+      JSON.stringify(periodicKmMaintenance) !== JSON.stringify(formData.periodic_km_maintenance);
+
+    if (!shouldUpdate) return;
+
     // Vidange now depends ONLY on oil and filter_oil
     const requiredForVidangeDone = 
       maintenanceFields.oil === 'yes' &&
@@ -293,6 +651,7 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
     }));
   }, [maintenanceFields, additionalMaintenance, periodicKmMaintenance, setFormData]);
 
+  // ✅ FIXED: Optimized accident status effect
   useEffect(() => {
     if (type === 'accidents') {
       const shouldShowExpertFields = 
@@ -309,6 +668,7 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
     }
   }, [formData.status, formData.accident_type, formData.expert_decision, type]);
 
+  // ✅ FIXED: Optimized matricule kilometer effect
   useEffect(() => {
     if (type === 'reservations' && formData.matricule_id) {
       const selectedMatricule = matricules.find(m => m.id == formData.matricule_id);
@@ -327,11 +687,12 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
         }
       }
     }
-  }, [formData.matricule_id, matricules, type, modalType, formData.kilometrage_sortie]);
+  }, [formData.matricule_id, matricules, type, modalType]);
 
+  // ✅ FIXED: Optimized kilometer value effect
   useEffect(() => {
-    if (type === 'matricules' && formData.kilometrage) {
-      setOldKilometerValue(formData.kilometrage);
+    if (type === 'matricules' && formData.kilometrage !== oldKilometerValue) {
+      setOldKilometerValue(formData.kilometrage || 0);
     }
   }, [type, formData.kilometrage]);
 
@@ -347,71 +708,66 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
     }
   };
 
+  // ✅ FIXED: Combine initialization into a single optimized useEffect
   useEffect(() => {
     if (modalType === 'edit' && type === 'matricules') {
-      const updatedFormData = {
-        ...formData,
-        visit_tech: formatDateForInput(formData.visit_tech),
-        date_taxe_voiture: formatDateForInput(formData.date_taxe_voiture),
-        date_assurance: formatDateForInput(formData.date_assurance),
-        
-        // Maintenance dates
-        paquets_de_voiture_date: formatDateForInput(formData.paquets_de_voiture_date),
-        paquets_de_frein_date: formatDateForInput(formData.paquets_de_frein_date),
-        filter_oil_date: formatDateForInput(formData.filter_oil_date),
-        filter_air_date: formatDateForInput(formData.filter_air_date),
-        ad_blue_date: formatDateForInput(formData.ad_blue_date),
-        oil_date: formatDateForInput(formData.oil_date)
-      };
+      // Format dates
+      const formattedVisitTech = formatDateForInput(formData.visit_tech);
+      const formattedTaxeVoiture = formatDateForInput(formData.date_taxe_voiture);
+      const formattedAssurance = formatDateForInput(formData.date_assurance);
       
-      setFormData(updatedFormData);
+      // Only update if dates are different
+      if (formData.visit_tech !== formattedVisitTech || 
+          formData.date_taxe_voiture !== formattedTaxeVoiture ||
+          formData.date_assurance !== formattedAssurance) {
+        
+        const updatedFormData = {
+          ...formData,
+          visit_tech: formattedVisitTech,
+          date_taxe_voiture: formattedTaxeVoiture,
+          date_assurance: formattedAssurance,
+        };
+        
+        setFormData(updatedFormData);
+      }
       
-      setMaintenanceFields({
-        // Paquets de Voiture
-        paquets_de_voiture: formData.paquets_de_voiture || 'no',
-        paquets_de_voiture_date: formatDateForInput(formData.paquets_de_voiture_date),
-        paquets_de_voiture_count: formData.paquets_de_voiture_count || 0,
-        paquets_de_voiture_history: formData.paquets_de_voiture_history || [],
+      // Initialize maintenance fields once
+      setMaintenanceFields(prev => {
+        const hasOilDate = formatDateForInput(formData.oil_date);
+        if (prev.oil_date === hasOilDate) return prev;
         
-        // Paquets de Frein
-        paquets_de_frein: formData.paquets_de_frein || 'no',
-        paquets_de_frein_date: formatDateForInput(formData.paquets_de_frein_date),
-        paquets_de_frein_count: formData.paquets_de_frein_count || 0,
-        paquets_de_frein_history: formData.paquets_de_frein_history || [],
-        
-        // Filter Oil
-        filter_oil: formData.filter_oil || 'no',
-        filter_oil_date: formatDateForInput(formData.filter_oil_date),
-        filter_oil_count: formData.filter_oil_count || 0,
-        filter_oil_history: formData.filter_oil_history || [],
-        
-        // Filter Air
-        filter_air: formData.filter_air || 'no',
-        filter_air_date: formatDateForInput(formData.filter_air_date),
-        filter_air_count: formData.filter_air_count || 0,
-        filter_air_history: formData.filter_oil_history || [],
-        
-        // Ad Blue
-        ad_blue: formData.ad_blue || 'no',
-        ad_blue_date: formatDateForInput(formData.ad_blue_date),
-        ad_blue_quantity: formData.ad_blue_quantity || 0,
-        ad_blue_history: formData.ad_blue_history || [],
-        
-        // Oil
-        oil: formData.oil || 'no',
-        oil_date: formatDateForInput(formData.oil_date),
-        oil_quantity: formData.oil_quantity || 0,
-        oil_history: formData.oil_history || [],
-        
-        // Quantity inputs
-        new_oil_quantity: '',
-        new_oil_date: '',
-        new_ad_blue_quantity: '',
-        new_ad_blue_date: '',
-        new_filter_oil_date: '',
-        new_filter_air_date: '',
-        new_paquets_de_frein_date: '',
-        new_paquets_de_voiture_date: ''
+        return {
+          ...prev,
+          paquets_de_voiture: formData.paquets_de_voiture || 'no',
+          paquets_de_voiture_date: formatDateForInput(formData.paquets_de_voiture_date),
+          paquets_de_voiture_count: formData.paquets_de_voiture_count || 0,
+          paquets_de_voiture_history: formData.paquets_de_voiture_history || [],
+          
+          paquets_de_frein: formData.paquets_de_frein || 'no',
+          paquets_de_frein_date: formatDateForInput(formData.paquets_de_frein_date),
+          paquets_de_frein_count: formData.paquets_de_frein_count || 0,
+          paquets_de_frein_history: formData.paquets_de_frein_history || [],
+          
+          filter_oil: formData.filter_oil || 'no',
+          filter_oil_date: formatDateForInput(formData.filter_oil_date),
+          filter_oil_count: formData.filter_oil_count || 0,
+          filter_oil_history: formData.filter_oil_history || [],
+          
+          filter_air: formData.filter_air || 'no',
+          filter_air_date: formatDateForInput(formData.filter_air_date),
+          filter_air_count: formData.filter_air_count || 0,
+          filter_air_history: formData.filter_air_history || [],
+          
+          ad_blue: formData.ad_blue || 'no',
+          ad_blue_date: formatDateForInput(formData.ad_blue_date),
+          ad_blue_quantity: formData.ad_blue_quantity || 0,
+          ad_blue_history: formData.ad_blue_history || [],
+          
+          oil: formData.oil || 'no',
+          oil_date: formatDateForInput(formData.oil_date),
+          oil_quantity: formData.oil_quantity || 0,
+          oil_history: formData.oil_history || [],
+        };
       });
     }
   }, [modalType, type]);
@@ -559,30 +915,30 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
   };
 
   const handleNewClient = () => {
-  setSelectedClient(null);
-  setIsNewClient(true);
-  
-  // Also clear the client search to avoid confusion
-  setClientSearch('');
-  
-  setFormData(prev => ({
-    ...prev,
-    client_id: '', // Clear any existing client ID
-    nom: '',
-    prenom: '',
-    telephone: '',
-    email: '',
-    city: '',
-    cin_number: '',
-    driver_license_number: '',
-    cin_image: '',
-    driver_license_image: '',
-    date_naissance: '',
-    lieu_naissance: '',
-    cin_delivre_le: '',
-    permis_delivre_le: ''
-  }));
-};
+    setSelectedClient(null);
+    setIsNewClient(true);
+    
+    // Also clear the client search to avoid confusion
+    setClientSearch('');
+    
+    setFormData(prev => ({
+      ...prev,
+      client_id: '', // Clear any existing client ID
+      nom: '',
+      prenom: '',
+      telephone: '',
+      email: '',
+      city: '',
+      cin_number: '',
+      driver_license_number: '',
+      cin_image: '',
+      driver_license_image: '',
+      date_naissance: '',
+      lieu_naissance: '',
+      cin_delivre_le: '',
+      permis_delivre_le: ''
+    }));
+  };
 
   const handleViewFile = (fileUrl, isPdf = false) => {
     if (!fileUrl) return;
@@ -846,6 +1202,7 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
     }
   };
 
+  // ✅ FIXED: Optimized rental days calculation
   useEffect(() => {
     if (type === 'reservations' && modalType === 'edit' && formData.start_date && formData.end_date) {
       const calculatedDays = calculateRentalDaysFromDates(formData.start_date, formData.end_date);
@@ -854,11 +1211,12 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
         handleChange('rental_days', calculatedDays);
       }
     }
-  }, [type, modalType, formData.start_date, formData.end_date, formData.rental_days]);
+  }, [type, modalType, formData.start_date, formData.end_date]);
 
+  // ✅ FIXED: Optimized date calculation effect
   useEffect(() => {
     handleDateCalculation();
-  }, [formData.start_date, formData.end_date, formData.rental_days, formData.car_id, useRentalDays]);
+  }, [formData.start_date, formData.end_date, formData.rental_days, formData.car_id]);
 
   const handleAddPayment = () => {
     if (!newPayment.amount || parseFloat(newPayment.amount) <= 0) {
@@ -998,31 +1356,30 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
     const currentKm = formData.kilometrage || 0;
 
     if (newMaintenanceItem.type === 'periodic_km') {
-  const intervalKm = parseFloat(newMaintenanceItem.interval_km);
-  const currentKm = parseFloat(formData.kilometrage) || 0;
-  
-  const item = {
-    id: `periodic_km_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    name: newMaintenanceItem.name.trim(),
-    type: newMaintenanceItem.type,
-    interval_km: intervalKm,
-    last_changed_km: currentKm,
-    // CORRECTION: Utiliser l'addition de nombres
-    next_change_km: currentKm + intervalKm,
-    notes: newMaintenanceItem.notes || '',
-    required_for_vidange: newMaintenanceItem.required_for_vidange || false,
-    needs_attention: false,
-    change_history: [],
-    change_count: 0,
-    last_changed_date: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  };
-  
-  const updatedMaintenance = [...periodicKmMaintenance, item];
-  setPeriodicKmMaintenance(updatedMaintenance);
-  handleChange('periodic_km_maintenance', updatedMaintenance);
-}else {
+      const intervalKm = parseFloat(newMaintenanceItem.interval_km);
+      const currentKm = parseFloat(formData.kilometrage) || 0;
+      
+      const item = {
+        id: `periodic_km_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        name: newMaintenanceItem.name.trim(),
+        type: newMaintenanceItem.type,
+        interval_km: intervalKm,
+        last_changed_km: currentKm,
+        next_change_km: currentKm + intervalKm,
+        notes: newMaintenanceItem.notes || '',
+        required_for_vidange: newMaintenanceItem.required_for_vidange || false,
+        needs_attention: false,
+        change_history: [],
+        change_count: 0,
+        last_changed_date: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      
+      const updatedMaintenance = [...periodicKmMaintenance, item];
+      setPeriodicKmMaintenance(updatedMaintenance);
+      handleChange('periodic_km_maintenance', updatedMaintenance);
+    } else {
       const item = {
         id: `maintenance_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         name: newMaintenanceItem.name.trim(),
@@ -2075,70 +2432,63 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
     );
   };
 
-  const renderClientSection = () => {
-    if (modalType === 'edit' && formData.client_id) {
-      const client = clients.find(c => c.id === formData.client_id);
-      return (
-        <div className="form-section">
-          <h3 className="section-title">
-            <FaUser />
-            Informations Client
-          </h3>
-          <div className="form-grid">
-            <div className="form-group">
-              <label className="form-label">Prénom</label>
-              <input
-                type="text"
-                className="form-input"
-                value={formData.prenom || ''}
-                onChange={(e) => handleChange('prenom', e.target.value)}
-                disabled
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Nom</label>
-              <input
-                type="text"
-                className="form-input"
-                value={formData.nom || ''}
-                onChange={(e) => handleChange('nom', e.target.value)}
-                disabled
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Téléphone</label>
-              <input
-                type="tel"
-                className="form-input"
-                value={formData.telephone || ''}
-                onChange={(e) => handleChange('telephone', e.target.value)}
-                disabled
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Email</label>
-              <input
-                type="email"
-                className="form-input"
-                value={formData.email || ''}
-                onChange={(e) => handleChange('email', e.target.value)}
-                disabled
-              />
-            </div>
-          </div>
-        </div>
-      );
-    }
-
+const renderClientSection = () => {
+  if (modalType === 'edit' && formData.client_id) {
+    const client = clients.find(c => c.id === formData.client_id);
     return (
       <div className="form-section">
         <h3 className="section-title">
           <FaUser />
           Informations Client
         </h3>
-        
-        {!isNewClient ? (
-          <>
+        <div className="selected-primary-client-card">
+          <div className="primary-client-header">
+            <h4>Client Principal</h4>
+          </div>
+          <div className="primary-client-details">
+            <div className="primary-client-name">
+              <FaUser /> {formData.prenom} {formData.nom}
+            </div>
+            <div className="primary-client-contact">
+              <FaPhone /> {formData.telephone}
+            </div>
+            {formData.email && (
+              <div className="primary-client-email">
+                <FaEnvelope /> {formData.email}
+              </div>
+            )}
+            {formData.city && (
+              <div className="primary-client-city">
+                <FaMapMarkerAlt /> {formData.city}
+              </div>
+            )}
+            {formData.cin_number && (
+              <div className="primary-client-cin">
+                <FaIdCard /> CIN: {formData.cin_number}
+              </div>
+            )}
+            {formData.driver_license_number && (
+              <div className="primary-client-license">
+                <FaCar /> Permis: {formData.driver_license_number}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="form-section">
+      <h3 className="section-title">
+        <FaUser />
+        Informations Client
+      </h3>
+      
+      {!isNewClient ? (
+        <>
+          {/* Only show search when no client is selected */}
+          {!selectedClient ? (
             <div className="form-group">
               <label className="form-label">Rechercher un Client Existant</label>
               <div className="search-container">
@@ -2163,26 +2513,29 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
                 )}
               </div>
               
-              {filteredClients.length > 0 && (
-                <div className="client-dropdown">
-                  {filteredClients.map(client => (
-                    <div 
-                      key={client.id} 
-                      className="client-option"
-                      onClick={() => handleClientSelect(client)}
-                    >
-                      <div className="client-info">
-                        <strong>{client.prenom} {client.nom}</strong>
-                        <div className="client-details">
-                          <span className="client-email">{client.email}</span>
-                          <span className="client-phone">{client.telephone}</span>
-                          <span className="client-city">{client.city}</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {/* Show dropdown when searching and no client selected */}
+              {filteredClients.map(client => (
+  <div 
+    key={client.id} 
+    className="client-option"
+    onClick={() => handleClientSelect(client)}
+  >
+    <div className="client-info">
+      <strong>{client.prenom} {client.nom}</strong>
+      <div className="client-details">
+        {client.email && (
+          <span className="client-email">{client.email}</span>
+        )}
+        {client.telephone && (
+          <span className="client-phone">{client.telephone}</span>
+        )}
+        {client.city && (
+          <span className="client-city">{client.city}</span>
+        )}
+      </div>
+    </div>
+  </div>
+))}
               
               {clientSearch && filteredClients.length === 0 && (
                 <div className="no-results">
@@ -2190,192 +2543,268 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
                 </div>
               )}
             </div>
-            
-            <div className="form-group">
-  <button 
-    type="button" 
-    className={`btn-secondary btn-small ${isNewClient ? 'active' : ''}`}
-    onClick={handleNewClient}
-  >
-    <FaPlus /> {isNewClient ? 'Nouveau Client (actif)' : 'Nouveau Client'}
-  </button>
-  
-  {isNewClient && (
-    <div className="new-client-notice">
-      <FaInfoCircle /> Mode création de nouveau client activé
-    </div>
-  )}
-</div>
-          </>
-        ) : (
-          <div className="form-grid">
-            <div className="form-group">
-              <label className="form-label required-field">Prénom</label>
-              <input
-                type="text"
-                className="form-input"
-                value={formData.prenom || ''}
-                onChange={(e) => handleChange('prenom', e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label required-field">Nom</label>
-              <input
-                type="text"
-                className="form-input"
-                value={formData.nom || ''}
-                onChange={(e) => handleChange('nom', e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label required-field">Téléphone</label>
-              <input
-                type="tel"
-                className="form-input"
-                value={formData.telephone || ''}
-                onChange={(e) => handleChange('telephone', e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Email</label>
-              <input
-                type="email"
-                className="form-input"
-                value={formData.email || ''}
-                onChange={(e) => handleChange('email', e.target.value)}
-                
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Ville</label>
-              <input
-                type="text"
-                className="form-input"
-                value={formData.city || ''}
-                onChange={(e) => handleChange('city', e.target.value)}
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Date de Naissance</label>
-              <input
-                type="date"
-                className="form-input"
-                value={formData.date_naissance || ''}
-                onChange={(e) => handleChange('date_naissance', e.target.value)}
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Lieu de Naissance</label>
-              <input
-                type="text"
-                className="form-input"
-                value={formData.lieu_naissance || ''}
-                onChange={(e) => handleChange('lieu_naissance', e.target.value)}
-                placeholder="Ville de naissance"
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Numéro CIN</label>
-              <input
-                type="text"
-                className="form-input"
-                value={formData.cin_number || ''}
-                onChange={(e) => handleChange('cin_number', e.target.value)}
-                placeholder="Numéro de Carte d'Identité Nationale"
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">CIN Délivré le</label>
-              <input
-                type="date"
-                className="form-input"
-                value={formData.cin_delivre_le || ''}
-                onChange={(e) => handleChange('cin_delivre_le', e.target.value)}
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Numéro de Permis</label>
-              <input
-                type="text"
-                className="form-input"
-                value={formData.driver_license_number || ''}
-                onChange={(e) => handleChange('driver_license_number', e.target.value)}
-                placeholder="Numéro de permis de conduire"
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Permis Délivré le</label>
-              <input
-                type="date"
-                className="form-input"
-                value={formData.permis_delivre_le || ''}
-                onChange={(e) => handleChange('permis_delivre_le', e.target.value)}
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Image CIN</label>
-              <input
-                type="file"
-                className="form-input"
-                accept="image/*"
-                onChange={(e) => handleImageUpload('cin_image', e.target.files[0])}
-              />
-              {formData.cin_image && (
-                <div className="image-preview">
-                  <img src={formData.cin_image} alt="CIN" className="preview-image" />
-                  <button
-                    type="button"
-                    className="delete-image-btn"
-                    onClick={() => handleSingleImageDelete('cin_image')}
-                    title="Supprimer l'image"
-                  >
-                    <FaTrash />
-                  </button>
+          ) : (
+            /* Show selected client card instead of search */
+            <div className="selected-primary-client-card">
+              <div className="primary-client-header">
+                <h4>Client Principal Sélectionné</h4>
+                <button
+                  type="button"
+                  className="btn-change-primary-client"
+                  onClick={() => {
+                    setSelectedClient(null);
+                    setClientSearch('');
+                    handleChange('client_id', '');
+                  }}
+                  title="Supprimer la sélection"
+                >
+                  <FaTimes />
+                </button>
+              </div>
+              <div className="primary-client-details">
+                <div className="primary-client-name">
+                  <FaUser /> {selectedClient.prenom} {selectedClient.nom}
+                  {selectedClient.is_temp && (
+                    <span className="primary-temp-badge">(Nouveau)</span>
+                  )}
                 </div>
-              )}
+                <div className="primary-client-contact">
+                  <FaPhone /> {selectedClient.telephone}
+                </div>
+                {selectedClient.email && (
+                  <div className="primary-client-email">
+                    <FaEnvelope /> {selectedClient.email}
+                  </div>
+                )}
+                {selectedClient.city && (
+                  <div className="primary-client-city">
+                    <FaMapMarkerAlt /> {selectedClient.city}
+                  </div>
+                )}
+                {selectedClient.cin_number && (
+                  <div className="primary-client-cin">
+                    <FaIdCard /> CIN: {selectedClient.cin_number}
+                  </div>
+                )}
+                {selectedClient.driver_license_number && (
+                  <div className="primary-client-license">
+                    <FaCar /> Permis: {selectedClient.driver_license_number}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                className="btn-change-primary-driver"
+                onClick={() => {
+                  setSelectedClient(null);
+                  setClientSearch('');
+                  handleChange('client_id', '');
+                }}
+              >
+                <FaEdit /> Changer de client
+              </button>
             </div>
-
-            <div className="form-group">
-              <label className="form-label">Image Permis</label>
-              <input
-                type="file"
-                className="form-input"
-                accept="image/*"
-                onChange={(e) => handleImageUpload('driver_license_image', e.target.files[0])}
-              />
-              {formData.driver_license_image && (
-                <div className="image-preview">
-                  <img src={formData.driver_license_image} alt="Permis de conduire" className="preview-image" />
-                  <button
-                    type="button"
-                    className="delete-image-btn"
-                    onClick={() => handleSingleImageDelete('driver_license_image')}
-                    title="Supprimer l'image"
-                  >
-                    <FaTrash />
-                  </button>
+          )}
+          
+          <div className="form-group">
+            <div className="mode-buttons-container">
+              <div className="mode-buttons">
+                <button 
+                  type="button" 
+                  className={`btn-mode ${!isNewClient ? 'active' : ''}`}
+                  onClick={() => {
+                    setIsNewClient(false);
+                    setSelectedClient(null);
+                    setClientSearch('');
+                  }}
+                >
+                  <FaSearch /> Rechercher un client existant
+                </button>
+                <button 
+                  type="button" 
+                  className={`btn-mode ${isNewClient ? 'active' : ''}`}
+                  onClick={handleNewClient}
+                >
+                  <FaUserPlus /> Nouveau Client
+                </button>
+              </div>
+              
+              {isNewClient && (
+                <div className="new-client-notice">
+                  <FaInfoCircle /> Mode création de nouveau client activé
                 </div>
               )}
             </div>
           </div>
-        )}
-      </div>
-    );
-  };
+        </>
+      ) : (
+        <div className="form-grid">
+          <div className="form-group">
+            <label className="form-label required-field">Prénom</label>
+            <input
+              type="text"
+              className="form-input"
+              value={formData.prenom || ''}
+              onChange={(e) => handleChange('prenom', e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label required-field">Nom</label>
+            <input
+              type="text"
+              className="form-input"
+              value={formData.nom || ''}
+              onChange={(e) => handleChange('nom', e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label required-field">Téléphone</label>
+            <input
+              type="tel"
+              className="form-input"
+              value={formData.telephone || ''}
+              onChange={(e) => handleChange('telephone', e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Email</label>
+            <input
+              type="email"
+              className="form-input"
+              value={formData.email || ''}
+              onChange={(e) => handleChange('email', e.target.value)}
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Ville</label>
+            <input
+              type="text"
+              className="form-input"
+              value={formData.city || ''}
+              onChange={(e) => handleChange('city', e.target.value)}
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Date de Naissance</label>
+            <input
+              type="date"
+              className="form-input"
+              value={formData.date_naissance || ''}
+              onChange={(e) => handleChange('date_naissance', e.target.value)}
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Lieu de Naissance</label>
+            <input
+              type="text"
+              className="form-input"
+              value={formData.lieu_naissance || ''}
+              onChange={(e) => handleChange('lieu_naissance', e.target.value)}
+              placeholder="Ville de naissance"
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Numéro CIN</label>
+            <input
+              type="text"
+              className="form-input"
+              value={formData.cin_number || ''}
+              onChange={(e) => handleChange('cin_number', e.target.value)}
+              placeholder="Numéro de Carte d'Identité Nationale"
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">CIN Délivré le</label>
+            <input
+              type="date"
+              className="form-input"
+              value={formData.cin_delivre_le || ''}
+              onChange={(e) => handleChange('cin_delivre_le', e.target.value)}
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Numéro de Permis</label>
+            <input
+              type="text"
+              className="form-input"
+              value={formData.driver_license_number || ''}
+              onChange={(e) => handleChange('driver_license_number', e.target.value)}
+              placeholder="Numéro de permis de conduire"
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Permis Délivré le</label>
+            <input
+              type="date"
+              className="form-input"
+              value={formData.permis_delivre_le || ''}
+              onChange={(e) => handleChange('permis_delivre_le', e.target.value)}
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Image CIN</label>
+            <input
+              type="file"
+              className="form-input"
+              accept="image/*"
+              onChange={(e) => handleImageUpload('cin_image', e.target.files[0])}
+            />
+            {formData.cin_image && (
+              <div className="image-preview">
+                <img src={formData.cin_image} alt="CIN" className="preview-image" />
+                <button
+                  type="button"
+                  className="delete-image-btn"
+                  onClick={() => handleSingleImageDelete('cin_image')}
+                  title="Supprimer l'image"
+                >
+                  <FaTrash />
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Image Permis</label>
+            <input
+              type="file"
+              className="form-input"
+              accept="image/*"
+              onChange={(e) => handleImageUpload('driver_license_image', e.target.files[0])}
+            />
+            {formData.driver_license_image && (
+              <div className="image-preview">
+                <img src={formData.driver_license_image} alt="Permis de conduire" className="preview-image" />
+                <button
+                  type="button"
+                  className="delete-image-btn"
+                  onClick={() => handleSingleImageDelete('driver_license_image')}
+                  title="Supprimer l'image"
+                >
+                  <FaTrash />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
   const renderAccidentForm = () => {
     const requiredImages = getRequiredImagesForStatus();
@@ -2953,7 +3382,315 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
     return (
       <>
         {renderClientSection()}
+<div className="form-section">
+  <div className="form-group">
+    <label className="checkbox-label">
+      <input
+        type="checkbox"
+        checked={showSecondDriver}
+        onChange={(e) => {
+          const isChecked = e.target.checked;
+          setShowSecondDriver(isChecked);
+          
+          if (!isChecked) {
+            handleClearSecondDriver();
+          } else {
+            handleChange('has_second_driver', true);
+          }
+        }}
+      />
+      Ajouter un Deuxième Conducteur (Client)
+    </label>
+  </div>
 
+  {showSecondDriver && (
+    <div className="second-driver-section">
+      <h3 className="section-title">
+        <FaUser />
+        {selectedSecondDriver ? 'Deuxième Conducteur Sélectionné' : 'Sélectionner/Créer le Deuxième Conducteur'}
+      </h3>
+      
+      {!selectedSecondDriver ? (
+        <>
+          {/* Mode Recherche */}
+          {!isNewSecondDriver ? (
+            <div className="second-driver-mode">
+              <div className="mode-buttons">
+                <button 
+                  type="button"
+                  className="btn-mode active"
+                >
+                  <FaSearch /> Rechercher un client existant
+                </button>
+                <button 
+                  type="button"
+                  className="btn-mode"
+                  onClick={handleNewSecondDriver}
+                >
+                  <FaUserPlus /> Créer un nouveau client
+                </button>
+              </div>
+              
+              <div className="form-group">
+                <label className="form-label required-field">
+                  Rechercher un Client
+                </label>
+                <div className="search-container">
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={secondDriverSearch}
+                    onChange={(e) => setSecondDriverSearch(e.target.value)}
+                    placeholder="Rechercher un client existant..."
+                  />
+                  {secondDriverSearch && (
+                    <button
+                      type="button"
+                      className="clear-search-btn"
+                      onClick={() => setSecondDriverSearch('')}
+                      title="Effacer la recherche"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+                
+                {secondDriverSearch && (
+                  <div className="client-dropdown">
+                    {filteredSecondDrivers.length > 0 ? (
+                      filteredSecondDrivers.map(client => (
+                        <div 
+                          key={client.id} 
+                          className="client-option"
+                          onClick={() => handleSecondDriverSelect(client)}
+                        >
+                          <div className="client-info">
+                            <strong>{client.prenom} {client.nom}</strong>
+                            <div className="client-details">
+                              <span className="client-phone">
+                                <FaPhone /> {client.telephone}
+                              </span>
+                              <span className="client-email">
+                                <FaEnvelope /> {client.email || 'Pas d\'email'}
+                              </span>
+                              {client.cin_number && (
+                                <span className="client-cin">
+                                  CIN: {client.cin_number}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="no-results">
+                        Aucun client trouvé.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            /* Mode Création */
+            <div className="second-driver-mode">
+              <div className="mode-buttons">
+                <button 
+                  type="button"
+                  className="btn-mode"
+                  onClick={() => {
+                    setIsNewSecondDriver(false);
+                    setSecondDriverSearch('');
+                  }}
+                >
+                  <FaSearch /> Rechercher un client existant
+                </button>
+                <button 
+                  type="button"
+                  className="btn-mode active"
+                >
+                  <FaUserPlus /> Créer un nouveau client
+                </button>
+              </div>
+              
+              <div className="new-client-form">
+                <h4>Créer un Nouveau Client</h4>
+                
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label className="form-label required-field">Prénom</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={newSecondDriverData.prenom}
+                      onChange={(e) => setNewSecondDriverData(prev => ({ 
+                        ...prev, 
+                        prenom: e.target.value 
+                      }))}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label required-field">Nom</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={newSecondDriverData.nom}
+                      onChange={(e) => setNewSecondDriverData(prev => ({ 
+                        ...prev, 
+                        nom: e.target.value 
+                      }))}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label required-field">Téléphone</label>
+                    <input
+                      type="tel"
+                      className="form-input"
+                      value={newSecondDriverData.telephone}
+                      onChange={(e) => setNewSecondDriverData(prev => ({ 
+                        ...prev, 
+                        telephone: e.target.value 
+                      }))}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Email</label>
+                    <input
+                      type="email"
+                      className="form-input"
+                      value={newSecondDriverData.email}
+                      onChange={(e) => setNewSecondDriverData(prev => ({ 
+                        ...prev, 
+                        email: e.target.value 
+                      }))}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Ville</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={newSecondDriverData.city}
+                      onChange={(e) => setNewSecondDriverData(prev => ({ 
+                        ...prev, 
+                        city: e.target.value 
+                      }))}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Numéro CIN</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={newSecondDriverData.cin_number}
+                      onChange={(e) => setNewSecondDriverData(prev => ({ 
+                        ...prev, 
+                        cin_number: e.target.value 
+                      }))}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Numéro de Permis</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={newSecondDriverData.driver_license_number}
+                      onChange={(e) => setNewSecondDriverData(prev => ({ 
+                        ...prev, 
+                        driver_license_number: e.target.value 
+                      }))}
+                    />
+                  </div>
+                </div>
+                
+                <div className="new-client-actions">
+                  <button 
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      setIsNewSecondDriver(false);
+                      setSecondDriverSearch('');
+                    }}
+                  >
+                    <FaTimes /> Annuler
+                  </button>
+                  <button 
+                    type="button"
+                    className="btn-primary"
+                    onClick={handleCreateSecondDriver}
+                  >
+                    <FaCheck /> Créer et Sélectionner
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        /* Affichage du conducteur sélectionné */
+        <div className="selected-client-card">
+          <div className="selected-client-header">
+            <h4>Deuxième Conducteur Sélectionné</h4>
+            <button
+              type="button"
+              className="btn-remove-client"
+              onClick={handleClearSecondDriver}
+              title="Supprimer la sélection"
+            >
+              <FaTimes />
+            </button>
+          </div>
+          <div className="selected-client-details">
+            <div className="client-name">
+              <FaUser /> {selectedSecondDriver.prenom} {selectedSecondDriver.nom}
+              {selectedSecondDriver.is_temp && (
+                <span className="temp-badge">(Nouveau)</span>
+              )}
+            </div>
+            <div className="client-contact">
+              <FaPhone /> {selectedSecondDriver.telephone}
+            </div>
+            {selectedSecondDriver.email && (
+              <div className="client-email">
+                <FaEnvelope /> {selectedSecondDriver.email}
+              </div>
+            )}
+            {selectedSecondDriver.cin_number && (
+              <div className="client-cin">
+                <FaIdCard /> CIN: {selectedSecondDriver.cin_number}
+              </div>
+            )}
+            {selectedSecondDriver.driver_license_number && (
+              <div className="client-license">
+                <FaCar /> Permis: {selectedSecondDriver.driver_license_number}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            className="btn-change-driver"
+            onClick={() => {
+              handleClearSecondDriver();
+              setIsNewSecondDriver(false);
+              setSecondDriverSearch('');
+            }}
+          >
+            <FaEdit /> Changer de conducteur
+          </button>
+        </div>
+      )}
+    </div>
+  )}
+</div>
         <div className="form-section">
   <h3 className="section-title">
     <FaCar />
@@ -2961,19 +3698,196 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
   </h3>
   <div className="form-group">
     <label className="form-label required-field">Sélectionner un Véhicule</label>
-    <select
-      className="form-select"
-      value={formData.car_id || ''}
-      onChange={(e) => handleChange('car_id', e.target.value)}
-      required
-    >
-      <option value="">Choisir un véhicule</option>
-      {cars.map(car => (
-        <option key={car.id} value={car.id}>
-          {car.brand} {car.model}({car.color}-{car.year}) - {car.price_per_day}dh/jour
-        </option>
-      ))}
-    </select>
+    
+    {!formData.car_id ? (
+      <>
+        {/* Mode Recherche */}
+        <div className="search-container">
+          <input
+            type="text"
+            className="form-input"
+            value={carSearch}
+            onChange={(e) => {
+              setCarSearch(e.target.value);
+              setShowCarDropdown(true);
+            }}
+            onFocus={() => setShowCarDropdown(true)}
+            onBlur={() => {
+              const timeoutId = setTimeout(() => {
+                setShowCarDropdown(false);
+              }, 300);
+              setBlurTimeoutId(timeoutId);
+            }}
+            placeholder="Rechercher une voiture par marque, modèle, couleur..."
+            required={modalType === 'create'}
+          />
+          {carSearch && (
+            <button
+              type="button"
+              className="clear-search-btn"
+              onClick={() => {
+                setCarSearch('');
+                handleChange('car_id', '');
+                setShowCarDropdown(false);
+              }}
+              title="Effacer la recherche"
+            >
+              ×
+            </button>
+          )}
+        </div>
+        
+        {showCarDropdown && filteredCars.length > 0 && (
+          <div className="client-dropdown">
+            {filteredCars.map(car => (
+              <div 
+                key={car.id} 
+                className="client-option"
+                onClick={() => handleCarSelect(car)}
+              >
+                <div className="client-info">
+                  <strong>{car.brand} {car.model} {car.year}</strong>
+                  <div className="client-details">
+                    <span className="client-email">{car.color}</span>
+                    <span className="client-phone">
+                      {car.fuel_type === 'petrol' ? '⛽ Essence' : 
+                       car.fuel_type === 'diesel' ? '⛽ Diesel' : 
+                       car.fuel_type === 'electric' ? '⚡ Électrique' : '⚡⛽ Hybride'}
+                    </span>
+                    <span className="client-city">
+                      {car.transmission === 'automatic' ? 'Automatique' : 'Manuelle'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        
+        {showCarDropdown && carSearch && filteredCars.length === 0 && (
+          <div className="no-results">
+            Aucun véhicule trouvé pour "{carSearch}"
+          </div>
+        )}
+      </>
+    ) : (
+      /* Carte de véhicule sélectionné */
+      <div className="selected-vehicle-card">
+        <div className="selected-vehicle-header">
+          <h4>Véhicule Sélectionné</h4>
+          <button
+            type="button"
+            className="btn-remove-vehicle"
+            onClick={() => {
+              setCarSearch('');
+              handleChange('car_id', '');
+              // Clear matricule aussi si on change de véhicule
+              handleChange('matricule_id', '');
+              setMatriculeSearch('');
+            }}
+            title="Changer de véhicule"
+          >
+            <FaTimes />
+          </button>
+        </div>
+        
+        <div className="selected-vehicle-content">
+          {(() => {
+            const selectedCar = cars.find(c => c.id == formData.car_id);
+            if (!selectedCar) return null;
+            
+            return (
+              <>
+                <div className="vehicle-main-info">
+                  <div className="vehicle-model">
+                    <FaCar className="vehicle-icon" />
+                    <div className="vehicle-name">
+                      <span className="vehicle-brand">{selectedCar.brand}</span>
+                      <span className="vehicle-model-name">{selectedCar.model} {selectedCar.year}</span>
+                    </div>
+                    <span className="vehicle-color-badge">{selectedCar.color}</span>
+                  </div>
+                </div>
+                
+                <div className="vehicle-details-grid">
+                  <div className="vehicle-detail">
+                    <FaGasPump className="detail-icon fuel" />
+                    <div className="detail-content">
+                      <span className="detail-label">Carburant</span>
+                      <span className="detail-value">
+                        {selectedCar.fuel_type === 'petrol' ? 'Essence' : 
+                         selectedCar.fuel_type === 'diesel' ? 'Diesel' : 
+                         selectedCar.fuel_type === 'electric' ? 'Électrique' : 'Hybride'}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="vehicle-detail">
+                    <FaCog className="detail-icon transmission" />
+                    <div className="detail-content">
+                      <span className="detail-label">Transmission</span>
+                      <span className="detail-value">
+                        {selectedCar.transmission === 'automatic' ? 'Automatique' : 'Manuelle'}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="vehicle-detail">
+                    <FaChair className="detail-icon seats" />
+                    <div className="detail-content">
+                      <span className="detail-label">Places</span>
+                      <span className="detail-value">{selectedCar.seats || 5}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="vehicle-detail">
+                    <FaDoorClosed className="detail-icon doors" />
+                    <div className="detail-content">
+                      <span className="detail-label">Portes</span>
+                      <span className="detail-value">{selectedCar.doors || 4}</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="vehicle-price-section">
+                  <div className="price-badge">
+                    <FaMoneyBill className="price-icon" />
+                    <div className="price-info">
+                      <span className="price-label">Prix par jour</span>
+                      <span className="price-amount">{selectedCar.price_per_day} DH</span>
+                    </div>
+                  </div>
+                </div>
+                
+                {selectedCar.image && (
+                  <div className="vehicle-image-container">
+                    <img 
+                      src={selectedCar.image} 
+                      alt={`${selectedCar.brand} ${selectedCar.model}`}
+                      className="vehicle-image"
+                    />
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </div>
+        
+        <button
+          type="button"
+          className="btn-change-vehicle"
+          onClick={() => {
+            setCarSearch('');
+            handleChange('car_id', '');
+            // Clear matricule aussi si on change de véhicule
+            handleChange('matricule_id', '');
+            setMatriculeSearch('');
+          }}
+        >
+          <FaEdit /> Changer de véhicule
+        </button>
+      </div>
+    )}
   </div>
 </div>
 
@@ -3103,28 +4017,181 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
           </div>
         </div>
 
-        <div className="form-section">
-          <h3 className="section-title">
-            <FaIdCard />
-            Informations Matricule
-          </h3>
-          <div className="form-group">
-            <label className="form-label">Sélectionner un Matricule</label>
-            <select
-              className="form-select"
-              value={formData.matricule_id || ''}
-              onChange={(e) => handleChange('matricule_id', e.target.value)}
+         <div className="form-section">
+        <h3 className="section-title">
+          <FaIdCard />
+          Informations Matricule
+        </h3>
+         {!formData.matricule_id ? (
+    <>
+      {/* Mode Recherche */}
+      <div className="form-group">
+        <label className="form-label">Sélectionner un Matricule</label>
+        <div className="search-container">
+          <input
+            type="text"
+            className="form-input"
+            value={matriculeSearch}
+            onChange={(e) => {
+              setMatriculeSearch(e.target.value);
+              setShowMatriculeDropdown(true);
+            }}
+            onFocus={() => setShowMatriculeDropdown(true)}
+            onBlur={() => {
+              const timeoutId = setTimeout(() => {
+                setShowMatriculeDropdown(false);
+              }, 300);
+              setBlurTimeoutId(timeoutId);
+            }}
+            placeholder="Rechercher un matricule ou voiture..."
+          />
+          {matriculeSearch && (
+            <button
+              type="button"
+              className="clear-search-btn"
+              onClick={() => {
+                setMatriculeSearch('');
+                handleChange('matricule_id', '');
+                setShowMatriculeDropdown(false);
+              }}
+              title="Effacer la recherche"
             >
-              <option value="">Choisir un matricule</option>
-              {carMatricules.map(matricule => (
-                <option key={matricule.id} value={matricule.id}>
-                  {matricule.matricule_code} 
-                  {matricule.status === 'active' ? ' ✅' : ' ❌'} 
-                  - {matricule.kilometrage} km
-                </option>
-              ))}
-            </select>
+              ×
+            </button>
+          )}
+        </div>
+        
+        {showMatriculeDropdown && filteredMatricules.length > 0 && (
+          <div className="client-dropdown">
+            {filteredMatricules.map(matricule => {
+              const car = cars.find(c => c.id == matricule.car_id);
+              return (
+                <div 
+                  key={matricule.id} 
+                  className="client-option"
+                  onClick={() => handleMatriculeSelect(matricule)}
+                >
+                  <div className="client-info">
+                    <strong>{matricule.matricule_code}</strong>
+                    <div className="client-details">
+                      {car && (
+                        <>
+                          <span className="client-email">{car.brand} {car.model}</span>
+                          <span className="client-phone">{car.color}</span>
+                        </>
+                      )}
+                      <span className="client-city">
+                        {matricule.status === 'active' ? '✅ Actif' : '❌ Inactif'}
+                      </span>
+                    </div>
+                    <div className="matricule-km">
+                      <FaTachometerAlt /> {matricule.kilometrage} km
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
+        )}
+        
+        {showMatriculeDropdown && matriculeSearch && filteredMatricules.length === 0 && (
+          <div className="no-results">
+            Aucun matricule trouvé pour "{matriculeSearch}"
+          </div>
+        )}
+      </div>
+    </>
+  ) : (
+    /* Carte de matricule sélectionné */
+    <div className="selected-matricule-card">
+      <div className="selected-matricule-header">
+        <h4>Matricule Sélectionné</h4>
+        <button
+          type="button"
+          className="btn-remove-matricule"
+          onClick={() => {
+            setMatriculeSearch('');
+            handleChange('matricule_id', '');
+          }}
+          title="Changer de matricule"
+        >
+          <FaTimes />
+        </button>
+      </div>
+      
+      <div className="selected-matricule-content">
+        {(() => {
+          const selectedMatricule = matricules.find(m => m.id == formData.matricule_id);
+          if (!selectedMatricule) return null;
+          
+          const car = cars.find(c => c.id == selectedMatricule.car_id);
+          
+          return (
+            <>
+              <div className="matricule-code-display">
+                <FaIdCard className="matricule-icon" />
+                <div className="matricule-code-info">
+                  <span className="matricule-label">Code Matricule</span>
+                  <span className="matricule-code">{selectedMatricule.matricule_code}</span>
+                </div>
+              </div>
+              
+              <div className="matricule-status-section">
+                <span className="status-label">Statut:</span>
+                <span className={`status-badge ${selectedMatricule.status === 'active' ? 'active' : 'inactive'}`}>
+                  {selectedMatricule.status === 'active' ? '✅ Actif' : '❌ Inactif'}
+                </span>
+              </div>
+              
+              <div className="matricule-kilometer">
+                <FaTachometerAlt className="km-icon" />
+                <div className="km-info">
+                  <span className="km-label">Kilométrage actuel</span>
+                  <span className="km-value">{selectedMatricule.kilometrage} km</span>
+                </div>
+              </div>
+              
+              {car && (
+                <div className="matricule-vehicle-info">
+                  <div className="vehicle-association">
+                    <FaCar className="association-icon" />
+                    <span className="association-label">Véhicule associé</span>
+                  </div>
+                  <div className="associated-vehicle">
+                    <div className="associated-vehicle-name">
+                      {car.brand} {car.model} {car.year}
+                    </div>
+                    <div className="associated-vehicle-specs">
+                      <span className="spec-badge color">{car.color}</span>
+                      <span className="spec-badge fuel">
+                        {car.fuel_type === 'petrol' ? '⛽ Essence' : 
+                         car.fuel_type === 'diesel' ? '⛽ Diesel' : 
+                         car.fuel_type === 'electric' ? '⚡ Électrique' : '⚡⛽ Hybride'}
+                      </span>
+                      <span className="spec-badge transmission">
+                        {car.transmission === 'automatic' ? 'Auto' : 'Manuelle'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
+      </div>
+      
+      <button
+        type="button"
+        className="btn-change-matricule"
+        onClick={() => {
+          setMatriculeSearch('');
+          handleChange('matricule_id', '');
+        }}
+      >
+        <FaEdit /> Changer de matricule
+      </button>
+    </div>
+  )}
 
           <div className="form-grid">
             <div className="form-group">
@@ -3377,21 +4444,198 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
       </div>
 
       <div className="form-group">
-        <label className="form-label required-field">Sélectionner un Véhicule</label>
-        <select
-          className="form-select"
-          value={formData.car_id || ''}
-          onChange={(e) => handleChange('car_id', e.target.value)}
-          required
+    <label className="form-label required-field">Sélectionner un Véhicule</label>
+    
+    {!formData.car_id ? (
+      <>
+        {/* Mode Recherche */}
+        <div className="search-container">
+          <input
+            type="text"
+            className="form-input"
+            value={carSearch}
+            onChange={(e) => {
+              setCarSearch(e.target.value);
+              setShowCarDropdown(true);
+            }}
+            onFocus={() => setShowCarDropdown(true)}
+            onBlur={() => {
+              const timeoutId = setTimeout(() => {
+                setShowCarDropdown(false);
+              }, 300);
+              setBlurTimeoutId(timeoutId);
+            }}
+            placeholder="Rechercher une voiture par marque, modèle, couleur..."
+            required={modalType === 'create'}
+          />
+          {carSearch && (
+            <button
+              type="button"
+              className="clear-search-btn"
+              onClick={() => {
+                setCarSearch('');
+                handleChange('car_id', '');
+                setShowCarDropdown(false);
+              }}
+              title="Effacer la recherche"
+            >
+              ×
+            </button>
+          )}
+        </div>
+        
+        {showCarDropdown && filteredCars.length > 0 && (
+          <div className="client-dropdown">
+            {filteredCars.map(car => (
+              <div 
+                key={car.id} 
+                className="client-option"
+                onClick={() => handleCarSelect(car)}
+              >
+                <div className="client-info">
+                  <strong>{car.brand} {car.model} {car.year}</strong>
+                  <div className="client-details">
+                    <span className="client-email">{car.color}</span>
+                    <span className="client-phone">
+                      {car.fuel_type === 'petrol' ? '⛽ Essence' : 
+                       car.fuel_type === 'diesel' ? '⛽ Diesel' : 
+                       car.fuel_type === 'electric' ? '⚡ Électrique' : '⚡⛽ Hybride'}
+                    </span>
+                    <span className="client-city">
+                      {car.transmission === 'automatic' ? 'Automatique' : 'Manuelle'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        
+        {showCarDropdown && carSearch && filteredCars.length === 0 && (
+          <div className="no-results">
+            Aucun véhicule trouvé pour "{carSearch}"
+          </div>
+        )}
+      </>
+    ) : (
+      /* Carte de véhicule sélectionné */
+      <div className="selected-vehicle-card">
+        <div className="selected-vehicle-header">
+          <h4>Véhicule Sélectionné</h4>
+          <button
+            type="button"
+            className="btn-remove-vehicle"
+            onClick={() => {
+              setCarSearch('');
+              handleChange('car_id', '');
+              // Clear matricule aussi si on change de véhicule
+              handleChange('matricule_id', '');
+              setMatriculeSearch('');
+            }}
+            title="Changer de véhicule"
+          >
+            <FaTimes />
+          </button>
+        </div>
+        
+        <div className="selected-vehicle-content">
+          {(() => {
+            const selectedCar = cars.find(c => c.id == formData.car_id);
+            if (!selectedCar) return null;
+            
+            return (
+              <>
+                <div className="vehicle-main-info">
+                  <div className="vehicle-model">
+                    <FaCar className="vehicle-icon" />
+                    <div className="vehicle-name">
+                      <span className="vehicle-brand">{selectedCar.brand}</span>
+                      <span className="vehicle-model-name">{selectedCar.model} {selectedCar.year}</span>
+                    </div>
+                    <span className="vehicle-color-badge">{selectedCar.color}</span>
+                  </div>
+                </div>
+                
+                <div className="vehicle-details-grid">
+                  <div className="vehicle-detail">
+                    <FaGasPump className="detail-icon fuel" />
+                    <div className="detail-content">
+                      <span className="detail-label">Carburant</span>
+                      <span className="detail-value">
+                        {selectedCar.fuel_type === 'petrol' ? 'Essence' : 
+                         selectedCar.fuel_type === 'diesel' ? 'Diesel' : 
+                         selectedCar.fuel_type === 'electric' ? 'Électrique' : 'Hybride'}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="vehicle-detail">
+                    <FaCog className="detail-icon transmission" />
+                    <div className="detail-content">
+                      <span className="detail-label">Transmission</span>
+                      <span className="detail-value">
+                        {selectedCar.transmission === 'automatic' ? 'Automatique' : 'Manuelle'}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="vehicle-detail">
+                    <FaChair className="detail-icon seats" />
+                    <div className="detail-content">
+                      <span className="detail-label">Places</span>
+                      <span className="detail-value">{selectedCar.seats || 5}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="vehicle-detail">
+                    <FaDoorClosed className="detail-icon doors" />
+                    <div className="detail-content">
+                      <span className="detail-label">Portes</span>
+                      <span className="detail-value">{selectedCar.doors || 4}</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="vehicle-price-section">
+                  <div className="price-badge">
+                    <FaMoneyBill className="price-icon" />
+                    <div className="price-info">
+                      <span className="price-label">Prix par jour</span>
+                      <span className="price-amount">{selectedCar.price_per_day} DH</span>
+                    </div>
+                  </div>
+                </div>
+                
+                {selectedCar.image && (
+                  <div className="vehicle-image-container">
+                    <img 
+                      src={selectedCar.image} 
+                      alt={`${selectedCar.brand} ${selectedCar.model}`}
+                      className="vehicle-image"
+                    />
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </div>
+        
+        <button
+          type="button"
+          className="btn-change-vehicle"
+          onClick={() => {
+            setCarSearch('');
+            handleChange('car_id', '');
+            // Clear matricule aussi si on change de véhicule
+            handleChange('matricule_id', '');
+            setMatriculeSearch('');
+          }}
         >
-          <option value="">Choisir un véhicule</option>
-          {cars.map(car => (
-            <option key={car.id} value={car.id}>
-              {car.brand} {car.model} {car.year} - {car.color}
-            </option>
-          ))}
-        </select>
+          <FaEdit /> Changer de véhicule
+        </button>
       </div>
+    )}
+  </div>
 
       <div className="form-grid">
         <div className="form-group">
@@ -3413,7 +4657,7 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
         </div>
 
         <div className="form-group">
-          <label className="form-label required-field">Date de Visite Technique</label>
+          <label className="form-label ">Date de Visite Technique</label>
           <input
             type="date"
             className="form-input"
@@ -3424,7 +4668,7 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
         </div>
 
         <div className="form-group">
-          <label className="form-label">Date de Taxe de Voiture</label>
+          <label className="form-label">Vignette</label>
           <input
             type="date"
             className="form-input"
@@ -3998,7 +5242,7 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
           </div>
         </div>
       </div>
-
+<div className="form-section full-width-maintenance full-width">
       <div className="form-section">
         <h3 className="section-title">Maintenance Additionnelle</h3>
         <p className="maintenance-note">
@@ -4034,7 +5278,7 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
         </div>
 
         {showAddMaintenance && (
-          <div className="add-maintenance-form">
+          <div className="add-maintenance-form ">
             <h4>{editingMaintenanceItem ? 'Modifier l\'Élément' : 'Nouvel Élément de Maintenance'}</h4>
             <div className="form-grid">
               <div className="form-group">
@@ -4321,7 +5565,7 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
             </div>
           </div>
         )}
-      </div>
+      </div></div>
 
       {/* History and Quantity Modals */}
       {showHistoryModal && <HistoryModal />}
@@ -4331,7 +5575,6 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
     </>
   );
 };
-
 
   const renderClientForm = () => {
     const cinIsPdf = isPdfFile(formData.cin_image) || formData.cin_is_pdf;
@@ -5187,7 +6430,7 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
         .form-select,
         .form-textarea {
           width: 100%;
-          padding: 0.75rem 1rem;
+          padding: 0.75rem 0.6rem;
           border: 2px solid #e5e7eb;
           border-radius: 8px;
           font-size: 1rem;
@@ -7282,7 +8525,1294 @@ const AdminModal = ({ type, modalType, formData, setFormData, onClose, onSubmit,
     break-inside: avoid;
   }
 }
+  /* Styles pour les modes de sélection */
+.second-driver-mode {
+  margin-top: 1rem;
+}
+
+.mode-buttons {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.btn-mode {
+  flex: 1;
+  padding: 0.75rem;
+  border: 2px solid #e5e7eb;
+  background: white;
+  color: #6b7280;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: all 0.3s ease;
+}
+
+.btn-mode:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
+.btn-mode.active {
+  border-color: #3b82f6;
+  background: #3b82f6;
+  color: white;
+  margin:8px
+}
+
+/* Formulaire de création de client */
+.new-client-form {
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 1.5rem;
+  border: 2px solid #e5e7eb;
+}
+
+.new-client-form h4 {
+  margin: 0 0 1rem 0;
+  color: #1f2937;
+  font-size: 1.1rem;
+}
+
+.new-client-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.temp-badge {
+  background: #10b981;
+  color: white;
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  margin-left: 0.5rem;
+}
+  /* Main Client Selection Styles - Match Second Driver */
+.selected-primary-client-card {
+    border: 2px solid #3b82f6;
+    border-radius: 12px;
+    padding: 1.5rem;
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+    margin-top: 1rem;
+    transition: all 0.3s ease;
+}
+
+.selected-primary-client-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(59, 130, 246, 0.15);
+}
+
+.primary-client-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #d1e7ff;
+}
+
+.primary-client-header h4 {
+    margin: 0;
+    color: #1e40af;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.btn-change-primary-client {
+    background: none;
+    border: none;
+    color: #dc2626;
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 6px;
+    transition: all 0.3s ease;
+    font-size: 0.9rem;
+}
+
+.btn-change-primary-client:hover {
+    background: #fee2e2;
+    transform: scale(1.1);
+}
+
+.primary-client-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+.primary-client-name,
+.primary-client-contact,
+.primary-client-email,
+.primary-client-cin,
+.primary-client-license {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: #374151;
+    padding: 0.5rem;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+    transition: all 0.3s ease;
+}
+
+.primary-client-name {
+    font-weight: 600;
+    font-size: 1rem;
+    color: #1e3a8a;
+    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+    border: 1px solid #3b82f6;
+}
+
+.primary-client-details div:hover {
+    background: #f8fafc;
+    transform: translateX(5px);
+}
+
+.primary-client-contact {
+    color: #065f46;
+}
+
+.primary-client-email {
+    color: #7c3aed;
+}
+
+.primary-client-cin {
+    color: #92400e;
+}
+
+.primary-client-license {
+    color: #1d4ed8;
+}
+
+.primary-temp-badge {
+    background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+    color: white;
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-left: 0.5rem;
+    box-shadow: 0 2px 8px rgba(251, 191, 36, 0.3);
+}
+
+.btn-change-primary-driver {
+    width: 100%;
+    padding: 0.75rem;
+    background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+    border: none;
+    color: white;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+}
+
+.btn-change-primary-driver:hover {
+    background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4);
+}
+
+/* Secondary Driver Card Enhancements */
+.selected-client-card {
+    border: 2px solid #10b981;
+    border-radius: 12px;
+    padding: 1.5rem;
+    background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+    margin-top: 1rem;
+    transition: all 0.3s ease;
+}
+
+.selected-client-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(16, 185, 129, 0.15);
+}
+
+.selected-client-header h4 {
+    margin: 0;
+    color: #065f46;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.btn-remove-client {
+    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+    border: 1px solid #fca5a5;
+    color: #dc2626;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    transition: all 0.3s ease;
+}
+
+.btn-remove-client:hover {
+    background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+    transform: scale(1.1);
+}
+
+.selected-client-details div {
+    padding: 0.5rem;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+    transition: all 0.3s ease;
+}
+
+.selected-client-details div:hover {
+    background: #f8fafc;
+    transform: translateX(5px);
+}
+
+.client-name {
+    background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
+    border: 1px solid #10b981;
+    color: #065f46;
+}
+
+.client-contact {
+    color: #065f46;
+}
+
+.client-email {
+    color: #7c3aed;
+}
+
+.client-cin {
+    color: #92400e;
+}
+
+.client-license {
+    color: #1d4ed8;
+}
+
+.temp-badge {
+    background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+    color: white;
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-left: 0.5rem;
+    box-shadow: 0 2px 8px rgba(251, 191, 36, 0.3);
+}
+
+.btn-change-driver {
+    width: 100%;
+    padding: 0.75rem;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    border: none;
+    color: white;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+}
+
+.btn-change-driver:hover {
+    background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4);
+}
+
+/* Mode buttons styling for consistency */
+.second-driver-mode .mode-buttons {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.btn-mode {
+    padding: 0.75rem 1.5rem;
+    border: 2px solid #e5e7eb;
+    background: white;
+    color: #6b7280;
+    border-radius: 10px;
+    cursor: pointer;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.3s ease;
+    flex: 1;
+    min-width: 200px;
+    justify-content: center;
+}
+
+.btn-mode:hover:not(.active) {
+    border-color: #3b82f6;
+    color: #3b82f6;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+}
+
+.btn-mode.active {
+    background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+    border-color: transparent;
+    color: white;
+    box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+}
+
+/* New client form styling */
+.new-client-form {
+    border: 2px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 1.5rem;
+    background: white;
+    margin-top: 1rem;
+}
+
+.new-client-form h4 {
+    margin-top: 0;
+    margin-bottom: 1.5rem;
+    color: #1e40af;
+    font-size: 1.2rem;
+    text-align: center;
+}
+
+.new-client-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1.5rem;
+    justify-content: center;
+}
+
+/* Main driver mode buttons */
+.primary-client-mode .mode-buttons {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+
+/* Animation for card appearance */
+@keyframes slideInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.selected-primary-client-card,
+.selected-client-card {
+    animation: slideInUp 0.3s ease-out;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .selected-primary-client-card,
+    .selected-client-card {
+        padding: 1rem;
+    }
+    
+    .btn-mode {
+        min-width: 100%;
+    }
+    
+    .new-client-actions {
+        flex-direction: column;
+    }
+    
+    .primary-client-details div,
+    .selected-client-details div {
+        font-size: 0.85rem;
+    }
+}
+    /* Mode buttons container */
+.mode-buttons-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.mode-buttons {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.btn-mode {
+  padding: 0.75rem 1.5rem;
+  border: 2px solid #e5e7eb;
+  background: white;
+  color: #6b7280;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.3s ease;
+  flex: 1;
+  min-width: 200px;
+  justify-content: center;
+  font-size: 0.875rem;
+}
+
+.btn-mode:hover:not(.active) {
+  border-color: #3b82f6;
+  color: #3b82f6;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+}
+
+.btn-mode.active {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  border-color: transparent;
+  color: white;
+  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+}
+
+.new-client-notice {
+  background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%);
+  border: 1px solid #93c5fd;
+  color: #1e40af;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+
+/* Main Client Card Styles */
+.selected-primary-client-card {
+  border: 2px solid #3b82f6;
+  border-radius: 12px;
+  padding: 1.5rem;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  margin-top: 1rem;
+  transition: all 0.3s ease;
+  animation: slideInUp 0.3s ease-out;
+}
+
+.selected-primary-client-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(59, 130, 246, 0.15);
+}
+
+.primary-client-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #d1e7ff;
+}
+
+.primary-client-header h4 {
+  margin: 0;
+  color: #1e40af;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.btn-change-primary-client {
+  background: none;
+  border: none;
+  color: #dc2626;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 6px;
+  transition: all 0.3s ease;
+  font-size: 0.9rem;
+}
+
+.btn-change-primary-client:hover {
+  background: #fee2e2;
+  transform: scale(1.1);
+}
+
+.primary-client-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.primary-client-name,
+.primary-client-contact,
+.primary-client-email,
+.primary-client-city,
+.primary-client-cin,
+.primary-client-license {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: #374151;
+  padding: 0.5rem;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  transition: all 0.3s ease;
+}
+
+.primary-client-name {
+  font-weight: 600;
+  font-size: 1rem;
+  color: #1e3a8a;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid #3b82f6;
+}
+
+.primary-client-details div:hover {
+  background: #f8fafc;
+  transform: translateX(5px);
+}
+
+.primary-client-contact {
+  color: #065f46;
+}
+
+.primary-client-email {
+  color: #7c3aed;
+}
+
+.primary-client-city {
+  color: #059669;
+}
+
+.primary-client-cin {
+  color: #92400e;
+}
+
+.primary-client-license {
+  color: #1d4ed8;
+}
+
+.primary-temp-badge {
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-left: 0.5rem;
+  box-shadow: 0 2px 8px rgba(251, 191, 36, 0.3);
+}
+
+.btn-change-primary-driver {
+  width: 100%;
+  padding: 0.75rem;
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  border: none;
+  color: white;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+}
+
+.btn-change-primary-driver:hover {
+  background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4);
+}
+
+/* Animation */
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .selected-primary-client-card {
+    padding: 1rem;
+  }
   
+  .btn-mode {
+    min-width: 100%;
+  }
+  
+  .primary-client-details div {
+    font-size: 0.85rem;
+  }
+}
+  /* Carte Véhicule Sélectionné */
+.selected-vehicle-card {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 20px;
+  margin-top: 15px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.selected-vehicle-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #f3f4f6;
+}
+
+.selected-vehicle-header h4 {
+  margin: 0;
+  color: #1f2937;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.btn-remove-vehicle {
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-remove-vehicle:hover {
+  background: #dc2626;
+}
+
+.vehicle-main-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.vehicle-icon {
+  color: #3b82f6;
+  font-size: 24px;
+}
+
+.vehicle-model {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.vehicle-name {
+  display: flex;
+  flex-direction: column;
+}
+
+.vehicle-brand {
+  font-weight: 700;
+  color: #1f2937;
+  font-size: 16px;
+}
+
+.vehicle-model-name {
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.vehicle-color-badge {
+  background: #3b82f6;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.vehicle-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.vehicle-detail {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+}
+
+.detail-icon {
+  font-size: 20px;
+}
+
+.detail-icon.fuel {
+  color: #10b981;
+}
+
+.detail-icon.transmission {
+  color: #8b5cf6;
+}
+
+.detail-icon.seats {
+  color: #f59e0b;
+}
+
+.detail-icon.doors {
+  color: #ef4444;
+}
+
+.detail-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.detail-label {
+  font-size: 12px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.detail-value {
+  font-weight: 600;
+  color: #1f2937;
+  font-size: 14px;
+}
+
+.vehicle-price-section {
+  margin-bottom: 20px;
+}
+
+.price-badge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  color: white;
+  border-radius: 8px;
+}
+
+.price-icon {
+  font-size: 22px;
+}
+
+.price-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.price-label {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.price-amount {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.vehicle-image-container {
+  margin-bottom: 20px;
+}
+
+.vehicle-image {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 2px solid #e5e7eb;
+}
+
+.btn-change-vehicle {
+  width: 100%;
+  padding: 12px;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  color: #374151;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s;
+}
+
+.btn-change-vehicle:hover {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+}
+
+/* Carte Matricule Sélectionné */
+.selected-matricule-card {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 20px;
+  margin-top: 15px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.selected-matricule-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #f3f4f6;
+}
+
+.selected-matricule-header h4 {
+  margin: 0;
+  color: #1f2937;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.btn-remove-matricule {
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-remove-matricule:hover {
+  background: #dc2626;
+}
+
+.matricule-code-display {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 15px;
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+  border-radius: 8px;
+  color: white;
+}
+
+.matricule-icon {
+  font-size: 24px;
+}
+
+.matricule-code-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.matricule-label {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.matricule-code {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.matricule-status-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding: 12px;
+  background: #f9fafb;
+  border-radius: 8px;
+}
+
+.status-label {
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.status-badge.active {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.status-badge.inactive {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.matricule-kilometer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 12px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 8px;
+}
+
+.km-icon {
+  color: #3b82f6;
+  font-size: 20px;
+}
+
+.km-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.km-label {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.km-value {
+  font-weight: 700;
+  color: #1f2937;
+  font-size: 16px;
+}
+
+.matricule-vehicle-info {
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 15px;
+  margin-bottom: 20px;
+}
+
+.vehicle-association {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.association-icon {
+  color: #10b981;
+  font-size: 18px;
+}
+
+.association-label {
+  font-weight: 600;
+  color: #374151;
+}
+
+.associated-vehicle-name {
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 8px;
+  font-size: 15px;
+}
+
+.associated-vehicle-specs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.spec-badge {
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.spec-badge.color {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.spec-badge.fuel {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.spec-badge.transmission {
+  background: #f3e8ff;
+  color: #7c3aed;
+}
+
+.btn-change-matricule {
+  width: 100%;
+  padding: 12px;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  color: #374151;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s;
+}
+
+.btn-change-matricule:hover {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+}
+  /* Animation pour les cartes de véhicule et matricule */
+.selected-vehicle-card,
+.selected-matricule-card {
+  animation: slideInUp 0.3s ease-out;
+  transition: all 0.3s ease;
+}
+
+.selected-vehicle-card:hover,
+.selected-matricule-card:hover {
+  transform: translateY(-2px);
+}
+
+/* Animation de pulsation pour les badges */
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+/* Animation pour les badges de couleur */
+.vehicle-color-badge {
+  animation: pulse 2s infinite;
+}
+
+/* Animation pour le code matricule */
+.matricule-code {
+  animation: codeGlow 3s infinite alternate;
+}
+
+@keyframes codeGlow {
+  from {
+    text-shadow: 0 0 5px rgba(139, 92, 246, 0.5);
+  }
+  to {
+    text-shadow: 0 0 10px rgba(139, 92, 246, 0.8), 0 0 20px rgba(139, 92, 246, 0.6);
+  }
+}
+
+/* Animation pour les icônes */
+.vehicle-icon,
+.matricule-icon {
+  animation: iconFloat 3s ease-in-out infinite;
+}
+
+@keyframes iconFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+/* Animation pour le badge de statut */
+.status-badge.active {
+  animation: statusPulse 4s infinite;
+}
+
+@keyframes statusPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+}
+
+/* Animation pour le kilométrage */
+.km-icon {
+  animation: kmRotate 6s linear infinite;
+}
+
+@keyframes kmRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Animation pour les badges de spécifications */
+.spec-badge {
+  animation: fadeInUp 0.5s ease-out;
+}
+
+.spec-badge:nth-child(1) { animation-delay: 0.1s; }
+.spec-badge:nth-child(2) { animation-delay: 0.2s; }
+.spec-badge:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Animation pour le prix */
+.price-badge {
+  animation: priceGlow 4s infinite alternate;
+}
+
+@keyframes priceGlow {
+  from {
+    box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+  }
+  to {
+    box-shadow: 0 6px 20px rgba(59, 130, 246, 0.5), 0 0 30px rgba(59, 130, 246, 0.2);
+  }
+}
+
+/* Animation pour l'image du véhicule */
+.vehicle-image {
+  animation: imageReveal 0.8s ease-out;
+}
+
+@keyframes imageReveal {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Animation pour les détails du véhicule */
+.vehicle-detail {
+  animation: slideInRight 0.5s ease-out;
+}
+
+.vehicle-detail:nth-child(1) { animation-delay: 0.1s; }
+.vehicle-detail:nth-child(2) { animation-delay: 0.2s; }
+.vehicle-detail:nth-child(3) { animation-delay: 0.3s; }
+.vehicle-detail:nth-child(4) { animation-delay: 0.4s; }
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Animation pour l'association véhicule */
+.vehicle-association {
+  animation: slideInLeft 0.5s ease-out;
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+  /* Full-width maintenance section */
+.full-width-maintenance {
+  grid-column: 1 / -1 !important;
+  width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+.maintenance-full-width-container {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+}
+
+/* Make maintenance grid full width */
+.maintenance-grid.full-width {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 15px;
+  width: 100%;
+}
+
+/* Additional maintenance list full width */
+.additional-maintenance-list.full-width {
+  width: 100%;
+  overflow-x: auto;
+}
+
+/* Maintenance table full width */
+.maintenance-table.full-width {
+  width: 100%;
+  min-width: 1000px;
+}
+
+/* Add maintenance form full width */
+.add-maintenance-form.full-width {
+  width: 100%;
+  grid-column: 1 / -1;
+}
+
+/* Maintenance summary full width */
+.maintenance-summary.full-width {
+  width: 100%;
+  grid-column: 1 / -1;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1200px) {
+  .maintenance-grid.full-width {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .maintenance-grid.full-width {
+    grid-template-columns: 1fr;
+  }
+  
+  .maintenance-table.full-width {
+    min-width: 800px;
+  }
+}
       `}</style>
     </div>
   );
