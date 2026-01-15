@@ -233,6 +233,36 @@ const getKilometerReceiverName = () => {
     
     return null;
   };
+  // Helper function to extract caution amount from payment notes
+const getCautionAmount = () => {
+  if (!reservation?.payment_history || !Array.isArray(reservation.payment_history)) {
+    return reservation?.amount_paid ? `${reservation.amount_paid}` : '_________';
+  }
+  
+  // Look for payments with "caution" in the notes (case-insensitive)
+  const cautionPayments = reservation.payment_history.filter(payment => 
+    payment.notes && payment.notes.toLowerCase().includes('caution')
+  );
+  
+  if (cautionPayments.length > 0) {
+    // Sum all caution payments
+    const totalCaution = cautionPayments.reduce((sum, payment) => sum + (payment.amount || 0), 0);
+    return totalCaution;
+  }
+  
+  // If no caution payments found, check if any payment has "caution" in the method
+  const cautionMethodPayments = reservation.payment_history.filter(payment => 
+    payment.method && payment.method.toLowerCase().includes('caution')
+  );
+  
+  if (cautionMethodPayments.length > 0) {
+    const totalCaution = cautionMethodPayments.reduce((sum, payment) => sum + (payment.amount || 0), 0);
+    return totalCaution;
+  }
+  
+  // Fallback to amount_paid if no caution-specific payments found
+  return reservation?.amount_paid ? `${reservation.amount_paid}` : '_________';
+};
 
   const secondDriver = getSecondDriverInfo();
 
@@ -303,7 +333,7 @@ const getKilometerReceiverName = () => {
               replaceWithDots={!hideOptions.replaceLocataireWithDots}
             />
             <FormLine 
-              label="Expire le" 
+              label="Délivré le" 
               value={formatDate(reservation?.client?.permis_delivre_le) || ''} 
               show={!hideOptions.hideLocataireInfo}
               replaceWithDots={!hideOptions.replaceLocataireWithDots}
@@ -708,16 +738,17 @@ const getKilometerReceiverName = () => {
           </div>
         </ObservationBox>
         <ObservationBox 
-          title="Caution & Garantie" 
-          isHalf 
-          show={!hideOptions.hideGuaranteeInfo}
-          replaceWithDots={!hideOptions.replaceGuaranteeWithDots}
-        >
-          <div className="observation-text">
-            Caution: {reservation?.amount_paid ? `${reservation.amount_paid} DH` : '_________'} DH<br/>
-            Montant restant: {reservation?.remaining_amount ? `${reservation.remaining_amount} DH` : '_________'} DH
-          </div>
-        </ObservationBox>
+  title="Caution & Garantie" 
+  isHalf 
+  show={!hideOptions.hideGuaranteeInfo}
+  replaceWithDots={!hideOptions.replaceGuaranteeWithDots}
+>
+  <div className="observation-text">
+    {/* Existing code */}
+    Caution: {getCautionAmount()} DH<br/>
+    Montant restant: {reservation?.remaining_amount ? `${reservation.remaining_amount} DH` : '_________'} DH
+  </div>
+</ObservationBox>
       </section>
       
       <section className="kilometer-excess-clause">

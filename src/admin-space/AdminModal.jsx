@@ -1589,13 +1589,125 @@ const handleCreateSecondDriver = async () => {
     }
   };
 
-  const handleStatusChange = (value) => {
-    handleChange('status', value);
+  const [timeOverride, setTimeOverride] = useState({
+  start_time: null,
+  end_time: null
+});
+const [isTimeManuallySet, setIsTimeManuallySet] = useState(false);
+
+
+// Ajoutez cet useEffect pour gérer la logique de changement d'heure basé sur le statut
+// Remplacer l'effet actuel par :
+// ✅ FIXED: Update the status change effect to properly handle confirmed→completed
+useEffect(() => {
+  if (type === 'reservations' && modalType === 'edit') {
+    const currentTime = new Date();
+    const currentHour = currentTime.getHours();
+    const currentMinute = currentTime.getMinutes();
     
-    if (value === 'evaluation_expert' && !formData.expert_decision) {
-      handleChange('expert_decision', 'pending');
+    const formatTime = (hours, minutes) => {
+      return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+    };
+    
+    // Check if we're changing status from confirmed to completed
+    if (formData.status === 'completed' && formData.previousStatus === 'confirmed') {
+      // If the status is completed and it was previously confirmed, set end_time to current time
+      // This should only happen once per status change
+      if (!timeOverride.end_time || timeOverride.end_time === formData.end_time) {
+        const newEndTime = formatTime(currentHour, currentMinute);
+        
+        // Update the time override
+        setTimeOverride(prev => ({
+          ...prev,
+          end_time: newEndTime
+        }));
+        
+        // Update form data
+        handleChange('end_time', newEndTime);
+      }
+    } else if (formData.status === 'confirmed') {
+      // If status becomes "confirmed" for the first time, set both times to current time
+      if (!formData.start_time || formData.start_time === '08:00') {
+        const newTime = formatTime(currentHour, currentMinute);
+        
+        handleChange('start_time', newTime);
+        handleChange('end_time', newTime);
+        
+        // Mark that the time has been automatically set
+        setTimeOverride({
+          start_time: newTime,
+          end_time: newTime
+        });
+      }
     }
-  };
+    
+    // Always update previousStatus for future comparisons
+    if (formData.status !== formData.previousStatus) {
+      handleChange('previousStatus', formData.status);
+    }
+  }
+}, [formData.status, type, modalType]);
+
+// ✅ FIXED: Initialize time override when editing an existing reservation
+useEffect(() => {
+  if (modalType === 'edit' && type === 'reservations') {
+    // Initialize time override with existing values
+    setTimeOverride({
+      start_time: formData.start_time || '08:00',
+      end_time: formData.end_time || '18:00'
+    });
+    
+    // Initialize previousStatus if not set
+    if (!formData.previousStatus) {
+      handleChange('previousStatus', formData.status);
+    }
+  }
+}, [modalType, type]);
+
+// ✅ FIXED: Update the status change handler to preserve time override
+const handleStatusChange = (value) => {
+  const previousStatus = formData.status;
+  
+  // Special handling for confirmed→completed transition
+  if (previousStatus === 'confirmed' && value === 'completed') {
+    const currentTime = new Date();
+    const currentHour = currentTime.getHours();
+    const currentMinute = currentTime.getMinutes();
+    const formattedTime = `${currentHour.toString().padStart(2, '0')}:${currentMinute.toString().padStart(2, '0')}`;
+    
+    // Update form data with new status and end_time
+    setFormData(prev => ({ 
+      ...prev, 
+      status: value,
+      previousStatus: previousStatus,
+      end_time: formattedTime
+    }));
+    
+    // Update time override
+    setTimeOverride(prev => ({
+      ...prev,
+      end_time: formattedTime
+    }));
+  } else {
+    // Normal status change
+    setFormData(prev => ({ 
+      ...prev, 
+      status: value,
+      previousStatus: previousStatus
+    }));
+  }
+};
+
+// ✅ FIXED: Update end time change handler to respect override
+const handleEndTimeChange = (value) => {
+  // If time was automatically set by status change to completed,
+  // allow manual override but update the override state
+  if (formData.status === 'completed' && formData.previousStatus === 'confirmed') {
+    // User is manually changing the automatically set time
+    setTimeOverride(prev => ({ ...prev, end_time: value }));
+  }
+  handleChange('end_time', value);
+};
 
   const getRequiredImagesForStatus = () => {
     const { status, procedure_type } = formData;
@@ -2725,7 +2837,7 @@ const renderClientSection = () => {
           </div>
 
           <div className="form-group">
-            <label className="form-label">CIN Délivré le</label>
+            <label className="form-label">CIN Expire le</label>
             <input
               type="date"
               className="form-input"
@@ -3993,27 +4105,69 @@ const renderClientSection = () => {
           </div>
 
           <div className="form-grid">
-            <div className="form-group">
-              <label className="form-label required-field">Heure de Début</label>
-              <input
-                type="time"
-                className="form-input"
-                value={formData.start_time || '08:00'}
-                onChange={(e) => handleChange('start_time', e.target.value)}
-                required
-              />
-            </div>
+           <div className="form-group">
+  <label className="form-label required-field">Heure de Début</label>
+  <input
+    type="time"
+    className="form-input"
+    value={formData.start_time || '08:00'}
+    onChange={(e) => handleStartTimeChange(e.target.value)}
+    required
+    disabled={formData.status === 'confirmed' || formData.status === 'completed'}
+    title={formData.status === 'confirmed' || formData.status === 'completed' ? 
+           "L'heure est automatiquement définie lorsque le statut est confirmé/complété" : 
+           ""}
+  />
+  {formData.status === 'confirmed' || formData.status === 'completed' ? (
+    <div className="help-text">
+      ⚠️ L'heure est automatiquement définie à l'heure actuelle pour ce statut
+    </div>
+  ) : (
+    <div className="help-text">
+      Par défaut: 08:00 AM. Sera automatiquement mis à jour lors de la confirmation
+    </div>
+  )}
+</div>
 
-            <div className="form-group">
-              <label className="form-label required-field">Heure de Fin</label>
-              <input
-                type="time"
-                className="form-input"
-                value={formData.end_time || '18:00'}
-                onChange={(e) => handleChange('end_time', e.target.value)}
-                required
-              />
-            </div>
+<div className="form-group">
+  <label className="form-label required-field">Heure de Fin</label>
+  <input
+    type="time"
+    className="form-input"
+    value={formData.end_time || '18:00'}
+    onChange={(e) => handleEndTimeChange(e.target.value)}
+    required
+    disabled={formData.status === 'completed' && formData.previousStatus === 'confirmed'}
+    title={formData.status === 'completed' && formData.previousStatus === 'confirmed' ? 
+           "L'heure de fin a été automatiquement définie lors du passage au statut 'Terminé'. Vous pouvez la modifier si nécessaire." : 
+           ""}
+  />
+  {formData.status === 'completed' && formData.previousStatus === 'confirmed' ? (
+    <div className="help-text">
+      ⚠️ L'heure de fin a été automatiquement définie à {formData.end_time} lors du passage au statut 'Terminé'
+      <br />
+      <button
+        type="button"
+        className="btn-enable-edit-time"
+        onClick={() => {
+          // Enable editing
+          const input = document.querySelector('input[type="time"][name="end_time"]');
+          if (input) input.disabled = false;
+        }}
+      >
+        Modifier manuellement
+      </button>
+    </div>
+  ) : formData.status === 'confirmed' ? (
+    <div className="help-text">
+      ⚠️ L'heure de fin est automatiquement définie à l'heure actuelle pour un statut confirmé
+    </div>
+  ) : (
+    <div className="help-text">
+      Par défaut: 06:00 PM. Sera automatiquement mis à jour lors de la confirmation/complétion
+    </div>
+  )}
+</div>
           </div>
         </div>
 
@@ -5752,7 +5906,7 @@ const renderClientSection = () => {
             </div>
 
             <div className="form-group">
-              <label className="form-label">CIN Délivré le</label>
+              <label className="form-label">CIN Expire le</label>
               <input
                 type="date"
                 className="form-input"

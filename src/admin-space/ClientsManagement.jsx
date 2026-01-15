@@ -892,7 +892,7 @@ const calculateRentalDays = (startDate, endDate) => {
                   </div>
                   <div className="info-item">
                     <div className="info-label">
-                      <FaCalendarDay /> CIN Délivré le
+                      <FaCalendarDay /> CIN Expire le
                     </div>
                     <div className="info-value">
                       {selectedClient.cin_delivre_le ? 
