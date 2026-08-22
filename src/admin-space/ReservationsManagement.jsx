@@ -32,7 +32,7 @@ import {
 import AdminModal from './AdminModal';
 
 // Import checklist image and logo
-import checklistImage from '../assets/checklist.png';
+import checklistImage from '../assets/Checklist.png';
 import logoImage from '../assets/logo.png';
 
 // Components for contract
