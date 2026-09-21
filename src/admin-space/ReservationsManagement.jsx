@@ -1557,7 +1557,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
         .status-confirmed { background: #dcfce7; color: #166534; }
         .status-retard { background: #ffedd5; color: #9a3412; }
         .status-contacted { background: #e0e7ff; color: #3730a3; }
-        .status-completed { background: #dcfce7; color: #166534; }
+.status-completed { background: #e5e7eb; color: #4b5563; }
         .status-cancelled { background: #fee2e2; color: #991b1b; }
         .status-icon { font-size: 0.7rem; }
         .no-data { text-align: center; padding: 4rem 2rem; color: #64748b; }
