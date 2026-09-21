@@ -1,13 +1,14 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { fileURLToPath, URL } from 'node:url';
+import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    dedupe: ['react', 'react-dom'],
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url))
+      'react': path.resolve('./node_modules/react'),
+      'react-dom': path.resolve('./node_modules/react-dom'),
+      'react/jsx-runtime': path.resolve('./node_modules/react/jsx-runtime.js')
     }
   }
 });

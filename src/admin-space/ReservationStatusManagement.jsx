@@ -25,7 +25,7 @@ import {
 import { syncReportForReservation } from '../utils/reportSync'; // ✅ NEW
 import AdminModal from './AdminModal';
 
-import checklistImage from '../assets/checklist.png';
+import checklistImage from '../assets/Checklist.png';
 import logoImage from '../assets/lolo.png';
 import cacherImage from '../assets/cacher.png';
 
