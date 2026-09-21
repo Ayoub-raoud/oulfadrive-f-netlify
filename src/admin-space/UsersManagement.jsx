@@ -1,11 +1,14 @@
+// src/components/admin/UsersManagement.jsx  (or wherever your file lives)
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   FaPlus, FaEdit, FaTrash, FaFileExport, FaDatabase,
   FaCheck, FaTimes, FaUserCheck, FaUserSlash,
   FaList, FaTh, FaEnvelope, FaPhone, FaCalendar,
   FaKey, FaUserTag, FaUserCircle, FaExclamationTriangle,
-  FaSearch, FaFilter
+  FaSearch, FaFilter, FaSync, FaLock, FaUnlock, FaCrown, FaStar, FaBell,
+  FaArrowUp, FaArrowDown, FaSort
 } from 'react-icons/fa';
 import {
   fetchUtilisateurs,
@@ -15,78 +18,203 @@ import {
   toggleUtilisateurStatus,
   updateUtilisateurStatus,
   selectUtilisateurs,
-  selectUtilisateursLoading
+  selectUtilisateursLoading,
+  selectUser,
 } from '../Redux/store';
+import {
+  fetchPages,
+  fetchUserPermissions,
+  assignPermission,
+  revokePermission,
+} from '../Redux/permissionSlice';
 import AdminModal from './AdminModal';
+import PaginationControls from '../components/PaginationControls';
 
+// ---------- Countdown Component ----------
+const RemainingTime = ({ expiresAt }) => {
+  const [timeLeft, setTimeLeft] = useState('');
+  const [percentage, setPercentage] = useState(100);
+  const [isExpired, setIsExpired] = useState(false);
+
+  useEffect(() => {
+    if (!expiresAt) {
+      setTimeLeft('Permanent');
+      setPercentage(100);
+      setIsExpired(false);
+      return;
+    }
+
+    let interval;
+    const updateTimer = () => {
+      const now = new Date();
+      const expiry = new Date(expiresAt);
+      const diff = expiry - now;
+
+      if (diff <= 0) {
+        setTimeLeft('Expiré');
+        setPercentage(0);
+        setIsExpired(true);
+        return;
+      }
+
+      setIsExpired(false);
+      const days = Math.floor(diff / 86400000);
+      const hours = Math.floor((diff % 86400000) / 3600000);
+      const minutes = Math.floor((diff % 3600000) / 60000);
+      const seconds = Math.floor((diff % 60000) / 1000);
+
+      let formatted = '';
+      if (days > 0) formatted = `${days}j ${hours}h ${minutes}m ${seconds}s`;
+      else if (hours > 0) formatted = `${hours}h ${minutes}m ${seconds}s`;
+      else formatted = `${minutes}m ${seconds}s`;
+      setTimeLeft(formatted);
+
+      const createdAt = new Date(expiry.getTime() - 1000 * 60 * 60 * 24 * 30);
+      const total = expiry - createdAt;
+      const remaining = diff;
+      let percent = (remaining / total) * 100;
+      percent = Math.min(100, Math.max(0, percent));
+      setPercentage(percent);
+    };
+
+    updateTimer();
+    interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [expiresAt]);
+
+  if (!expiresAt) return <span className="permanent-badge">Permanente</span>;
+
+  return (
+    <div className="countdown-container">
+      <div className="countdown-time">{timeLeft}</div>
+      <div className="progress-bar-container">
+        <div className={`progress-bar-fill ${isExpired ? 'expired' : ''}`} style={{ width: `${percentage}%` }} />
+      </div>
+      {isExpired && <span className="expired-badge">Expiré</span>}
+    </div>
+  );
+};
+
+// ---------- Main Component ----------
 const GestionUtilisateurs = () => {
   const dispatch = useDispatch();
   const utilisateurs = useSelector(selectUtilisateurs);
   const loading = useSelector(selectUtilisateursLoading);
-  
+  const pages = useSelector((state) => state.permissions.pages);
+  const currentUser = useSelector(selectUser);
+
   const [showModal, setShowModal] = useState(false);
   const [modalType, setModalType] = useState('create');
   const [editingItem, setEditingItem] = useState(null);
   const [formData, setFormData] = useState({});
-  const [viewMode, setViewMode] = useState('list'); // 'list' or 'cards'
+  const [viewMode, setViewMode] = useState('list');
   const [submitting, setSubmitting] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [confirmationConfig, setConfirmationConfig] = useState({
-    type: '', // 'delete', 'activate', 'deactivate'
-    title: '',
-    message: '',
-    user: null,
-    onConfirm: null
+    type: '', title: '', message: '', user: null, onConfirm: null
   });
 
-  // États pour la recherche et les filtres
+  // Search & Filters
   const [searchTerm, setSearchTerm] = useState('');
-  const [roleFilter, setRoleFilter] = useState('all'); // 'all', 'admin', 'employee'
-  const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'active', 'inactive'
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [resetFilter, setResetFilter] = useState('all');
+
+  // Sorting & Pagination
+  const [sortField, setSortField] = useState('id');
+  const [sortDirection, setSortDirection] = useState('desc');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
+  // Permissions
+  const [permissionModalOpen, setPermissionModalOpen] = useState(false);
+  const [selectedUserForPermissions, setSelectedUserForPermissions] = useState(null);
+  const [selectedPage, setSelectedPage] = useState('');
+  const [durationMinutes, setDurationMinutes] = useState('');
+  const [userPermissionsList, setUserPermissionsList] = useState([]);
+  const [refreshingPermissions, setRefreshingPermissions] = useState(false);
 
   useEffect(() => {
     dispatch(fetchUtilisateurs());
   }, [dispatch]);
 
-  // Filtrer les utilisateurs basé sur le terme de recherche et les filtres
-  const filteredUsers = utilisateurs.filter(user => {
-    const matchesSearch = user.Fullname.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesRole = roleFilter === 'all' || user.role === roleFilter;
-    const matchesStatus = statusFilter === 'all' || user.status === statusFilter;
-    
-    return matchesSearch && matchesRole && matchesStatus;
-  });
+  useEffect(() => {
+    if (permissionModalOpen && selectedUserForPermissions) {
+      dispatch(fetchPages());
+      refreshUserPermissions();
+    }
+  }, [permissionModalOpen, selectedUserForPermissions, dispatch]);
 
+  const refreshUserPermissions = async () => {
+    setRefreshingPermissions(true);
+    const res = await dispatch(fetchUserPermissions(selectedUserForPermissions.id));
+    setUserPermissionsList(res.payload.permissions);
+    setRefreshingPermissions(false);
+  };
+
+  // ---------- Sorting ----------
+  const handleSort = (field) => {
+    if (sortField === field) setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    else { setSortField(field); setSortDirection('asc'); }
+  };
+
+  const getSortIcon = (field) => {
+    if (sortField !== field) return <FaSort className="sort-icon" />;
+    return sortDirection === 'asc' ? <FaArrowUp className="sort-icon active" /> : <FaArrowDown className="sort-icon active" />;
+  };
+
+  // ---------- Filtering & Sorting ----------
+  const filteredUsers = utilisateurs
+    .filter(user => {
+      const fullName = (user.Fullname || user.full_name || '').toLowerCase();
+      const matchesSearch = fullName.includes(searchTerm.toLowerCase());
+      const matchesRole = roleFilter === 'all' || user.role === roleFilter;
+      const matchesStatus = statusFilter === 'all' || user.status === statusFilter;
+      const matchesReset = resetFilter === 'all' || (resetFilter === 'pending' && user.remember_token === 'reset_requested');
+      return matchesSearch && matchesRole && matchesStatus && matchesReset;
+    })
+    .sort((a, b) => {
+      let aVal, bVal;
+      switch (sortField) {
+        case 'id': aVal = a.id; bVal = b.id; break;
+        case 'name':
+          aVal = (a.Fullname || a.full_name || '').toLowerCase();
+          bVal = (b.Fullname || b.full_name || '').toLowerCase();
+          break;
+        case 'role': aVal = a.role || ''; bVal = b.role || ''; break;
+        case 'status': aVal = a.status || ''; bVal = b.status || ''; break;
+        default: aVal = a.id; bVal = b.id;
+      }
+      if (sortDirection === 'asc') return aVal > bVal ? 1 : -1;
+      return aVal < bVal ? 1 : -1;
+    });
+
+  const totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
+  const paginated = filteredUsers.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  const pendingResetCount = utilisateurs.filter(u => u.remember_token === 'reset_requested').length;
+
+  // ---------- Handlers ----------
   const handleCreate = () => {
     setModalType('create');
     setEditingItem(null);
-    setFormData({ 
-      Fullname: '', 
-      password: '', 
-      password_confirmation: '', 
-      role: 'employee',
-      status: 'active' 
-    });
+    setFormData({ Fullname: '', password: '', password_confirmation: '', role: 'employee', status: 'active' });
     setShowModal(true);
   };
 
   const handleEdit = (item) => {
     setModalType('edit');
     setEditingItem(item);
-    setFormData({ 
-      ...item, 
-      password: '',
-      password_confirmation: '' 
-    });
+    setFormData({ ...item, password: '', password_confirmation: '' });
     setShowModal(true);
   };
 
   const showDeleteConfirmation = (user) => {
     setConfirmationConfig({
       type: 'delete',
-      title: 'Supprimer l\'utilisateur',
-      message: `Êtes-vous sûr de vouloir supprimer l'utilisateur "${user.Fullname}" ? Cette action est irréversible.`,
-      user: user,
+      title: "Supprimer l'utilisateur",
+      message: `Êtes-vous sûr de vouloir supprimer "${user.Fullname}" ? Cette action est irréversible.`,
+      user,
       onConfirm: () => confirmDelete(user.id)
     });
     setShowConfirmation(true);
@@ -97,8 +225,8 @@ const GestionUtilisateurs = () => {
     setConfirmationConfig({
       type: action,
       title: `${action === 'activate' ? 'Activer' : 'Désactiver'} l'utilisateur`,
-      message: `Êtes-vous sûr de vouloir ${action === 'activate' ? 'activer' : 'désactiver'} l'utilisateur "${user.Fullname}" ?`,
-      user: user,
+      message: `Êtes-vous sûr de vouloir ${action === 'activate' ? 'activer' : 'désactiver'} "${user.Fullname}" ?`,
+      user,
       onConfirm: () => confirmToggleStatus(user)
     });
     setShowConfirmation(true);
@@ -110,79 +238,30 @@ const GestionUtilisateurs = () => {
       setShowConfirmation(false);
       showSuccessMessage('Utilisateur supprimé avec succès !');
     } catch (error) {
-      showErrorMessage('Erreur lors de la suppression : ' + error);
+      showErrorMessage('Erreur : ' + error);
     }
   };
 
   const confirmToggleStatus = async (user) => {
     try {
-      await dispatch(toggleUtilisateurStatus(user.id)).unwrap();
-      setShowConfirmation(false);
       const newStatus = user.status === 'active' ? 'inactive' : 'active';
+      await dispatch(updateUtilisateurStatus({ utilisateurId: user.id, status: newStatus })).unwrap();
+      setShowConfirmation(false);
       showSuccessMessage(`Utilisateur ${newStatus === 'active' ? 'activé' : 'désactivé'} avec succès !`);
     } catch (error) {
-      showErrorMessage('Erreur lors de la mise à jour du statut : ' + error);
+      showErrorMessage('Erreur : ' + error);
     }
-  };
-
-  const handleUpdateStatus = async (userId, status) => {
-    try {
-      await dispatch(updateUtilisateurStatus({ utilisateurId: userId, status })).unwrap();
-      showSuccessMessage(`Statut utilisateur mis à jour vers ${status} avec succès !`);
-    } catch (error) {
-      showErrorMessage('Erreur lors de la mise à jour du statut : ' + error);
-    }
-  };
-
-  const showSuccessMessage = (message) => {
-    // Créer l'élément de notification de succès
-    const notification = document.createElement('div');
-    notification.className = 'success-notification';
-    notification.innerHTML = `
-      <div class="notification-content">
-        <FaCheck class="notification-icon" />
-        <span>${message}</span>
-      </div>
-    `;
-    document.body.appendChild(notification);
-
-    // Supprimer après 3 secondes
-    setTimeout(() => {
-      notification.remove();
-    }, 3000);
-  };
-
-  const showErrorMessage = (message) => {
-    // Créer l'élément de notification d'erreur
-    const notification = document.createElement('div');
-    notification.className = 'error-notification';
-    notification.innerHTML = `
-      <div class="notification-content">
-        <FaTimes class="notification-icon" />
-        <span>${message}</span>
-      </div>
-    `;
-    document.body.appendChild(notification);
-
-    // Supprimer après 5 secondes
-    setTimeout(() => {
-      notification.remove();
-    }, 5000);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
-
     try {
-      // Préparer les données pour l'API - supprimer les champs de mot de passe vides et la confirmation
       const submitData = { ...formData };
-      
       if (!submitData.password) {
         delete submitData.password;
         delete submitData.password_confirmation;
       }
-
       if (modalType === 'create') {
         await dispatch(createUtilisateur(submitData)).unwrap();
         showSuccessMessage('Utilisateur créé avec succès !');
@@ -193,19 +272,34 @@ const GestionUtilisateurs = () => {
       setShowModal(false);
     } catch (error) {
       showErrorMessage('Erreur : ' + error);
-    }
-    finally {
+    } finally {
       setSubmitting(false);
     }
   };
 
+  const handleAssignPermission = async () => {
+    if (!selectedPage) { showErrorMessage('Veuillez sélectionner une page.'); return; }
+    const duration = durationMinutes ? parseInt(durationMinutes) : null;
+    await dispatch(assignPermission({
+      userId: selectedUserForPermissions.id,
+      pageSlug: selectedPage,
+      durationMinutes: duration,
+    }));
+    showSuccessMessage('Permission attribuée.');
+    await refreshUserPermissions();
+    setSelectedPage('');
+    setDurationMinutes('');
+  };
+
+  const handleRevokePermission = async (pageSlug) => {
+    await dispatch(revokePermission({ userId: selectedUserForPermissions.id, pageSlug }));
+    showSuccessMessage('Permission révoquée.');
+    setUserPermissionsList(prev => prev.filter(p => p.page_slug !== pageSlug));
+  };
+
   const handleExport = () => {
     const usersToExport = filteredUsers.length > 0 ? filteredUsers : utilisateurs;
-    
-    if (!usersToExport || usersToExport.length === 0) {
-      showErrorMessage('Aucune donnée à exporter !');
-      return;
-    }
+    if (!usersToExport?.length) { showErrorMessage('Aucune donnée à exporter !'); return; }
 
     const headers = ['ID', 'Nom Complet', 'Rôle', 'Statut', 'Date de Création', 'Dernière Mise à Jour'];
     const csvContent = [
@@ -222,211 +316,71 @@ const GestionUtilisateurs = () => {
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    
-    link.setAttribute('href', url);
-    link.setAttribute('download', `export_utilisateurs_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    
-    document.body.appendChild(link);
+    link.href = URL.createObjectURL(blob);
+    link.download = `export_utilisateurs_${new Date().toISOString().split('T')[0]}.csv`;
     link.click();
-    document.body.removeChild(link);
     showSuccessMessage('CSV exporté avec succès !');
   };
 
-  const getRoleBadge = (role) => {
-    const roleConfig = {
-      admin: { class: 'role-badge admin', text: 'Administrateur', icon: FaUserTag },
-      employee: { class: 'role-badge employee', text: 'Membre Équipe', icon: FaUserCircle }
-    };
-
-    const config = roleConfig[role] || { class: 'role-badge employee', text: role, icon: FaUserCircle };
-    const IconComponent = config.icon;
-    
-    return (
-      <span className={config.class}>
-        <IconComponent className="badge-icon" />
-        {config.text}
-      </span>
-    );
+  const showSuccessMessage = (message) => {
+    const notification = document.createElement('div');
+    notification.className = 'success-notification';
+    notification.innerHTML = `<div class="notification-content"><span>✓ ${message}</span></div>`;
+    document.body.appendChild(notification);
+    setTimeout(() => notification.remove(), 3000);
   };
 
-  const getStatusBadge = (status) => {
-    const statusConfig = {
-      active: { class: 'status-badge active', text: 'Actif', icon: FaCheck },
-      inactive: { class: 'status-badge inactive', text: 'Inactif', icon: FaTimes }
-    };
-
-    const config = statusConfig[status] || { class: 'status-badge inactive', text: status, icon: FaTimes };
-    const IconComponent = config.icon;
-    
-    return (
-      <span className={config.class}>
-        <IconComponent className="badge-icon" />
-        {config.text}
-      </span>
-    );
+  const showErrorMessage = (message) => {
+    const notification = document.createElement('div');
+    notification.className = 'error-notification';
+    notification.innerHTML = `<div class="notification-content"><span>✗ ${message}</span></div>`;
+    document.body.appendChild(notification);
+    setTimeout(() => notification.remove(), 5000);
   };
 
-  const getStatusStats = () => {
-    const activeUsers = utilisateurs.filter(user => user.status === 'active').length;
-    const inactiveUsers = utilisateurs.filter(user => user.status === 'inactive').length;
-    const adminUsers = utilisateurs.filter(user => user.role === 'admin').length;
-    const employeeUsers = utilisateurs.filter(user => user.role === 'employee').length;
-
-    return { activeUsers, inactiveUsers, adminUsers, employeeUsers };
-  };
-
-  // Effacer tous les filtres
   const clearFilters = () => {
     setSearchTerm('');
     setRoleFilter('all');
     setStatusFilter('all');
+    setResetFilter('all');
+    setCurrentPage(1);
   };
 
-  const stats = getStatusStats();
+  // ---------- Badges ----------
+  const getRoleBadge = (role) => {
+    if (role === 'superadmin') return <span className="role-badge superadmin"><FaStar /> Super Admin</span>;
+    if (role === 'admin') return <span className="role-badge admin"><FaCrown /> Administrateur</span>;
+    return <span className="role-badge employee"><FaUserCircle /> Membre Équipe</span>;
+  };
 
-  // Afficher la vue en cartes
-  const renderUserCards = () => (
-    <div className="users-grid">
-      {filteredUsers.map(user => (
-        <div key={user.id} className="user-card">
-          <div className="card-header">
-            <div className="user-avatar">
-              <div className="avatar-circle">
-                {user.Fullname.split(' ').map(n => n[0]).join('').toUpperCase()}
-              </div>
-              <div className="user-status-indicator" data-status={user.status}></div>
-            </div>
-            <div className="user-main-info">
-              <h3 className="user-name">{user.Fullname}</h3>
-              <div className="user-meta">
-                {getRoleBadge(user.role)}
-                {getStatusBadge(user.status)}
-              </div>
-            </div>
-          </div>
-          
-          <div className="card-divider"></div>
+  const getStatusBadge = (status) => {
+    return status === 'active'
+      ? <span className="status-badge active"><FaCheck /> Actif</span>
+      : <span className="status-badge inactive"><FaTimes /> Inactif</span>;
+  };
 
-          <div className="user-details">
-            <div className="detail-item">
-              <FaKey className="detail-icon" />
-              <div className="detail-content">
-                <span className="detail-label">ID Utilisateur</span>
-                <span className="detail-value">#{user.id}</span>
-              </div>
-            </div>
-            <div className="detail-item">
-              <FaCalendar className="detail-icon" />
-              <div className="detail-content">
-                <span className="detail-label">Membre depuis</span>
-                <span className="detail-value">{new Date(user.created_at).toLocaleDateString('fr-FR', { 
-                  year: 'numeric', 
-                  month: 'short', 
-                  day: 'numeric' 
-                })}</span>
-              </div>
-            </div>
-            <div className="detail-item">
-              <FaUserCheck className="detail-icon" />
-              <div className="detail-content">
-                <span className="detail-label">Dernière mise à jour</span>
-                <span className="detail-value">{new Date(user.updated_at).toLocaleDateString('fr-FR', { 
-                  year: 'numeric', 
-                  month: 'short', 
-                  day: 'numeric' 
-                })}</span>
-              </div>
-            </div>
-          </div>
+  // ---------- Stats ----------
+  const stats = {
+    total: utilisateurs.length,
+    active: utilisateurs.filter(u => u.status === 'active').length,
+    inactive: utilisateurs.filter(u => u.status === 'inactive').length,
+    admins: utilisateurs.filter(u => u.role === 'admin').length,
+    superadmins: utilisateurs.filter(u => u.role === 'superadmin').length,
+    employees: utilisateurs.filter(u => u.role === 'employee').length,
+  };
 
-          <div className="card-divider"></div>
+  // ---------- Confirmation icon per type ----------
+  const confirmIconByType = {
+    delete: <FaTrash size={28} />,
+    activate: <FaUserCheck size={28} />,
+    deactivate: <FaUserSlash size={28} />,
+  };
 
-          <div className="card-actions">
-            <button 
-              className="btn-action btn-edit" 
-              onClick={() => handleEdit(user)}
-              title="Modifier l'utilisateur"
-            >
-              <FaEdit className="action-icon" />
-              <span>Modifier</span>
-            </button>
-            <button 
-              className={`btn-action ${user.status === 'active' ? 'btn-suspend' : 'btn-activate'}`}
-              onClick={() => showStatusConfirmation(user, user.status === 'active' ? 'inactive' : 'active')}
-              title={user.status === 'active' ? 'Désactiver l\'utilisateur' : 'Activer l\'utilisateur'}
-            >
-              {user.status === 'active' ? <FaUserSlash className="action-icon" /> : <FaUserCheck className="action-icon" />}
-              <span>{user.status === 'active' ? 'Désactiver' : 'Activer'}</span>
-            </button>
-            <button 
-              className="btn-action btn-delete" 
-              onClick={() => showDeleteConfirmation(user)}
-              title="Supprimer l'utilisateur"
-            >
-              <FaTrash className="action-icon" />
-              <span>Supprimer</span>
-            </button>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-
-  // Afficher la vue tableau
-  const renderTableView = () => (
-    <table className="data-table">
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Nom Complet</th>
-          <th>Rôle</th>
-          <th>Statut</th>
-          <th>Date de Création</th>
-          <th>Dernière Mise à Jour</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {filteredUsers.map(user => (
-          <tr key={user.id}>
-            <td className="user-id">#{user.id}</td>
-            <td className="user-name">{user.Fullname}</td>
-            <td>{getRoleBadge(user.role)}</td>
-            <td>{getStatusBadge(user.status)}</td>
-            <td className="date-cell">{new Date(user.created_at).toLocaleDateString('fr-FR')}</td>
-            <td className="date-cell">{new Date(user.updated_at).toLocaleDateString('fr-FR')}</td>
-            <td>
-              <div className="action-buttons">
-                <button 
-                  className="btn-action btn-edit" 
-                  onClick={() => handleEdit(user)}
-                  title="Modifier l'utilisateur"
-                >
-                  <FaEdit />
-                </button>
-                <button 
-                  className={`btn-action ${user.status === 'active' ? 'btn-suspend' : 'btn-activate'}`}
-                  onClick={() => showStatusConfirmation(user, user.status === 'active' ? 'inactive' : 'active')}
-                  title={user.status === 'active' ? 'Désactiver l\'utilisateur' : 'Activer l\'utilisateur'}
-                >
-                  {user.status === 'active' ? <FaUserSlash /> : <FaUserCheck />}
-                </button>
-                <button 
-                  className="btn-action btn-delete" 
-                  onClick={() => showDeleteConfirmation(user)}
-                  title="Supprimer l'utilisateur"
-                >
-                  <FaTrash />
-                </button>
-              </div>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
+  const confirmIconClassByType = {
+    delete: 'delete',
+    activate: 'activate',
+    deactivate: 'deactivate',
+  };
 
   if (loading) {
     return (
@@ -439,133 +393,92 @@ const GestionUtilisateurs = () => {
 
   return (
     <div className="users-management">
+      {/* Reset banner */}
+      {pendingResetCount > 0 && (
+        <div className="reset-banner">
+          <FaBell size={20} />
+          <span>
+            <strong>{pendingResetCount}</strong> utilisateur(s) ont demandé une réinitialisation de mot de passe.
+            <button className="banner-filter-btn" onClick={() => { setResetFilter('pending'); setCurrentPage(1); }}>
+              Voir les demandes
+            </button>
+            <button className="banner-dismiss-btn" onClick={() => setResetFilter('all')}>Masquer</button>
+          </span>
+        </div>
+      )}
+
       <div className="section-header">
         <div className="header-content">
-          <h1 className="section-title">
-            <FaUserCheck className="title-icon" />
-            Gestion des Utilisateurs           
-          </h1>
+          <h1 className="section-title"><FaUserCheck className="title-icon" /> Gestion des Utilisateurs</h1>
           <p className="section-subtitle">Gérez les accès système et les permissions des utilisateurs</p>
         </div>
         <div className="section-actions">
           <div className="view-toggle">
-            <button 
-              className={`view-btn ${viewMode === 'list' ? 'active' : ''}`}
-              onClick={() => setViewMode('list')}
-              title="Vue Liste"
-            >
-              <FaList />
-              <span>Liste</span>
+            <button className={`view-btn ${viewMode === 'list' ? 'active' : ''}`} onClick={() => setViewMode('list')}>
+              <FaList /><span>Liste</span>
             </button>
-            <button 
-              className={`view-btn ${viewMode === 'cards' ? 'active' : ''}`}
-              onClick={() => setViewMode('cards')}
-              title="Vue Cartes"
-            >
-              <FaTh />
-              <span>Cartes</span>
+            <button className={`view-btn ${viewMode === 'cards' ? 'active' : ''}`} onClick={() => setViewMode('cards')}>
+              <FaTh /><span>Cartes</span>
             </button>
           </div>
+          <button className="btn btn-secondary" onClick={() => dispatch(fetchUtilisateurs(true))}>
+            <FaSync className="btn-icon" /> Actualiser
+          </button>
           <button className="btn btn-primary" onClick={handleCreate}>
-            <FaPlus className="btn-icon" />
-            Nouvel Utilisateur
+            <FaPlus className="btn-icon" /> Nouvel Utilisateur
           </button>
           <button className="btn btn-secondary" onClick={handleExport}>
-            <FaFileExport className="btn-icon" />
-            Exporter CSV
+            <FaFileExport className="btn-icon" /> Exporter CSV
           </button>
         </div>
       </div>
 
-      {/* Cartes de Statistiques */}
+      {/* Stats */}
       <div className="stats-grid">
-        <div className="stat-card stat-active">
-          <div className="stat-content">
-            <div className="stat-number">{stats.activeUsers}</div>
-            <div className="stat-label">Utilisateurs Actifs</div>
-          </div>
-          <FaUserCheck className="stat-icon" />
-        </div>
-        <div className="stat-card stat-inactive">
-          <div className="stat-content">
-            <div className="stat-number">{stats.inactiveUsers}</div>
-            <div className="stat-label">Utilisateurs Inactifs</div>
-          </div>
-          <FaUserSlash className="stat-icon" />
-        </div>
-        <div className="stat-card stat-admin">
-          <div className="stat-content">
-            <div className="stat-number">{stats.adminUsers}</div>
-            <div className="stat-label">Administrateurs</div>
-          </div>
-          <FaUserTag className="stat-icon" />
-        </div>
-        <div className="stat-card stat-employee">
-          <div className="stat-content">
-            <div className="stat-number">{stats.employeeUsers}</div>
-            <div className="stat-label">Membres Équipe</div>
-          </div>
-          <FaUserCircle className="stat-icon" />
-        </div>
+        <div className="stat-card"><div className="stat-content"><div className="stat-number">{stats.total}</div><div className="stat-label">Total</div></div><FaDatabase className="stat-icon" /></div>
+        <div className="stat-card"><div className="stat-content"><div className="stat-number">{stats.active}</div><div className="stat-label">Actifs</div></div><FaUserCheck className="stat-icon" /></div>
+        <div className="stat-card"><div className="stat-content"><div className="stat-number">{stats.inactive}</div><div className="stat-label">Inactifs</div></div><FaUserSlash className="stat-icon" /></div>
+        <div className="stat-card"><div className="stat-content"><div className="stat-number">{stats.admins}</div><div className="stat-label">Administrateurs</div></div><FaCrown className="stat-icon" /></div>
+        <div className="stat-card"><div className="stat-content"><div className="stat-number">{stats.superadmins}</div><div className="stat-label">Super Admins</div></div><FaStar className="stat-icon" /></div>
+        <div className="stat-card"><div className="stat-content"><div className="stat-number">{stats.employees}</div><div className="stat-label">Employés</div></div><FaUserCircle className="stat-icon" /></div>
       </div>
 
-      {/* Section Recherche et Filtres */}
+      {/* Search & Filters */}
       <div className="search-filter-section">
         <div className="search-box">
           <FaSearch className="search-icon" />
-          <input
-            type="text"
-            placeholder="Rechercher des utilisateurs par nom..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="search-input"
-          />
-          {searchTerm && (
-            <button 
-              className="clear-search" 
-              onClick={() => setSearchTerm('')}
-              title="Effacer la recherche"
-            >
-              <FaTimes />
-            </button>
-          )}
+          <input type="text" placeholder="Rechercher par nom..." value={searchTerm}
+            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} className="search-input" />
+          {searchTerm && <button className="clear-search" onClick={() => setSearchTerm('')}><FaTimes /></button>}
         </div>
-
         <div className="filter-group">
           <div className="filter-item">
             <FaFilter className="filter-icon" />
-            <select 
-              value={roleFilter} 
-              onChange={(e) => setRoleFilter(e.target.value)}
-              className="filter-select"
-            >
+            <select value={roleFilter} onChange={(e) => { setRoleFilter(e.target.value); setCurrentPage(1); }} className="filter-select">
               <option value="all">Tous les Rôles</option>
+              <option value="superadmin">Super Admins</option>
               <option value="admin">Administrateurs</option>
-              <option value="employee">Membres Équipe</option>
+              <option value="employee">Employés</option>
             </select>
           </div>
-
           <div className="filter-item">
             <FaUserCheck className="filter-icon" />
-            <select 
-              value={statusFilter} 
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="filter-select"
-            >
+            <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }} className="filter-select">
               <option value="all">Tous les Statuts</option>
               <option value="active">Actif</option>
               <option value="inactive">Inactif</option>
             </select>
           </div>
-
-          {(searchTerm || roleFilter !== 'all' || statusFilter !== 'all') && (
-            <button 
-              className="btn-clear-filters"
-              onClick={clearFilters}
-              title="Effacer tous les filtres"
-            >
-              <FaTimes />
-              Effacer les Filtres
+          <div className="filter-item">
+            <FaKey className="filter-icon" />
+            <select value={resetFilter} onChange={(e) => { setResetFilter(e.target.value); setCurrentPage(1); }} className="filter-select">
+              <option value="all">Tous</option>
+              <option value="pending">Demandes de réinitialisation</option>
+            </select>
+          </div>
+          {(searchTerm || roleFilter !== 'all' || statusFilter !== 'all' || resetFilter !== 'all') && (
+            <button className="btn-clear-filters" onClick={clearFilters}>
+              <FaTimes /> Effacer les Filtres
             </button>
           )}
         </div>
@@ -574,34 +487,72 @@ const GestionUtilisateurs = () => {
       <div className="content-container">
         {filteredUsers.length > 0 ? (
           <>
-            {viewMode === 'list' ? renderTableView() : renderUserCards()}
+            <div style={{ overflowX: 'auto' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th onClick={() => handleSort('id')} className="sortable">ID {getSortIcon('id')}</th>
+                    <th onClick={() => handleSort('name')} className="sortable">Nom Complet {getSortIcon('name')}</th>
+                    <th onClick={() => handleSort('role')} className="sortable">Rôle {getSortIcon('role')}</th>
+                    <th onClick={() => handleSort('status')} className="sortable">Statut {getSortIcon('status')}</th>
+                    <th>Date de Création</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginated.map(user => (
+                    <tr key={user.id}>
+                      <td>#{user.id}</td>
+                      <td>
+                        {user.Fullname}
+                        {user.remember_token === 'reset_requested' && (
+                          <span className="reset-badge" title="Demande de réinitialisation">
+                            <FaSync /> Reset
+                          </span>
+                        )}
+                      </td>
+                      <td>{getRoleBadge(user.role)}</td>
+                      <td>{getStatusBadge(user.status)}</td>
+                      <td>{new Date(user.created_at).toLocaleDateString('fr-FR')}</td>
+                      <td>
+                        <div className="action-buttons">
+                          <button className="btn-action btn-edit" onClick={() => handleEdit(user)} title="Modifier"><FaEdit /></button>
+                          <button className={`btn-action ${user.status === 'active' ? 'btn-suspend' : 'btn-activate'}`}
+                            onClick={() => showStatusConfirmation(user, user.status === 'active' ? 'inactive' : 'active')}>
+                            {user.status === 'active' ? <FaLock /> : <FaUnlock />}
+                          </button>
+                          {currentUser?.role === 'superadmin' && (
+                            <button className="btn-action btn-permission" title="Permissions"
+                              onClick={() => { setSelectedUserForPermissions(user); setPermissionModalOpen(true); }}>
+                              <FaKey />
+                            </button>
+                          )}
+                          <button className="btn-action btn-delete" onClick={() => showDeleteConfirmation(user)}><FaTrash /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {totalPages > 1 && (
+              <PaginationControls
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+                itemsPerPage={itemsPerPage}
+                onItemsPerPageChange={setItemsPerPage}
+                totalItems={filteredUsers.length}
+              />
+            )}
           </>
         ) : (
           <div className="empty-state">
-            <div className="empty-icon">
-              <FaDatabase />
-            </div>
-            <h3>
-              {searchTerm || roleFilter !== 'all' || statusFilter !== 'all' 
-                ? 'Aucun utilisateur ne correspond à votre recherche' 
-                : 'Aucun utilisateur trouvé'
-              }
-            </h3>
-            <p>
-              {searchTerm || roleFilter !== 'all' || statusFilter !== 'all'
-                ? 'Essayez d\'ajuster vos critères de recherche ou effacez les filtres pour voir tous les utilisateurs.'
-                : 'Commencez par ajouter votre premier utilisateur au système'
-              }
-            </p>
-            {(searchTerm || roleFilter !== 'all' || statusFilter !== 'all') && (
-              <button className="btn btn-secondary" onClick={clearFilters}>
-                Effacer les Filtres
-              </button>
-            )}
-            <button className="btn btn-primary" onClick={handleCreate}>
-              <FaPlus className="btn-icon" />
-              Nouvel Utilisateur
-            </button>
+            <div className="empty-icon"><FaDatabase /></div>
+            <h3>Aucun utilisateur trouvé</h3>
+            <p>Essayez d'ajuster vos critères de recherche.</p>
+            <button className="btn btn-primary" onClick={handleCreate}><FaPlus /> Nouvel Utilisateur</button>
           </div>
         )}
       </div>
@@ -618,1148 +569,726 @@ const GestionUtilisateurs = () => {
         />
       )}
 
-      {/* Modal de Confirmation */}
-      {showConfirmation && (
-        <div className="confirmation-modal-overlay">
-          <div className="confirmation-modal">
-            <div className="confirmation-header">
-              <div className={`confirmation-icon ${confirmationConfig.type}`}>
-                <FaExclamationTriangle />
+      {/* ====================================================================
+          Permission Modal — full-screen overlay (AdminModal shell)
+         ==================================================================== */}
+      {permissionModalOpen && selectedUserForPermissions && currentUser?.role === 'superadmin' && createPortal(
+        <div className="perm-overlay" role="dialog" aria-modal="true">
+          <div className="perm-modal">
+            <header className="perm-header">
+              <div className="perm-header-icon">
+                <FaKey size={28} />
               </div>
-              <h3 className="confirmation-title">{confirmationConfig.title}</h3>
-            </div>
-            
-            <div className="confirmation-body">
-              <p className="confirmation-message">{confirmationConfig.message}</p>
-              
-              {confirmationConfig.user && (
-                <div className="user-preview">
-                  <div className="user-avatar-preview">
-                    <div className="avatar-circle-preview">
-                      {confirmationConfig.user.Fullname.split(' ').map(n => n[0]).join('').toUpperCase()}
-                    </div>
+              <div className="perm-header-title">
+                <h2>Gestion des permissions</h2>
+                <p>{selectedUserForPermissions.Fullname}</p>
+              </div>
+              <button
+                type="button"
+                className="perm-header-close"
+                onClick={() => setPermissionModalOpen(false)}
+                aria-label="Fermer"
+              >
+                <FaTimes size={20} />
+              </button>
+            </header>
+
+            <div className="perm-body">
+              <section className="perm-section">
+                <div className="perm-section-header">
+                  <FaPlus size={16} />
+                  <h3>Ajouter une permission</h3>
+                  <button
+                    type="button"
+                    className="perm-refresh-btn"
+                    onClick={refreshUserPermissions}
+                    disabled={refreshingPermissions}
+                    title="Actualiser les permissions"
+                  >
+                    <FaSync className={refreshingPermissions ? 'spin' : ''} />
+                  </button>
+                </div>
+
+                <div className="perm-grid-2">
+                  <div className="perm-field">
+                    <label className="perm-label">Page</label>
+                    <select
+                      className="perm-input"
+                      value={selectedPage}
+                      onChange={(e) => setSelectedPage(e.target.value)}
+                    >
+                      <option value="">-- Choisir une page --</option>
+                      {Object.entries(pages).map(([slug, label]) => (
+                        <option key={slug} value={slug}>{label}</option>
+                      ))}
+                    </select>
                   </div>
-                  <div className="user-info-preview">
-                    <h4>{confirmationConfig.user.Fullname}</h4>
-                    <div className="user-meta-preview">
-                      {getRoleBadge(confirmationConfig.user.role)}
-                      {getStatusBadge(confirmationConfig.user.status)}
-                    </div>
+                  <div className="perm-field">
+                    <label className="perm-label">Durée (minutes)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      className="perm-input"
+                      value={durationMinutes}
+                      onChange={(e) => setDurationMinutes(e.target.value)}
+                      placeholder="Vide = permanente"
+                    />
+                    <span className="perm-hint">Laisser vide pour une permission permanente</span>
                   </div>
                 </div>
-              )}
+
+                <div className="perm-assign-row">
+                  <button
+                    type="button"
+                    className="perm-btn-primary"
+                    onClick={handleAssignPermission}
+                    disabled={!selectedPage}
+                  >
+                    <FaPlus size={14} /> Attribuer
+                  </button>
+                </div>
+              </section>
+
+              <section className="perm-section">
+                <div className="perm-section-header">
+                  <FaKey size={16} />
+                  <h3>Permissions actuelles ({userPermissionsList.length})</h3>
+                </div>
+
+                {userPermissionsList.length === 0 ? (
+                  <div className="perm-empty">Aucune permission spéciale attribuée.</div>
+                ) : (
+                  <ul className="perm-list">
+                    {userPermissionsList.map(perm => (
+                      <li key={perm.page_slug} className="perm-item">
+                        <div className="perm-item-info">
+                          <strong>{pages[perm.page_slug] || perm.page_slug}</strong>
+                          <RemainingTime expiresAt={perm.expires_at} />
+                        </div>
+                        <button
+                          className="perm-revoke-btn"
+                          onClick={() => handleRevokePermission(perm.page_slug)}
+                          title="Révoquer"
+                        >
+                          <FaTrash size={14} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
             </div>
 
-            <div className="confirmation-actions">
-              <button 
-                className="btn-confirm-cancel"
-                onClick={() => setShowConfirmation(false)}
+            <div className="perm-footer">
+              <button
+                type="button"
+                className="perm-btn-secondary"
+                onClick={() => setPermissionModalOpen(false)}
               >
-                Annuler
-              </button>
-              <button 
-                className={`btn-confirm-${confirmationConfig.type}`}
-                onClick={confirmationConfig.onConfirm}
-              >
-                {confirmationConfig.type === 'delete' ? 'Supprimer l\'utilisateur' : 
-                 confirmationConfig.type === 'activate' ? 'Activer l\'utilisateur' : 'Désactiver l\'utilisateur'}
+                Fermer
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      <style jsx>{`
+      {/* ====================================================================
+          Confirmation Modal — polished confirmation style
+         ==================================================================== */}
+      {showConfirmation && createPortal(
+        <div className="confirmation-modal-overlay">
+          <div className="confirmation-modal">
+            <div className="confirmation-header">
+              <div className={`confirmation-icon ${confirmIconClassByType[confirmationConfig.type] || 'delete'}`}>
+                {confirmIconByType[confirmationConfig.type] || <FaExclamationTriangle size={28} />}
+              </div>
+              <h3 className="confirmation-title">{confirmationConfig.title}</h3>
+            </div>
+            <div className="confirmation-body">
+              <p className="confirmation-message">{confirmationConfig.message}</p>
+            </div>
+            <div className="confirmation-actions">
+              <button className="btn-confirm-cancel" onClick={() => setShowConfirmation(false)}>
+                Annuler
+              </button>
+              <button
+                className={`btn-confirm-${confirmationConfig.type}`}
+                onClick={confirmationConfig.onConfirm}
+              >
+                Confirmer
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      <style>{`
+        /* ================= Layout ================= */
         .users-management {
-          padding: 2rem;
-          min-height: 100vh;
+          padding: 2rem; min-height: 100vh;
           font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+          background: #f8fafc; color: #334155;
         }
 
-        /* Loading Spinner */
+        /* ================= Reset banner ================= */
+        .reset-banner {
+          display: flex; align-items: center; gap: 12px;
+          background: #fef3c7; border: 1px solid #f59e0b;
+          border-radius: 0.75rem; padding: 12px 20px; margin-bottom: 1.5rem;
+          color: #92400e; font-size: 0.95rem;
+        }
+        .banner-filter-btn {
+          margin-left: 12px; padding: 4px 12px;
+          background: #f59e0b; color: white; border: none;
+          border-radius: 6px; cursor: pointer; font-weight: 600;
+        }
+        .banner-dismiss-btn {
+          margin-left: 8px; background: transparent; border: none;
+          color: #92400e; text-decoration: underline; cursor: pointer;
+        }
+
+        /* ================= Header ================= */
+        .section-header {
+          display: flex; justify-content: space-between; align-items: flex-start;
+          gap: 1rem; margin-bottom: 2rem; background: #fff; padding: 2rem;
+          border-radius: 1.25rem; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+          border: 1px solid #e2e8f0; flex-wrap: wrap;
+        }
+        .header-content { flex: 1; }
+        .section-title {
+          display: flex; align-items: center; gap: 10px;
+          font-size: 2rem; font-weight: 700; margin: 0 0 0.5rem 0;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+          background-clip: text; flex-wrap: wrap;
+        }
+        .title-icon { color: #667eea; }
+        .section-subtitle { color: #64748b; font-size: 1rem; margin: 0; font-weight: 400; }
+        .section-actions { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+
+        /* ================= Buttons ================= */
+        .btn {
+          display: inline-flex; align-items: center; gap: 0.5rem;
+          height: 2.5rem; padding: 0 1rem; border-radius: 9999px;
+          border: none; cursor: pointer; font-size: 0.875rem; font-weight: 500;
+          transition: all 0.2s; font-family: inherit;
+        }
+        .btn-secondary { background: #f1f5f9; color: #1e293b; }
+        .btn-secondary:hover { background: #e2e8f0; transform: translateY(-1px); }
+        .btn-primary {
+          background: linear-gradient(135deg, #667eea, #764ba2); color: white;
+          box-shadow: 0 4px 15px rgba(102,126,234,0.3);
+        }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 25px rgba(102,126,234,0.4); }
+
+        .view-toggle { display: flex; background: #f1f5f9; border-radius: 0.75rem; padding: 0.25rem; }
+        .view-btn {
+          display: flex; align-items: center; gap: 0.5rem;
+          padding: 0.5rem 1rem; border: none; background: transparent;
+          border-radius: 0.5rem; cursor: pointer; color: #64748b;
+          font-size: 0.8rem; font-weight: 600;
+        }
+        .view-btn.active { background: white; color: #667eea; }
+
+        /* ================= Stats ================= */
+        .stats-grid {
+          display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          gap: 1rem; margin-bottom: 1.5rem;
+        }
+        .stat-card {
+          background: white; border: 1px solid #e2e8f0; border-radius: 1rem;
+          padding: 1rem; transition: all 0.2s;
+          display: flex; justify-content: space-between; align-items: center;
+        }
+        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); }
+        .stat-number { font-size: 1.875rem; font-weight: 700; color: #0f172a; line-height: 1; }
+        .stat-label { font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 0.35rem; }
+        .stat-icon { opacity: 0.5; }
+
+        /* ================= Search + filters ================= */
+        .search-filter-section {
+          background: #fff; border: 1px solid #e2e8f0; border-radius: 1rem;
+          padding: 1rem; margin-bottom: 1.5rem;
+          display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .search-box { position: relative; flex: 1; min-width: 240px; }
+        .search-box .search-icon {
+          position: absolute; left: 0.75rem; top: 50%;
+          transform: translateY(-50%); color: #64748b;
+        }
+        .search-box .search-input {
+          width: 100%; padding: 0.5rem 2.5rem 0.5rem 2.5rem;
+          border: 1px solid #e2e8f0; border-radius: 0.5rem;
+          font-size: 0.875rem; font-family: inherit; transition: all 0.2s;
+          background: #fff;
+        }
+        .search-box .search-input:focus {
+          outline: none; border-color: #667eea;
+          box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15);
+        }
+        .clear-search {
+          position: absolute; right: 0.75rem; top: 50%;
+          transform: translateY(-50%); background: none; border: none;
+          color: #94a3b8; cursor: pointer;
+        }
+        .filter-group { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+        .filter-item {
+          display: flex; align-items: center; gap: 0.5rem;
+          background: #f1f5f9; padding: 0.5rem 1rem;
+          border-radius: 0.5rem;
+        }
+        .filter-icon { color: #64748b; font-size: 0.8rem; }
+        .filter-select {
+          border: none; background: transparent; outline: none;
+          cursor: pointer; font-family: inherit; font-size: 0.85rem;
+          color: #1e293b; font-weight: 500;
+        }
+        .btn-clear-filters {
+          display: flex; align-items: center; gap: 0.5rem;
+          padding: 0.5rem 1rem; background: #fee2e2;
+          border-radius: 0.5rem; border: none; cursor: pointer;
+          color: #991b1b; font-size: 0.85rem; font-weight: 600;
+        }
+        .btn-clear-filters:hover { background: #fecaca; }
+
+        /* ================= Content container ================= */
+        .content-container {
+          background: white; border: 1px solid #e2e8f0; border-radius: 1rem;
+          overflow: hidden; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        /* ================= Table ================= */
+        .data-table {
+          width: 100%;
+          font-size: 0.875rem;
+          border-collapse: collapse;
+          min-width: 800px;
+        }
+        .data-table th {
+          text-align: left;
+          padding: 0.75rem 1rem;
+          background: #f8fafc;
+          color: #64748b;
+          font-weight: 500;
+          white-space: nowrap;
+          border-bottom: 1px solid #e2e8f0;
+        }
+        .data-table td {
+          padding: 0.75rem 1rem;
+          border-top: 1px solid #e2e8f0;
+          color: #334155;
+          vertical-align: middle;
+        }
+        .data-table tr:hover { background: #f8fafc; }
+
+        .sortable { cursor: pointer; user-select: none; }
+        .sortable:hover { background: #e2e8f0; }
+        .sort-icon { font-size: 0.7rem; margin-left: 0.25rem; opacity: 0.5; }
+        .sort-icon.active { opacity: 1; color: #667eea; }
+
+        /* ================= Badges ================= */
+        .role-badge, .status-badge, .reset-badge {
+          display: inline-flex; align-items: center; gap: 0.25rem;
+          padding: 0.25rem 0.625rem; border-radius: 9999px;
+          font-size: 0.7rem; font-weight: 500; white-space: nowrap;
+        }
+        .role-badge.superadmin { background: #fef3c7; color: #92400e; }
+        .role-badge.admin      { background: #dbeafe; color: #1e40af; }
+        .role-badge.employee   { background: #f3e8ff; color: #6b21a5; }
+        .status-badge.active   { background: #dcfce7; color: #166534; }
+        .status-badge.inactive { background: #fee2e2; color: #991b1b; }
+        .reset-badge           { background: #fef3c7; color: #92400e; margin-left: 0.5rem; }
+
+        /* ================= Action buttons ================= */
+        .action-buttons { display: flex; gap: 0.5rem; justify-content: flex-end; }
+        .btn-action {
+          padding: 0.5rem; background: none; border: none; cursor: pointer;
+          border-radius: 0.5rem; transition: all 0.2s; width: 32px; height: 32px;
+          display: inline-flex; align-items: center; justify-content: center;
+        }
+        .btn-edit       { color: #10b981; } .btn-edit:hover       { background: #ecfdf5; }
+        .btn-suspend    { color: #f59e0b; } .btn-suspend:hover    { background: #fffbeb; }
+        .btn-activate   { color: #10b981; } .btn-activate:hover   { background: #ecfdf5; }
+        .btn-permission { color: #8b5cf6; } .btn-permission:hover { background: #f5f3ff; }
+        .btn-delete     { color: #ef4444; } .btn-delete:hover     { background: #fef2f2; }
+
+        /* ================= Empty state ================= */
+        .empty-state { text-align: center; padding: 4rem 2rem; }
+        .empty-icon { font-size: 4rem; color: #667eea; opacity: 0.3; margin-bottom: 1.5rem; }
+        .empty-state h3 { font-size: 1.25rem; font-weight: 700; color: #0f172a; margin: 0 0 0.5rem; }
+        .empty-state p { color: #64748b; margin: 0 0 1.5rem; }
+
+        /* ================= Loading ================= */
         .loading-spinner {
+          display: flex; flex-direction: column; align-items: center;
+          justify-content: center; height: 400px; color: #64748b;
+        }
+        .spinner {
+          width: 48px; height: 48px; border: 3px solid #e2e8f0;
+          border-top: 3px solid #667eea; border-radius: 50%;
+          animation: spin 1s linear infinite; margin-bottom: 1rem;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spin { animation: spin 0.6s linear infinite; }
+
+        /* ====================================================================
+           Shared keyframes
+           ==================================================================== */
+        @keyframes amSlideIn {
+          from { opacity: 0; transform: translateY(20px) scale(0.98); }
+          to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes modalSlideUp {
+          from { opacity: 0; transform: translateY(20px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+
+        /* ====================================================================
+           Permission modal — full-screen overlay (AdminModal shell)
+           ==================================================================== */
+        .perm-overlay {
+          position: fixed;
+          top: 0; right: 0; bottom: 0; left: 0;
+          background: #f8fafc;
+          overflow-y: auto; overflow-x: hidden;
+          z-index: 9999;
+        }
+        @media (min-width: 768px) {
+          .perm-overlay { left: 18rem; }
+        }
+
+        .perm-modal {
+          background: #fff;
+          border-radius: 32px;
+          margin: 1.5rem;
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+          overflow: hidden;
+          animation: amSlideIn 0.3s ease-out;
+        }
+
+        .perm-header {
+          position: relative;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          padding: 24px 32px;
+          display: flex;
+          align-items: center;
+          gap: 20px;
+        }
+        .perm-header-icon {
+          width: 56px; height: 56px; background: #fff;
+          border-radius: 28px; display: flex; align-items: center;
+          justify-content: center; color: #667eea; flex-shrink: 0;
+        }
+        .perm-header-title { flex: 1; min-width: 0; padding-right: 48px; }
+        .perm-header-title h2 {
+          color: #fff; font-size: 1.75rem; font-weight: 700;
+          margin: 0; line-height: 1.2;
+        }
+        .perm-header-title p {
+          color: rgba(255, 255, 255, 0.85);
+          font-size: 0.875rem; margin: 4px 0 0;
+        }
+        .perm-header-close {
+          position: absolute; top: 24px; right: 28px;
+          background: rgba(255, 255, 255, 0.15);
+          border: none; border-radius: 40px;
+          width: 40px; height: 40px;
+          display: flex; align-items: center; justify-content: center;
+          cursor: pointer; color: #fff; transition: all 0.2s;
+        }
+        .perm-header-close:hover {
+          background: rgba(255, 255, 255, 0.25);
+          transform: scale(1.05);
+        }
+
+        .perm-body {
+          padding: 28px 32px;
           display: flex;
           flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          height: 400px;
+          gap: 24px;
         }
 
-        .spinner {
-          width: 48px;
-          height: 48px;
-          border: 3px solid #e9ecef;
-          border-top: 3px solid #007bff;
-          border-radius: 50%;
-          animation: spin 1s linear infinite;
-          margin-bottom: 1rem;
+        .perm-section {
+          background: #f8fafc;
+          border-radius: 16px;
+          padding: 20px;
+          border: 1px solid #e2e8f0;
         }
-
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-
-        /* Section Header */
-        .section-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          margin-bottom: 2rem;
-          background: white;
-          padding: 2rem;
-          border-radius: 20px;
-          box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-          backdrop-filter: blur(10px);
-          border: 1px solid rgba(255,255,255,0.2);
-        }
-
-        .header-content {
-          flex: 1;
-        }
-
-        .section-title {
+        .perm-section-header {
           display: flex;
           align-items: center;
-          font-size: 2rem;
-          font-weight: 700;
-          color: #1a1a1a;
-          margin: 0 0 0.5rem 0;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
+          gap: 10px;
+          margin-bottom: 20px;
+          padding-bottom: 12px;
+          border-bottom: 2px solid #667eea;
         }
-
-        .title-icon {
-          margin-right: 0.75rem;
-          font-size: 2rem;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
+        .perm-section-header h3 {
+          font-size: 1rem; font-weight: 600;
+          color: #1e293b; margin: 0; flex: 1;
         }
-
-        .users-count {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: white;
-          padding: 0.25rem 1rem;
-          border-radius: 20px;
-          font-size: 0.875rem;
-          margin-left: 1rem;
-          font-weight: 600;
+        .perm-refresh-btn {
+          background: #fff; border: 1px solid #e2e8f0;
+          padding: 6px 10px; border-radius: 0.5rem;
+          color: #64748b; cursor: pointer;
+          display: inline-flex; align-items: center; justify-content: center;
+          transition: all 0.2s;
         }
+        .perm-refresh-btn:hover { border-color: #667eea; color: #667eea; }
+        .perm-refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        .section-subtitle {
-          color: #6c757d;
-          font-size: 1.1rem;
-          margin: 0;
-          font-weight: 400;
-        }
-
-        .section-actions {
-          display: flex;
-          gap: 1rem;
-          align-items: center;
-        }
-
-        /* View Toggle */
-        .view-toggle {
-          display: flex;
-          background: #f8f9fa;
-          border-radius: 12px;
-          padding: 0.25rem;
-          margin-right: 0.5rem;
-          border: 1px solid #e9ecef;
-        }
-
-        .view-btn {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          padding: 0.5rem 1rem;
-          border: none;
-          background: transparent;
-          border-radius: 8px;
-          cursor: pointer;
-          transition: all 0.3s ease;
-          color: #6c757d;
-          font-size: 0.875rem;
-          font-weight: 500;
-        }
-
-        .view-btn.active {
-          background: white;
-          color: #007bff;
-          box-shadow: 0 2px 8px rgba(0, 123, 255, 0.2);
-        }
-
-        .view-btn:hover:not(.active) {
-          background: #e9ecef;
-          color: #495057;
-        }
-
-        /* Buttons */
-        .btn {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          padding: 0.75rem 1.5rem;
-          border: none;
-          border-radius: 12px;
-          font-size: 0.875rem;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.3s ease;
-          text-decoration: none;
-          font-family: inherit;
-        }
-
-        .btn-primary {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: white;
-          box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-        }
-
-        .btn-primary:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
-        }
-
-        .btn-secondary {
-          background: #6c757d;
-          color: white;
-          box-shadow: 0 4px 15px rgba(108, 117, 125, 0.3);
-        }
-
-        .btn-secondary:hover {
-          background: #545b62;
-          transform: translateY(-2px);
-          box-shadow: 0 8px 25px rgba(108, 117, 125, 0.4);
-        }
-
-        .btn-icon {
-          font-size: 0.875rem;
-        }
-
-        /* Stats Grid */
-        .stats-grid {
+        .perm-grid-2 {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-          gap: 1.5rem;
-          margin-bottom: 2rem;
+          grid-template-columns: 1fr 1fr;
+          gap: 16px;
         }
-
-        .stat-card {
-          background: white;
-          padding: 1.5rem;
-          border-radius: 16px;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-          position: relative;
-          overflow: hidden;
-          transition: all 0.3s ease;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          border: 1px solid rgba(255,255,255,0.2);
+        .perm-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+        .perm-label {
+          font-size: 0.7rem; font-weight: 600; color: #475569;
+          text-transform: uppercase; letter-spacing: 0.5px;
         }
-
-        .stat-card:hover {
-          transform: translateY(-5px);
-          box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+        .perm-hint { font-size: 0.7rem; color: #94a3b8; font-style: italic; }
+        .perm-input {
+          width: 100%; padding: 10px 14px;
+          border: 1.5px solid #e2e8f0; border-radius: 12px;
+          font-size: 0.875rem; font-family: inherit;
+          background: #fff; color: #1e293b;
+          transition: all 0.2s; box-sizing: border-box;
         }
-
-        .stat-card::before {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          height: 4px;
-        }
-
-        .stat-active::before { background: linear-gradient(135deg, #4CAF50, #45a049); }
-        .stat-inactive::before { background: linear-gradient(135deg, #f44336, #da190b); }
-        .stat-admin::before { background: linear-gradient(135deg, #2196F3, #0b7dda); }
-        .stat-employee::before { background: linear-gradient(135deg, #9C27B0, #7b1fa2); }
-
-        .stat-content {
-          flex: 1;
-        }
-
-        .stat-number {
-          font-size: 2.5rem;
-          font-weight: 800;
-          color: #1a1a1a;
-          margin-bottom: 0.25rem;
-          line-height: 1;
-        }
-
-        .stat-label {
-          font-size: 0.875rem;
-          color: #6c757d;
-          font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
-
-        .stat-icon {
-          font-size: 2rem;
-          opacity: 0.1;
-          color: #1a1a1a;
-        }
-
-        /* Search and Filter Section */
-        .search-filter-section {
-          background: white;
-          padding: 1.5rem 2rem;
-          border-radius: 16px;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-          margin-bottom: 2rem;
-          display: flex;
-          gap: 2rem;
-          align-items: center;
-          flex-wrap: wrap;
-          border: 1px solid rgba(255,255,255,0.2);
-        }
-
-        .search-box {
-          position: relative;
-          flex: 1;
-          min-width: 300px;
-        }
-
-        .search-icon {
-          position: absolute;
-          left: 1rem;
-          top: 50%;
-          transform: translateY(-50%);
-          color: #6c757d;
-          font-size: 1rem;
-        }
-
-        .search-input {
-          width: 100%;
-          padding: 0.75rem 1rem 0.75rem 3rem;
-          border: 1px solid #e9ecef;
-          border-radius: 12px;
-          font-size: 0.875rem;
-          transition: all 0.3s ease;
-          background: #f8f9fa;
-        }
-
-        .search-input:focus {
-          outline: none;
-          border-color: #667eea;
-          background: white;
+        .perm-input:focus {
+          outline: none; border-color: #667eea;
           box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
 
-        .clear-search {
-          position: absolute;
-          right: 1rem;
-          top: 50%;
-          transform: translateY(-50%);
-          background: none;
-          border: none;
-          color: #6c757d;
-          cursor: pointer;
-          padding: 0.25rem;
-          border-radius: 50%;
-          transition: all 0.3s ease;
+        .perm-assign-row {
+          display: flex; justify-content: flex-end;
+          margin-top: 16px;
         }
 
-        .clear-search:hover {
-          background: #e9ecef;
-          color: #495057;
+        .perm-list {
+          list-style: none; padding: 0; margin: 0;
+          display: flex; flex-direction: column; gap: 10px;
+        }
+        .perm-item {
+          display: flex; justify-content: space-between; align-items: center;
+          padding: 12px 16px; background: #fff;
+          border: 1.5px solid #e2e8f0; border-radius: 12px;
+          transition: border-color 0.2s;
+        }
+        .perm-item:hover { border-color: #cbd5e1; }
+        .perm-item-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+        .perm-item-info strong { font-size: 0.875rem; color: #1e293b; }
+        .perm-revoke-btn {
+          background: none; border: none; cursor: pointer;
+          color: #ef4444; padding: 6px; border-radius: 6px;
+          display: inline-flex; align-items: center; justify-content: center;
+          transition: background 0.15s; flex-shrink: 0;
+        }
+        .perm-revoke-btn:hover { background: #fee2e2; }
+
+        .perm-empty {
+          text-align: center; padding: 2rem 1rem;
+          color: #94a3b8; font-size: 0.875rem;
+          background: #fff; border-radius: 12px;
+          border: 1px dashed #e2e8f0;
         }
 
-        .filter-group {
-          display: flex;
-          gap: 1rem;
-          align-items: center;
-          flex-wrap: wrap;
+        .perm-footer {
+          display: flex; justify-content: flex-end;
+          gap: 16px; padding: 20px 32px;
+          border-top: 1px solid #e2e8f0;
+          background: #fff;
         }
 
-        .filter-item {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          background: #f8f9fa;
-          padding: 0.5rem 1rem;
-          border-radius: 10px;
-          border: 1px solid #e9ecef;
+        .perm-btn-primary,
+        .perm-btn-secondary {
+          font-family: inherit; font-size: 0.875rem;
+          font-weight: 600; border-radius: 40px;
+          cursor: pointer; display: inline-flex;
+          align-items: center; justify-content: center;
+          gap: 8px; transition: all 0.2s; white-space: nowrap;
         }
-
-        .filter-icon {
-          color: #6c757d;
-          font-size: 0.875rem;
-        }
-
-        .filter-select {
-          border: none;
-          background: transparent;
-          font-size: 0.875rem;
-          color: #495057;
-          cursor: pointer;
-          outline: none;
-        }
-
-        .btn-clear-filters {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          padding: 0.5rem 1rem;
-          background: rgba(108, 117, 125, 0.1);
-          color: #6c757d;
-          border: 1px solid rgba(108, 117, 125, 0.2);
-          border-radius: 8px;
-          font-size: 0.75rem;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.3s ease;
-        }
-
-        .btn-clear-filters:hover {
-          background: #6c757d;
-          color: white;
-        }
-
-        /* Content Container */
-        .content-container {
-          background: white;
-          border-radius: 20px;
-          box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-          overflow: hidden;
-          border: 1px solid rgba(255,255,255,0.2);
-        }
-
-        /* Table Styles */
-        .data-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 0.875rem;
-        }
-
-        .data-table th {
-          background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-          padding: 1rem 1.25rem;
-          text-align: left;
-          font-weight: 600;
-          color: #2c3e50;
-          border-bottom: 2px solid #e9ecef;
-          font-size: 0.75rem;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
-
-        .data-table td {
-          padding: 1rem 1.25rem;
-          border-bottom: 1px solid #f8f9fa;
-          color: #495057;
-        }
-
-        .data-table tr:hover {
-          background: #f8f9fa;
-        }
-
-        .user-id {
-          font-weight: 600;
-          color: #6c757d;
-          font-family: 'Monaco', 'Consolas', monospace;
-        }
-
-        .user-name {
-          font-weight: 600;
-          color: #2c3e50;
-        }
-
-        .date-cell {
-          color: #6c757d;
-          font-size: 0.8rem;
-        }
-
-        /* Users Grid (Card View) */
-        .users-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-          gap: 1.5rem;
-          padding: 2rem;
-        }
-
-        .user-card {
-          background: white;
-          border-radius: 16px;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-          overflow: hidden;
-          transition: all 0.3s ease;
-          border: 1px solid rgba(255,255,255,0.2);
-          position: relative;
-        }
-
-        .user-card:hover {
-          transform: translateY(-5px);
-          box-shadow: 0 12px 40px rgba(0,0,0,0.15);
-        }
-
-        .card-header {
-          display: flex;
-          align-items: center;
-          padding: 1.5rem;
-          gap: 1rem;
-        }
-
-        .user-avatar {
-          position: relative;
-        }
-
-        .avatar-circle {
-          width: 64px;
-          height: 64px;
-          border-radius: 50%;
+        .perm-btn-primary {
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: white;
-          font-weight: 700;
-          font-size: 1.25rem;
+          border: none; padding: 12px 28px; color: #fff;
           box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
         }
-
-        .user-status-indicator {
-          position: absolute;
-          bottom: 2px;
-          right: 2px;
-          width: 14px;
-          height: 14px;
-          border-radius: 50%;
-          border: 2px solid white;
-        }
-
-        .user-status-indicator[data-status="active"] {
-          background: #4CAF50;
-        }
-
-        .user-status-indicator[data-status="inactive"] {
-          background: #f44336;
-        }
-
-        .user-main-info {
-          flex: 1;
-        }
-
-        .user-main-info h3 {
-          margin: 0 0 0.5rem 0;
-          color: #1a1a1a;
-          font-size: 1.25rem;
-          font-weight: 700;
-        }
-
-        .user-meta {
-          display: flex;
-          gap: 0.5rem;
-          flex-wrap: wrap;
-        }
-
-        .card-divider {
-          height: 1px;
-          background: linear-gradient(90deg, transparent, #e9ecef, transparent);
-          margin: 0 1.5rem;
-        }
-
-        .user-details {
-          padding: 1.5rem;
-        }
-
-        .detail-item {
-          display: flex;
-          align-items: center;
-          gap: 1rem;
-          margin-bottom: 1rem;
-        }
-
-        .detail-item:last-child {
-          margin-bottom: 0;
-        }
-
-        .detail-icon {
-          font-size: 1rem;
-          color: #667eea;
-          width: 20px;
-          text-align: center;
-        }
-
-        .detail-content {
-          flex: 1;
-        }
-
-        .detail-label {
-          display: block;
-          font-size: 0.75rem;
-          color: #6c757d;
-          font-weight: 500;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          margin-bottom: 0.25rem;
-        }
-
-        .detail-value {
-          display: block;
-          font-size: 0.875rem;
-          color: #1a1a1a;
-          font-weight: 600;
-        }
-
-        .card-actions {
-          padding: 1.5rem;
-          display: flex;
-          gap: 0.75rem;
-        }
-
-        .btn-action {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          padding: 0.75rem 1rem;
-          border: none;
-          border-radius: 10px;
-          font-size: 0.75rem;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.3s ease;
-          flex: 1;
-          justify-content: center;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
-
-        .btn-edit {
-          background: rgba(255, 193, 7, 0.1);
-          color: #ffc107;
-          border: 1px solid rgba(255, 193, 7, 0.2);
-        }
-
-        .btn-edit:hover {
-          background: #ffc107;
-          color: white;
+        .perm-btn-primary:hover:not(:disabled) {
           transform: translateY(-2px);
-          box-shadow: 0 4px 15px rgba(255, 193, 7, 0.3);
+          box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        }
+        .perm-btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+        .perm-btn-secondary {
+          background: #fff; border: 1.5px solid #e2e8f0;
+          padding: 10px 24px; color: #475569;
+        }
+        .perm-btn-secondary:hover {
+          border-color: #667eea; color: #667eea; background: #f8fafc;
         }
 
-        .btn-suspend {
-          background: rgba(253, 126, 20, 0.1);
-          color: #fd7e14;
-          border: 1px solid rgba(253, 126, 20, 0.2);
+        /* ====================================================================
+           Countdown
+           ==================================================================== */
+        .countdown-container { display: flex; flex-direction: column; gap: 0.25rem; max-width: 220px; margin-top: 0.25rem; }
+        .countdown-time {
+          font-size: 0.75rem; font-weight: 600; color: #b45309;
+          background: #fef3c7; padding: 0.125rem 0.5rem; border-radius: 1rem;
+          width: fit-content; font-family: monospace;
         }
-
-        .btn-suspend:hover {
-          background: #fd7e14;
-          color: white;
-          transform: translateY(-2px);
-          box-shadow: 0 4px 15px rgba(253, 126, 20, 0.3);
+        .progress-bar-container { background: #e2e8f0; border-radius: 9999px; height: 4px; overflow: hidden; }
+        .progress-bar-fill { background: #eab308; height: 100%; transition: width 0.5s linear; }
+        .progress-bar-fill.expired { background: #ef4444; }
+        .permanent-badge {
+          background: #dcfce7; color: #166534;
+          padding: 0.125rem 0.5rem; border-radius: 1rem; font-size: 0.7rem;
         }
+        .text-muted { color: #64748b; font-size: 0.875rem; }
 
-        .btn-activate {
-          background: rgba(40, 167, 69, 0.1);
-          color: #28a745;
-          border: 1px solid rgba(40, 167, 69, 0.2);
-        }
-
-        .btn-activate:hover {
-          background: #28a745;
-          color: white;
-          transform: translateY(-2px);
-          box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
-        }
-
-        .btn-delete {
-          background: rgba(220, 53, 69, 0.1);
-          color: #dc3545;
-          border: 1px solid rgba(220, 53, 69, 0.2);
-        }
-
-        .btn-delete:hover {
-          background: #dc3545;
-          color: white;
-          transform: translateY(-2px);
-          box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
-        }
-
-        .action-icon {
-          font-size: 0.875rem;
-        }
-
-        /* Status & Role Badges */
-        .status-badge, .role-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.375rem;
-          padding: 0.375rem 0.75rem;
-          border-radius: 20px;
-          font-size: 0.75rem;
-          font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
-
-        .status-badge.active {
-          background: rgba(76, 175, 80, 0.1);
-          color: #2e7d32;
-          border: 1px solid rgba(76, 175, 80, 0.2);
-        }
-
-        .status-badge.inactive {
-          background: rgba(244, 67, 54, 0.1);
-          color: #c62828;
-          border: 1px solid rgba(244, 67, 54, 0.2);
-        }
-
-        .role-badge.admin {
-          background: rgba(33, 150, 243, 0.1);
-          color: #1565c0;
-          border: 1px solid rgba(33, 150, 243, 0.2);
-        }
-
-        .role-badge.employee {
-          background: rgba(156, 39, 176, 0.1);
-          color: #7b1fa2;
-          border: 1px solid rgba(156, 39, 176, 0.2);
-        }
-
-        .badge-icon {
-          font-size: 0.75rem;
-        }
-
-        /* Action Buttons in Table */
-        .action-buttons {
-          display: flex;
-          gap: 0.5rem;
-          justify-content: center;
-        }
-
-        .action-buttons .btn-action {
-          padding: 0.5rem;
-          flex: none;
-          width: 36px;
-          height: 36px;
-        }
-
-        /* Empty State */
-        .empty-state {
-          text-align: center;
-          padding: 4rem 2rem;
-          color: #6c757d;
-        }
-
-        .empty-icon {
-          font-size: 4rem;
-          margin-bottom: 1.5rem;
-          opacity: 0.3;
-          color: #667eea;
-        }
-
-        .empty-state h3 {
-          font-size: 1.5rem;
-          color: #495057;
-          margin-bottom: 0.5rem;
-          font-weight: 600;
-        }
-
-        .empty-state p {
-          margin-bottom: 2rem;
-          font-size: 1rem;
-          color: #6c757d;
-        }
-
-        /* Confirmation Modal */
+        /* ====================================================================
+           Confirmation modal
+           ==================================================================== */
         .confirmation-modal-overlay {
           position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
+          top: 0; right: 0; bottom: 0; left: 0;
           background: rgba(0, 0, 0, 0.6);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 1000;
-          padding: 1rem;
-          backdrop-filter: blur(5px);
+          backdrop-filter: blur(6px);
+          -webkit-backdrop-filter: blur(6px);
+          display: flex; align-items: center; justify-content: center;
+          z-index: 10000; padding: 1rem;
+          overflow-y: auto; overflow-x: hidden;
+          animation: fadeIn 0.2s ease;
         }
-
         .confirmation-modal {
-          background: white;
-          border-radius: 20px;
+          background: white; border-radius: 1.25rem;
           box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-          max-width: 480px;
-          width: 100%;
-          overflow: hidden;
-          animation: modalSlideIn 0.3s ease-out;
+          max-width: 480px; width: 100%; overflow: hidden;
+          animation: modalSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+          margin: auto;
         }
-
-        @keyframes modalSlideIn {
-          from {
-            opacity: 0;
-            transform: translateY(-50px) scale(0.9);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-        }
-
         .confirmation-header {
           padding: 2rem 2rem 1rem;
           text-align: center;
           border-bottom: 1px solid #f1f3f4;
         }
-
         .confirmation-icon {
-          width: 80px;
-          height: 80px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
+          width: 80px; height: 80px; border-radius: 50%;
+          display: flex; align-items: center; justify-content: center;
           margin: 0 auto 1rem;
-          font-size: 2rem;
         }
-
         .confirmation-icon.delete {
-          background: rgba(220, 53, 69, 0.1);
-          color: #dc3545;
+          background: rgba(220, 53, 69, 0.1); color: #dc3545;
           border: 2px solid rgba(220, 53, 69, 0.2);
         }
-
         .confirmation-icon.activate {
-          background: rgba(40, 167, 69, 0.1);
-          color: #28a745;
+          background: rgba(40, 167, 69, 0.1); color: #16a34a;
           border: 2px solid rgba(40, 167, 69, 0.2);
         }
-
         .confirmation-icon.deactivate {
-          background: rgba(253, 126, 20, 0.1);
-          color: #fd7e14;
+          background: rgba(253, 126, 20, 0.1); color: #f59e0b;
           border: 2px solid rgba(253, 126, 20, 0.2);
         }
-
         .confirmation-title {
-          font-size: 1.5rem;
-          font-weight: 700;
-          color: #1a1a1a;
-          margin: 0;
+          font-size: 1.5rem; font-weight: 700;
+          color: #0f172a; margin: 0;
         }
-
-        .confirmation-body {
-          padding: 1.5rem 2rem;
-        }
-
+        .confirmation-body { padding: 1.5rem 2rem; }
         .confirmation-message {
-          color: #6c757d;
-          font-size: 1rem;
-          line-height: 1.6;
-          margin-bottom: 1.5rem;
-          text-align: center;
+          color: #64748b; font-size: 1rem;
+          line-height: 1.6; margin: 0; text-align: center;
         }
-
-        .user-preview {
-          display: flex;
-          align-items: center;
-          gap: 1rem;
-          padding: 1.5rem;
-          background: #f8f9fa;
-          border-radius: 12px;
-          border: 1px solid #e9ecef;
-        }
-
-        .avatar-circle-preview {
-          width: 48px;
-          height: 48px;
-          border-radius: 50%;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: white;
-          font-weight: 700;
-          font-size: 1rem;
-        }
-
-        .user-info-preview {
-          flex: 1;
-        }
-
-        .user-info-preview h4 {
-          margin: 0 0 0.5rem 0;
-          color: #1a1a1a;
-          font-size: 1.1rem;
-          font-weight: 600;
-        }
-
-        .user-meta-preview {
-          display: flex;
-          gap: 0.5rem;
-          flex-wrap: wrap;
-        }
-
         .confirmation-actions {
           padding: 1.5rem 2rem 2rem;
-          display: flex;
-          gap: 1rem;
-          justify-content: flex-end;
+          display: flex; gap: 1rem; justify-content: flex-end;
         }
-
         .btn-confirm-cancel {
           padding: 0.75rem 1.5rem;
-          border: 1px solid #6c757d;
-          background: transparent;
-          color: #6c757d;
-          border-radius: 10px;
-          font-size: 0.875rem;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.3s ease;
+          border: 1px solid #cbd5e1;
+          background: transparent; color: #64748b;
+          border-radius: 0.75rem;
+          font-size: 0.875rem; font-weight: 600;
+          cursor: pointer; transition: all 0.3s ease;
+          font-family: inherit;
         }
-
-        .btn-confirm-cancel:hover {
-          background: #6c757d;
-          color: white;
-        }
-
+        .btn-confirm-cancel:hover { background: #f1f5f9; color: #334155; }
         .btn-confirm-delete {
-          padding: 0.75rem 1.5rem;
-          border: none;
-          background: #dc3545;
-          color: white;
-          border-radius: 10px;
-          font-size: 0.875rem;
-          font-weight: 600;
-          cursor: pointer;
+          padding: 0.75rem 1.5rem; border: none;
+          background: #ef4444; color: white;
+          border-radius: 0.75rem; font-size: 0.875rem;
+          font-weight: 600; cursor: pointer;
           transition: all 0.3s ease;
           box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
+          font-family: inherit;
         }
-
         .btn-confirm-delete:hover {
-          background: #c82333;
-          transform: translateY(-2px);
+          background: #dc2626; transform: translateY(-1px);
           box-shadow: 0 6px 20px rgba(220, 53, 69, 0.4);
         }
-
         .btn-confirm-activate {
-          padding: 0.75rem 1.5rem;
-          border: none;
-          background: #28a745;
-          color: white;
-          border-radius: 10px;
-          font-size: 0.875rem;
-          font-weight: 600;
-          cursor: pointer;
+          padding: 0.75rem 1.5rem; border: none;
+          background: #10b981; color: white;
+          border-radius: 0.75rem; font-size: 0.875rem;
+          font-weight: 600; cursor: pointer;
           transition: all 0.3s ease;
-          box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
+          box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+          font-family: inherit;
         }
-
         .btn-confirm-activate:hover {
-          background: #218838;
-          transform: translateY(-2px);
-          box-shadow: 0 6px 20px rgba(40, 167, 69, 0.4);
+          background: #059669; transform: translateY(-1px);
+          box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
         }
-
         .btn-confirm-deactivate {
-          padding: 0.75rem 1.5rem;
-          border: none;
-          background: #fd7e14;
-          color: white;
-          border-radius: 10px;
-          font-size: 0.875rem;
-          font-weight: 600;
-          cursor: pointer;
+          padding: 0.75rem 1.5rem; border: none;
+          background: #f59e0b; color: white;
+          border-radius: 0.75rem; font-size: 0.875rem;
+          font-weight: 600; cursor: pointer;
           transition: all 0.3s ease;
-          box-shadow: 0 4px 15px rgba(253, 126, 20, 0.3);
+          box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
+          font-family: inherit;
         }
-
         .btn-confirm-deactivate:hover {
-          background: #e55a00;
-          transform: translateY(-2px);
-          box-shadow: 0 6px 20px rgba(253, 126, 20, 0.4);
+          background: #d97706; transform: translateY(-1px);
+          box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
         }
 
-        /* Success and Error Notifications */
+        /* ================= Notifications ================= */
         .success-notification, .error-notification {
-          position: fixed;
-          top: 2rem;
-          right: 2rem;
-          z-index: 1001;
-          animation: slideInRight 0.3s ease-out;
+          position: fixed; top: 2rem; right: 2rem; z-index: 10500;
         }
-
-        @keyframes slideInRight {
-          from {
-            opacity: 0;
-            transform: translateX(100%);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0);
-          }
+        .notification-content {
+          padding: 1rem 1.5rem; border-radius: 0.75rem;
+          font-weight: 600; box-shadow: 0 4px 15px rgba(0,0,0,0.15);
         }
+        .success-notification .notification-content { background: #dcfce7; color: #166534; }
+        .error-notification .notification-content { background: #fee2e2; color: #991b1b; }
 
-        .success-notification .notification-content {
-          background: #d4edda;
-          color: #155724;
-          padding: 1rem 1.5rem;
-          border-radius: 10px;
-          border: 1px solid #c3e6cb;
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-          box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
-        }
-
-        .error-notification .notification-content {
-          background: #f8d7da;
-          color: #721c24;
-          padding: 1rem 1.5rem;
-          border-radius: 10px;
-          border: 1px solid #f5c6cb;
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-          box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
-        }
-
-        .notification-icon {
-          font-size: 1.1rem;
-        }
-
-        /* Responsive Design */
+        /* ================= Responsive ================= */
         @media (max-width: 768px) {
-          .users-management {
-            padding: 1rem;
-          }
+          .users-management { padding: 1rem; }
+          .section-header { flex-direction: column; }
+          .section-actions { width: 100%; justify-content: flex-start; }
+          .search-filter-section { flex-direction: column; align-items: stretch; }
+          .filter-group { flex-direction: column; align-items: stretch; }
+          .filter-item { width: 100%; }
+          .stats-grid { grid-template-columns: repeat(2, 1fr); }
 
-          .section-header {
-            flex-direction: column;
-            gap: 1rem;
-            padding: 1.5rem;
-          }
-
-          .section-actions {
-            width: 100%;
-            justify-content: space-between;
-          }
-
-          .view-toggle {
-            margin-right: 0;
-          }
-
-          .stats-grid {
-            grid-template-columns: 1fr;
-          }
-
-          .search-filter-section {
-            flex-direction: column;
-            gap: 1rem;
-            padding: 1.5rem;
-          }
-
-          .search-box {
-            min-width: 100%;
-          }
-
-          .filter-group {
-            width: 100%;
-            justify-content: space-between;
-          }
-
-          .content-container {
-            overflow-x: auto;
-          }
-
-          .data-table {
-            min-width: 800px;
-          }
-
-          .users-grid {
-            grid-template-columns: 1fr;
-            padding: 1.5rem;
-            gap: 1rem;
-          }
-
-          .card-actions {
-            flex-direction: column;
-          }
-
-          .action-buttons {
-            flex-direction: row;
-            gap: 0.25rem;
-          }
-
-          .action-buttons .btn-action {
-            padding: 0.5rem;
-          }
-
-          .confirmation-modal {
-            margin: 1rem;
-          }
-
-          .confirmation-actions {
-            flex-direction: column;
-          }
-
-          .user-preview {
-            flex-direction: column;
-            text-align: center;
-          }
-
-          .success-notification, .error-notification {
-            right: 1rem;
-            left: 1rem;
-            top: 1rem;
-          }
+          /* Permission modal shrinks on mobile */
+          .perm-modal { margin: 1rem; border-radius: 24px; max-width: 100%; }
+          .perm-header { padding: 16px 20px; gap: 14px; }
+          .perm-header-title h2 { font-size: 1.25rem; }
+          .perm-header-title { padding-right: 40px; }
+          .perm-header-icon { width: 44px; height: 44px; border-radius: 22px; }
+          .perm-header-close { top: 16px; right: 16px; width: 36px; height: 36px; }
+          .perm-body { padding: 20px; }
+          .perm-grid-2 { grid-template-columns: 1fr; }
         }
-
         @media (max-width: 480px) {
-          .section-actions {
-            flex-direction: column;
-            gap: 1rem;
-          }
-
-          .view-toggle {
-            align-self: flex-start;
-          }
-
-          .filter-group {
-            flex-direction: column;
-            align-items: stretch;
-          }
-
-          .filter-item {
-            justify-content: space-between;
-          }
-
-          .user-card {
-            margin: 0.5rem;
-          }
-
-          .card-header {
-            flex-direction: column;
-            text-align: center;
-          }
-
-          .user-meta {
-            justify-content: center;
-          }
-
-          .confirmation-header {
-            padding: 1.5rem 1rem 1rem;
-          }
-
-          .confirmation-body {
-            padding: 1rem 1rem 1.5rem;
-          }
-
-          .confirmation-actions {
-            padding: 1rem 1rem 1.5rem;
-          }
+          .stats-grid { grid-template-columns: 1fr; }
         }
       `}</style>
     </div>

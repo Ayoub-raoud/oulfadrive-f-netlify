@@ -1,5 +1,8 @@
-import { configureStore, createSlice, createAsyncThunk } from "@reduxjs/toolkit";
+import { configureStore, createSlice, createAsyncThunk, createSelector } from "@reduxjs/toolkit";
 import axios from "axios";
+import languageReducer from './languageSlice';
+import notificationReducer from './notificationSlice';
+import permissionReducer from './permissionSlice';
 
 // Configuration d'Axios avec baseURL
 const api = axios.create({
@@ -40,11 +43,11 @@ api.interceptors.response.use(
 // Cache configuration
 const CACHE_CONFIG = {
   accidents: { ttl: 5 * 60 * 1000 },
-  cars: { ttl: 10 * 1000 },
-  clients: { ttl: 0 },
-  matricules: { ttl: 10 * 1000 },
-  reservations: { ttl: 10 * 1000 },
-  contacts: { ttl: 10 * 1000 },
+  cars: { ttl: 5 * 60 * 1000 },
+  clients: { ttl: 10 * 60 * 1000 },
+  matricules: { ttl: 5 * 60 * 1000 },
+  reservations: { ttl: 2 * 60 * 1000 },
+  contacts: { ttl: 10 * 60 * 1000 },
   utilisateurs: { ttl: 10 * 60 * 1000 }
 };
 
@@ -120,9 +123,6 @@ const handleApiError = (error, thunkAPI) => {
 // ==============================================
 
 // Accidents
-// Add these accident-related actions to your store.jsx
-
-// Accidents with enhanced workflow
 export const fetchAccidents = createAsyncThunk(
   "accidents/fetchAll", 
   async (forceRefresh = false, thunkAPI) => {
@@ -192,7 +192,6 @@ export const deleteAccident = createAsyncThunk(
   }
 );
 
-// Get next possible statuses for an accident
 export const getAccidentNextStatuses = createAsyncThunk(
   "accidents/getNextStatuses",
   async (accidentId, thunkAPI) => {
@@ -204,8 +203,18 @@ export const getAccidentNextStatuses = createAsyncThunk(
     }
   }
 );
-
-// Cars - Public access for listing
+export const fetchGarages = createAsyncThunk(
+  "garages/fetchAll",
+  async (forceRefresh = false, thunkAPI) => {
+    try {
+      const response = await api.get("/garages");
+      return response.data.garages || response.data;
+    } catch (error) {
+      return handleApiError(error, thunkAPI);
+    }
+  }
+);
+// Cars
 export const fetchCars = createAsyncThunk(
   "cars/fetchAll", 
   async (forceRefresh = false, thunkAPI) => {
@@ -298,7 +307,7 @@ export const getCarCurrentMatricule = createAsyncThunk(
   }
 );
 
-// Clients - Public access for creation
+// Clients
 export const fetchClients = createAsyncThunk(
   "clients/fetchAll", 
   async (forceRefresh = false, thunkAPI) => {
@@ -389,12 +398,10 @@ export const fetchMatricules = createAsyncThunk(
   }
 );
 
-// 🆕 NEW: Refresh matricules (force refresh from server)
 export const refreshMatricules = createAsyncThunk(
   "matricules/refresh",
   async (_, thunkAPI) => {
     try {
-      // Always force refresh from server, don't use cache
       const response = await api.get("/matricules");
       const matriculesData = response.data;
       cacheManager.set('matricules', matriculesData);
@@ -431,7 +438,6 @@ export const updateMatricule = createAsyncThunk(
   }
 );
 
-// 🆕 NEW: Update matricule status specifically
 export const updateMatriculeStatus = createAsyncThunk(
   "matricules/updateStatus",
   async ({ id, status }, thunkAPI) => {
@@ -483,7 +489,7 @@ export const updateMatriculeKilometrage = createAsyncThunk(
   }
 );
 
-// Reservations - Public access for creation
+// Reservations
 export const fetchReservations = createAsyncThunk(
   "reservations/fetchAll", 
   async (forceRefresh = false, thunkAPI) => {
@@ -508,17 +514,20 @@ export const fetchReservations = createAsyncThunk(
     }
   }
 );
+
+// Replace the existing checkLateReservations thunk with this version
 export const checkLateReservations = createAsyncThunk(
   "reservations/checkLate",
-  async (_, thunkAPI) => {
+  async (silent = false, thunkAPI) => {
     try {
       const response = await api.get("/reservations/check-late");
-      return response.data;
+      return { data: response.data, silent };
     } catch (error) {
       return handleApiError(error, thunkAPI);
     }
   }
 );
+
 export const addPaymentToReservation = createAsyncThunk(
   "reservations/addPayment",
   async ({ reservationId, paymentData }, thunkAPI) => {
@@ -532,7 +541,6 @@ export const addPaymentToReservation = createAsyncThunk(
   }
 );
 
-// NEW: Remove payment from reservation
 export const removePaymentFromReservation = createAsyncThunk(
   "reservations/removePayment",
   async ({ reservationId, paymentId }, thunkAPI) => {
@@ -569,10 +577,8 @@ export const updateReservation = createAsyncThunk(
     try {
       const response = await api.put(`/reservations/${id}`, data);
       
-      // If matricule was assigned/updated, refresh matricules data
       if (data.matricule_id) {
         cacheManager.invalidate('matricules');
-        // Dispatch refresh to get updated matricule data
         setTimeout(() => {
           store.dispatch(refreshMatricules());
         }, 100);
@@ -599,7 +605,6 @@ export const generateReservationContract = createAsyncThunk(
   }
 );
 
-// New thunk for client search
 export const searchClients = createAsyncThunk(
   "clients/search",
   async (query, thunkAPI) => {
@@ -625,8 +630,70 @@ export const deleteReservation = createAsyncThunk(
     }
   }
 );
+// ==============================================
+// 🏢 Sous-Locations Async Actions
+// ==============================================
 
-// Contacts - Public access for creation
+export const fetchSousLocations = createAsyncThunk(
+  "sousLocations/fetchAll",
+  async (_, thunkAPI) => {
+    try {
+      const response = await api.get("/sous-locations");
+      return response.data.sous_locations;
+    } catch (error) {
+      return handleApiError(error, thunkAPI);
+    }
+  }
+);
+
+export const createSousLocation = createAsyncThunk(
+  "sousLocations/create",
+  async (data, thunkAPI) => {
+    try {
+      const response = await api.post("/sous-locations", data);
+      return response.data.sous_location;
+    } catch (error) {
+      return handleApiError(error, thunkAPI);
+    }
+  }
+);
+
+export const fetchSousLocationDetails = createAsyncThunk(
+  "sousLocations/fetchDetails",
+  async (id, thunkAPI) => {
+    try {
+      const response = await api.get(`/sous-locations/${id}`);
+      return response.data.sous_location;
+    } catch (error) {
+      return handleApiError(error, thunkAPI);
+    }
+  }
+);
+
+export const updateSousLocation = createAsyncThunk(
+  "sousLocations/update",
+  async ({ id, data }, thunkAPI) => {
+    try {
+      const response = await api.put(`/sous-locations/${id}`, data);
+      return response.data.sous_location;
+    } catch (error) {
+      return handleApiError(error, thunkAPI);
+    }
+  }
+);
+
+export const deleteSousLocation = createAsyncThunk(
+  "sousLocations/delete",
+  async (id, thunkAPI) => {
+    try {
+      await api.delete(`/sous-locations/${id}`);
+      return id;
+    } catch (error) {
+      return handleApiError(error, thunkAPI);
+    }
+  }
+);
+// Contacts
 export const fetchContacts = createAsyncThunk(
   "contacts/fetchAll", 
   async (forceRefresh = false, thunkAPI) => {
@@ -740,13 +807,16 @@ export const logoutUtilisateur = createAsyncThunk(
   "auth/logout",
   async (_, thunkAPI) => {
     try {
-      await api.post("/admin/logout");
-    } catch (error) {
-      console.warn('Logout API error:', error);
+      try {
+        await api.post("/admin/logout");
+      } catch (error) {
+        console.warn('Logout API error:', error);
+      }
     } finally {
       localStorage.removeItem('authToken');
       localStorage.removeItem('user');
       cacheManager.invalidateAll();
+      thunkAPI.dispatch(clearAuth());
       return null;
     }
   }
@@ -854,7 +924,116 @@ export const updateUtilisateurStatus = createAsyncThunk(
     }
   }
 );
+export const updateProfile = createAsyncThunk(
+    "auth/updateProfile",
+    async (data, thunkAPI) => {
+        try {
+            const response = await api.put("/admin/profile", data);
+            const user = response.data.user;
+            localStorage.setItem('user', JSON.stringify(user));
+            return user;
+        } catch (error) {
+            return handleApiError(error, thunkAPI);
+        }
+    }
+);
+// ==================== Financings Slice ====================
+export const fetchFinancings = createAsyncThunk(
+  "financings/fetchAll",
+  async (forceRefresh = false, thunkAPI) => {
+    try {
+      if (!forceRefresh) {
+        const cachedData = cacheManager.get('financings');
+        if (cachedData) return cachedData;
+      }
+      const response = await api.get("/payments");
+      const data = response.data;
+      cacheManager.set('financings', data);
+      return data;
+    } catch (error) {
+      const cachedData = cacheManager.get('financings');
+      if (cachedData) return cachedData;
+      return handleApiError(error, thunkAPI);
+    }
+  }
+);
 
+const financingsSlice = createSlice({
+  name: "financings",
+  initialState: {
+    list: cacheManager.get('financings')?.financings || [],
+    loading: false,
+    error: null,
+    lastUpdated: cacheManager.get('financings')?.timestamp || null
+  },
+  reducers: {
+    clearFinancingError: (state) => { state.error = null; }
+  },
+  extraReducers: (builder) => {
+    builder
+      .addCase(fetchFinancings.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchFinancings.fulfilled, (state, action) => {
+        state.loading = false;
+        // The API returns { financings: [...], stats: {...} }
+        state.list = action.payload.financings || action.payload || [];
+        state.lastUpdated = Date.now();
+      })
+      .addCase(fetchFinancings.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      });
+  }
+});
+
+export const { clearFinancingError } = financingsSlice.actions;
+export const selectFinancings = (state) => state.financings.list;
+export const selectFinancingsLoading = (state) => state.financings.loading;
+// In store.js
+
+// === CREATE GARAGE ===
+export const createGarage = createAsyncThunk(
+  "garages/create",
+  async (data, thunkAPI) => {
+    try {
+      const response = await api.post("/garages", data);
+      cacheManager.invalidate('garages');
+      return response.data;
+    } catch (error) {
+      return handleApiError(error, thunkAPI);
+    }
+  }
+);
+
+// === UPDATE GARAGE ===
+export const updateGarage = createAsyncThunk(
+  "garages/update",
+  async ({ id, data }, thunkAPI) => {
+    try {
+      const response = await api.put(`/garages/${id}`, data);
+      cacheManager.invalidate('garages');
+      return response.data;
+    } catch (error) {
+      return handleApiError(error, thunkAPI);
+    }
+  }
+);
+
+// === DELETE GARAGE ===
+export const deleteGarage = createAsyncThunk(
+  "garages/delete",
+  async (id, thunkAPI) => {
+    try {
+      await api.delete(`/garages/${id}`);
+      cacheManager.invalidate('garages');
+      return id;
+    } catch (error) {
+      return handleApiError(error, thunkAPI);
+    }
+  }
+);
 // ==============================================
 // 🏪 Enhanced Slices with Cache-First Initialization
 // ==============================================
@@ -925,7 +1104,11 @@ const authSlice = createSlice({
         state.user = null;
         state.token = null;
         state.isAuthenticated = false;
-      });
+      })
+      .addCase(updateProfile.fulfilled, (state, action) => {
+    state.user = action.payload;
+    state.isAuthenticated = true;
+});
   }
 });
 
@@ -987,7 +1170,7 @@ const utilisateursSlice = createSlice({
   }
 });
 
-// Accidents Slice - UPDATED with matricule refresh
+// Accidents Slice
 const accidentsSlice = createSlice({
   name: "accidents",
   initialState: {
@@ -1020,7 +1203,6 @@ const accidentsSlice = createSlice({
         state.list.push(action.payload.accident || action.payload.data || action.payload);
         state.lastUpdated = Date.now();
         
-        // 🔄 Auto-refresh matricules when accident is created
         setTimeout(() => {
           store.dispatch(refreshMatricules());
         }, 100);
@@ -1031,7 +1213,6 @@ const accidentsSlice = createSlice({
         if (index !== -1) state.list[index] = updatedAccident;
         state.lastUpdated = Date.now();
         
-        // 🔄 Auto-refresh matricules when accident is updated
         setTimeout(() => {
           store.dispatch(refreshMatricules());
         }, 100);
@@ -1040,7 +1221,6 @@ const accidentsSlice = createSlice({
         state.list = state.list.filter(a => a.id !== action.payload);
         state.lastUpdated = Date.now();
         
-        // 🔄 Auto-refresh matricules when accident is deleted
         setTimeout(() => {
           store.dispatch(refreshMatricules());
         }, 100);
@@ -1097,7 +1277,55 @@ const carsSlice = createSlice({
       });
   }
 });
+// ==============================================
+// 🏢 Sous-Locations Slice
+// ==============================================
+const sousLocationsSlice = createSlice({
+  name: "sousLocations",
+  initialState: {
+    list: [],
+    loading: false,
+    error: null,
+    selected: null,
+  },
+  reducers: {
+    clearSelectedSousLocation: (state) => {
+      state.selected = null;
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      .addCase(fetchSousLocations.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchSousLocations.fulfilled, (state, action) => {
+        state.loading = false;
+        state.list = action.payload;
+      })
+      .addCase(fetchSousLocations.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      .addCase(createSousLocation.fulfilled, (state, action) => {
+        state.list.push(action.payload);
+      })
+      .addCase(fetchSousLocationDetails.fulfilled, (state, action) => {
+        state.selected = action.payload;
+      })
+      .addCase(updateSousLocation.fulfilled, (state, action) => {
+        const index = state.list.findIndex(sl => sl.id === action.payload.id);
+        if (index !== -1) state.list[index] = action.payload;
+        if (state.selected?.id === action.payload.id) state.selected = action.payload;
+      })
+      .addCase(deleteSousLocation.fulfilled, (state, action) => {
+        state.list = state.list.filter(sl => sl.id !== action.payload);
+        if (state.selected?.id === action.payload) state.selected = null;
+      });
+  }
+});
 
+export const { clearSelectedSousLocation } = sousLocationsSlice.actions;
 // Clients Slice
 const clientsSlice = createSlice({
   name: "clients",
@@ -1144,7 +1372,7 @@ const clientsSlice = createSlice({
   }
 });
 
-// Matricules Slice - UPDATED with refresh support
+// Matricules Slice
 const matriculesSlice = createSlice({
   name: "matricules",
   initialState: {
@@ -1162,7 +1390,6 @@ const matriculesSlice = createSlice({
       state.list = action.payload;
       state.lastUpdated = Date.now();
     },
-    // 🆕 NEW: Update single matricule immediately
     updateMatriculeImmediate: (state, action) => {
       const updatedMatricule = action.payload;
       const index = state.list.findIndex(m => m.id === updatedMatricule.id);
@@ -1187,7 +1414,6 @@ const matriculesSlice = createSlice({
         state.loading = false;
         state.error = action.payload;
       })
-      // 🆕 NEW: Handle refreshMatricules
       .addCase(refreshMatricules.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -1211,7 +1437,6 @@ const matriculesSlice = createSlice({
         if (index !== -1) state.list[index] = updatedMatricule;
         state.lastUpdated = Date.now();
       })
-      // 🆕 NEW: Handle updateMatriculeStatus
       .addCase(updateMatriculeStatus.fulfilled, (state, action) => {
         const updatedMatricule = action.payload.matricule || action.payload.data || action.payload;
         const index = state.list.findIndex(m => m.id === updatedMatricule.id);
@@ -1226,24 +1451,19 @@ const matriculesSlice = createSlice({
         const carId = action.meta.arg;
         state.byCar[carId] = action.payload.matricules || action.payload.data || action.payload;
       })
-      // 🆕 NEW: Handle accident operations that affect matricules
       .addCase(updateAccident.fulfilled, (state) => {
-        // Invalidate cache to ensure fresh data
         cacheManager.invalidate('matricules');
       })
       .addCase(createAccident.fulfilled, (state) => {
-        // Invalidate cache to ensure fresh data
         cacheManager.invalidate('matricules');
       })
       .addCase(deleteAccident.fulfilled, (state) => {
-        // Invalidate cache to ensure fresh data
         cacheManager.invalidate('matricules');
       });
   }
 });
 
 // Reservations Slice
-// Reservations Slice - UPDATED with matricule refresh
 const reservationsSlice = createSlice({
   name: "reservations",
   initialState: {
@@ -1256,7 +1476,6 @@ const reservationsSlice = createSlice({
     clearReservationError: (state) => {
       state.error = null;
     },
-    // NEW: Add immediate payment update reducer
     addPaymentImmediate: (state, action) => {
       const { reservationId, payment } = action.payload;
       const reservation = state.list.find(r => r.id === reservationId);
@@ -1269,7 +1488,6 @@ const reservationsSlice = createSlice({
         reservation.remaining_amount = (reservation.total_price || 0) - reservation.amount_paid;
       }
     },
-    // NEW: Remove payment immediate reducer
     removePaymentImmediate: (state, action) => {
       const { reservationId, paymentId } = action.payload;
       const reservation = state.list.find(r => r.id === reservationId);
@@ -1303,7 +1521,6 @@ const reservationsSlice = createSlice({
         state.list.push(newReservation);
         state.lastUpdated = Date.now();
         
-        // 🔄 Auto-refresh matricules when reservation is created with confirmed status
         if (newReservation.status === 'confirmed' && newReservation.matricule_id) {
           setTimeout(() => {
             store.dispatch(refreshMatricules());
@@ -1316,7 +1533,6 @@ const reservationsSlice = createSlice({
         if (index !== -1) state.list[index] = updatedReservation;
         state.lastUpdated = Date.now();
         
-        // 🔄 Auto-refresh matricules when reservation status changes
         setTimeout(() => {
           store.dispatch(refreshMatricules());
         }, 100);
@@ -1325,25 +1541,35 @@ const reservationsSlice = createSlice({
         state.list = state.list.filter(r => r.id !== action.payload);
         state.lastUpdated = Date.now();
         
-        // 🔄 Auto-refresh matricules when reservation is deleted (might affect matricule status)
         setTimeout(() => {
           store.dispatch(refreshMatricules());
         }, 100);
       })
-      // NEW: Handle add payment
       .addCase(addPaymentToReservation.fulfilled, (state, action) => {
         const updatedReservation = action.payload.reservation || action.payload.data || action.payload;
         const index = state.list.findIndex(r => r.id === updatedReservation.id);
         if (index !== -1) state.list[index] = updatedReservation;
         state.lastUpdated = Date.now();
       })
-      // NEW: Handle remove payment
       .addCase(removePaymentFromReservation.fulfilled, (state, action) => {
         const updatedReservation = action.payload.reservation || action.payload.data || action.payload;
         const index = state.list.findIndex(r => r.id === updatedReservation.id);
         if (index !== -1) state.list[index] = updatedReservation;
         state.lastUpdated = Date.now();
-      });
+      })
+      // Find the checkLateReservations case in extraReducers and update it:
+.addCase(checkLateReservations.fulfilled, (state, action) => {
+  // Only update loading state if not silent
+  if (!action.payload?.silent) {
+    state.loading = false;
+  }
+  // Always update the data silently
+  if (action.payload?.data) {
+    // Update any late status flags on reservations
+    // This doesn't trigger a full re-render
+  }
+  state.lastUpdated = Date.now();
+});
   }
 });
 
@@ -1400,7 +1626,46 @@ const contactsSlice = createSlice({
       });
   }
 });
-
+// Garages slice
+const garagesSlice = createSlice({
+  name: "garages",
+  initialState: {
+    list: [],
+    loading: false,
+    error: null,
+  },
+  reducers: {
+    clearGarageError: (state) => { state.error = null; }
+  },
+  extraReducers: (builder) => {
+    builder
+      .addCase(fetchGarages.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(fetchGarages.fulfilled, (state, action) => {
+        state.loading = false;
+        state.list = action.payload.garages || action.payload || [];
+      })
+      .addCase(fetchGarages.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      .addCase(createGarage.fulfilled, (state, action) => {
+  state.list.push(action.payload.garage || action.payload.data || action.payload);
+  state.lastUpdated = Date.now();
+})
+.addCase(updateGarage.fulfilled, (state, action) => {
+  const updated = action.payload.garage || action.payload.data || action.payload;
+  const idx = state.list.findIndex(g => g.id === updated.id);
+  if (idx !== -1) state.list[idx] = updated;
+  state.lastUpdated = Date.now();
+})
+.addCase(deleteGarage.fulfilled, (state, action) => {
+  state.list = state.list.filter(g => g.id !== action.payload);
+  state.lastUpdated = Date.now();
+});
+  }
+});
+export const selectGarages = (state) => state.garages.list;
+export const selectGaragesLoading = (state) => state.garages.loading;
 // ==============================================
 // 🏪 Configuration du store Redux
 // ==============================================
@@ -1414,7 +1679,13 @@ const store = configureStore({
     clients: clientsSlice.reducer,
     matricules: matriculesSlice.reducer,
     reservations: reservationsSlice.reducer,
-    contacts: contactsSlice.reducer
+    contacts: contactsSlice.reducer,
+    language: languageReducer,
+    notifications: notificationReducer,
+    permissions: permissionReducer,
+    garages: garagesSlice.reducer,
+    financings: financingsSlice.reducer,
+    sousLocations: sousLocationsSlice.reducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
@@ -1427,17 +1698,34 @@ const store = configureStore({
 // ==============================================
 export { api };
 
-// Authentication Selectors
+// Authentication Selectors - MEMOIZED to prevent infinite loops
 export const selectAuth = (state) => state.auth;
-export const selectUser = (state) => state.auth.user;
-export const selectToken = (state) => state.auth.token;
-export const selectIsAuthenticated = (state) => state.auth.isAuthenticated;
-export const selectAuthLoading = (state) => state.auth.loading;
-export const selectAuthError = (state) => state.auth.error;
+export const selectUser = createSelector(
+  [selectAuth],
+  (auth) => auth.user
+);
+export const selectToken = createSelector(
+  [selectAuth],
+  (auth) => auth.token
+);
+export const selectIsAuthenticated = createSelector(
+  [selectAuth],
+  (auth) => auth.isAuthenticated
+);
+export const selectAuthLoading = createSelector(
+  [selectAuth],
+  (auth) => auth.loading
+);
+export const selectAuthError = createSelector(
+  [selectAuth],
+  (auth) => auth.error
+);
 
 // Utilisateurs Selectors
-// Utilisateurs Selectors
-export const selectUtilisateurs = (state) => state.utilisateurs.list.filter(user => !user.is_system);export const selectUtilisateursLoading = (state) => state.utilisateurs.loading;
+export const selectUtilisateurs = createSelector(
+  [(state) => state.utilisateurs.list],
+  (list) => list.filter(user => !user.is_system)
+);export const selectUtilisateursLoading = (state) => state.utilisateurs.loading;
 export const selectUtilisateursError = (state) => state.utilisateurs.error;
 export const selectUtilisateursLastUpdated = (state) => state.utilisateurs.lastUpdated;
 export const selectActiveUtilisateurs = (state) => state.utilisateurs.list.filter(u => u.status === 'active');
@@ -1472,7 +1760,6 @@ export const selectReservedMatricules = (state) => {
   const matricules = state.matricules.list;
   const reservations = state.reservations.list;
   
-  // Get all matricule IDs that are currently in active reservations
   const activeReservationMatriculeIds = reservations
     .filter(reservation => 
       reservation.status === 'confirmed' || 
@@ -1491,7 +1778,6 @@ export const selectLateMatricules = (state) => {
   const matricules = state.matricules.list;
   const reservations = state.reservations.list;
   
-  // Get matricule IDs from late reservations
   const lateReservationMatriculeIds = reservations
     .filter(reservation => reservation.status === 'retard')
     .map(reservation => reservation.matricule_id)
@@ -1507,7 +1793,10 @@ export const selectReservations = (state) => state.reservations.list;
 export const selectReservationsLoading = (state) => state.reservations.loading;
 export const selectReservationsError = (state) => state.reservations.error;
 export const selectReservationsLastUpdated = (state) => state.reservations.lastUpdated;
-
+// Sous-Locations Selectors
+export const selectSousLocations = (state) => state.sousLocations.list;
+export const selectSousLocationsLoading = (state) => state.sousLocations.loading;
+export const selectSelectedSousLocation = (state) => state.sousLocations.selected;
 // Contacts Selectors
 export const selectContacts = (state) => state.contacts.list;
 export const selectContactsLoading = (state) => state.contacts.loading;
@@ -1523,13 +1812,11 @@ export const { clearAccidentError } = accidentsSlice.actions;
 export const { clearCarError } = carsSlice.actions;
 export const { clearClientError } = clientsSlice.actions;
 export const { clearMatriculeError, updateMatriculesImmediate, updateMatriculeImmediate } = matriculesSlice.actions;
-export const { clearReservationError } = reservationsSlice.actions;
+export const { clearReservationError, addPaymentImmediate, removePaymentImmediate } = reservationsSlice.actions;
 export const { clearContactError } = contactsSlice.actions;
 export const selectContractData = (state) => state.reservations.contractData;
 export const selectClientSearchResults = (state) => state.clients.searchResults;
-export const { addPaymentImmediate, removePaymentImmediate } = reservationsSlice.actions;
-
-
+export const { clearGarageError } = garagesSlice.actions;
 // Cache utilities
 export const cacheUtils = {
   refreshAll: () => {
@@ -1559,7 +1846,7 @@ export const cacheUtils = {
       case 'clients':
         return store.dispatch(fetchClients(true));
       case 'matricules':
-        return store.dispatch(refreshMatricules()); // Use refreshMatricules instead of fetchMatricules
+        return store.dispatch(refreshMatricules());
       case 'reservations':
         return store.dispatch(fetchReservations(true));
       case 'contacts':

@@ -1,34 +1,40 @@
-// src/components/admin/ReservationsManagement.jsx
-import React, { useEffect, useState, Fragment, useRef } from 'react';
+// src/components/admin/ReservationStatusManagement.jsx
+import React, { useEffect, useState, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   FaPlus, FaEdit, FaTrash, FaFileExport, FaDatabase, FaPrint,
   FaCheck, FaTimes, FaCalendarAlt, FaCar, FaUser, FaMoneyBill,
   FaExclamationTriangle, FaSpinner, FaRedo, FaSearch, FaFilter,
-  FaChevronUp, FaClock, FaPalette,
+  FaChevronLeft, FaChevronRight, FaChevronUp, FaClock, FaPalette,
   FaUserFriends, FaUserPlus, FaPhone, FaEye, FaIdCard,
   FaTachometerAlt, FaMapMarkerAlt, FaFileSignature, FaKey,
-  FaStamp, FaReceipt, FaEyeSlash, FaMinus, FaCog, FaShieldAlt,
+  FaReceipt, FaCheckCircle, FaBan, FaEyeSlash, FaMinus, FaCog,
+  FaShieldAlt,
 } from 'react-icons/fa';
-import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
+import PaginationControls from '../components/PaginationControls';
+import { useSearchParams } from 'react-router-dom';
 import jsPDF from 'jspdf';
 import {
-  fetchReservations, createReservation, updateReservation, deleteReservation,
-  fetchClients, fetchCars, fetchMatricules, createClient,
-  selectReservations, selectReservationsLoading, selectClients, selectCars,
-  selectMatricules, selectUser, updateMatricule, refreshMatricules,
+  fetchReservations, updateReservation, deleteReservation,
+  fetchClients, fetchCars, fetchMatricules,
+  selectReservations, selectReservationsLoading, selectClients,
+  selectCars, selectMatricules, selectUser, refreshMatricules,
   checkLateReservations,
 } from '../Redux/store';
 import { syncReportForReservation } from '../utils/reportSync'; // ✅ NEW
 import AdminModal from './AdminModal';
-import PaginationControls from '../components/PaginationControls';
 
 import checklistImage from '../assets/checklist.png';
 import logoImage from '../assets/lolo.png';
 import cacherImage from '../assets/cacher.png';
 
-const ACTIVE_STATUSES = ['confirmed', 'retard', 'completed'];
+const STATUS_SCOPE = ['pending', 'contacted', 'cancelled'];
+const STATUS_CONFIG = {
+  pending:   { class: 'status-pending',   text: 'En attente',  icon: FaClock },
+  contacted: { class: 'status-contacted', text: 'Contacté',    icon: FaPhone },
+  cancelled: { class: 'status-cancelled', text: 'Annulé',      icon: FaTimes },
+};
 
 const DEFAULT_PAPERWORK = {
   circulation: true, carteGrise: true, assurance: true,
@@ -42,17 +48,14 @@ const DEFAULT_DISPLAY_OPTIONS = {
   depositGuarantee: 'show', signatures: 'show',
 };
 
-/* -------------------- Contract sub-components -------------------- */
 const Checkbox = ({ checked = false }) => (
   <span className={`checkbox-square ${checked ? 'checked' : ''}`}>{checked && '✓'}</span>
 );
-
 const CarDiagram = () => (
   <div className="car-diagram-container">
     <img src={checklistImage} alt="Car Checklist Diagram" className="checklist-image" />
   </div>
 );
-
 const ObservationBox = ({ title, isHalf = false, children, option = 'show' }) => {
   if (option === 'hide') return null;
   return (
@@ -62,7 +65,6 @@ const ObservationBox = ({ title, isHalf = false, children, option = 'show' }) =>
     </div>
   );
 };
-
 const SignatureBlock = ({ label, signature = '', option = 'show', cachet = false }) => {
   if (option === 'hide') {
     return (
@@ -128,9 +130,7 @@ const ContractDisplayOptions = ({ options, onOptionChange, onResetAll }) => {
           const currentValue = options[section.id] || 'show';
           return (
             <div key={section.id} className="display-option-item">
-              <div className="display-option-label">
-                <IconComponent size={14} /><span>{section.label}</span>
-              </div>
+              <div className="display-option-label"><IconComponent size={14} /><span>{section.label}</span></div>
               <div className="display-option-buttons">
                 {displayModes.map(mode => {
                   const ModeIcon = mode.icon;
@@ -196,13 +196,10 @@ const ContractLocation = ({
     if (!userName) {
       try {
         const storedUser = localStorage.getItem('user');
-        if (storedUser) {
-          const userData = JSON.parse(storedUser);
-          userName = userData.Fullname || userData.fullname || userData.name || userData.username || userData.email || '';
-        }
-      } catch (e) { /* ignore */ }
+        if (storedUser) { const userData = JSON.parse(storedUser); userName = userData.Fullname || userData.fullname || userData.name || userData.username || userData.email || ''; }
+      } catch (error) { console.error(error); }
     }
-    return userName || 'Administrateur';
+    return userName || 'Administrateur OULFA DRIVE';
   };
 
   const getReservationCreatorName = () => {
@@ -221,13 +218,12 @@ const ContractLocation = ({
       else date = new Date(dateString);
       if (isNaN(date.getTime())) return '';
       return date.toLocaleDateString('fr-FR');
-    } catch { return ''; }
+    } catch (error) { console.error(error); return ''; }
   };
 
   const calculateRentalDays = () => {
     if (!reservation?.start_date || !reservation?.end_date) return 1;
-    const start = new Date(reservation.start_date);
-    const end = new Date(reservation.end_date);
+    const start = new Date(reservation.start_date); const end = new Date(reservation.end_date);
     start.setHours(0, 0, 0, 0); end.setHours(0, 0, 0, 0);
     const diffTime = Math.abs(end - start);
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -235,14 +231,10 @@ const ContractLocation = ({
   };
 
   const rentalDays = reservation?.rental_days || calculateRentalDays();
-  const dailyPrice = (reservation?.total_price && rentalDays)
-    ? (reservation.total_price / rentalDays).toFixed(2)
-    : reservation?.car?.price_per_day || '—';
+  const dailyPrice = (reservation?.total_price && rentalDays) ? (reservation.total_price / rentalDays).toFixed(2) : reservation?.car?.price_per_day || '—';
 
   const getCautionAmount = () => {
-    if (!reservation?.payment_history || !Array.isArray(reservation.payment_history)) {
-      return reservation?.amount_paid ? `${reservation.amount_paid}` : '_________';
-    }
+    if (!reservation?.payment_history || !Array.isArray(reservation.payment_history)) return reservation?.amount_paid ? `${reservation.amount_paid}` : '_________';
     const cautionPayments = reservation.payment_history.filter(p => p.notes && p.notes.toLowerCase().includes('caution'));
     if (cautionPayments.length > 0) return cautionPayments.reduce((s, p) => s + (p.amount || 0), 0);
     return reservation?.amount_paid ? `${reservation.amount_paid}` : '_________';
@@ -257,15 +249,9 @@ const ContractLocation = ({
 
   const renderContractNumber = () => {
     if (reservation?.contract_number && reservation?.contract_year) {
-      const year = reservation.contract_year;
-      const num = String(reservation.contract_number).padStart(5, '0');
-      return `${year}/${num}`;
+      const year = reservation.contract_year; const num = String(reservation.contract_number).padStart(5, '0'); return `${year}/${num}`;
     }
-    if (reservation?.id) {
-      const year = new Date(reservation?.start_date || Date.now()).getFullYear();
-      const num = String(reservation.id).padStart(5, '0');
-      return `${year}/${num}`;
-    }
+    if (reservation?.id) { const year = new Date(reservation?.start_date || Date.now()).getFullYear(); const num = String(reservation.id).padStart(5, '0'); return `${year}/${num}`; }
     return '—';
   };
 
@@ -281,13 +267,9 @@ const ContractLocation = ({
             <td className="header-left">
               <div className="company-name">OULFA DRIVE</div>
               <div className="company-slogan">LOCATION DE VOITURE</div>
-              <div className="company-phone">
-                <FaPhone size={10} style={{ marginRight: '4px', display: 'inline' }} /> 0665 921 921
-              </div>
+              <div className="company-phone"><FaPhone size={10} style={{ marginRight: '4px', display: 'inline' }} /> 0665 921 921</div>
             </td>
-            <td className="header-center">
-              <img src={logoImage} alt="OULFA DRIVE" className="contract-logo-print" />
-            </td>
+            <td className="header-center"><img src={logoImage} alt="OULFA DRIVE" className="contract-logo-print" /></td>
             <td className="header-right">
               <div className="contract-number-box stylish">
                 <div className="contract-number-label">CONTRAT N°</div>
@@ -308,27 +290,11 @@ const ContractLocation = ({
               <div className="contract-section">
                 <div className="section-title-print">LOCATAIRE</div>
                 <div className="section-content">
-                  {[
-                    ['Nom', reservation?.client?.nom],
-                    ['Prénom', reservation?.client?.prenom],
-                    ['Date naissance', formatDate(reservation?.client?.date_naissance)],
-                    ['Lieu naissance', reservation?.client?.lieu_naissance],
-                    ['CIN', reservation?.client?.cin_number],
-                    ['Expire le', formatDate(reservation?.client?.cin_delivre_le)],
-                    ['Permis N°', reservation?.client?.driver_license_number],
-                    ['Expire le', formatDate(reservation?.client?.permis_delivre_le)],
-                    ['Adresse', reservation?.client?.city],
-                    ['Téléphone', reservation?.client?.telephone],
-                    ['Email', reservation?.client?.email],
-                  ].map(([l, v], i) => (
-                    <div className="field-row" key={i}>
-                      <span className="field-label">{l} :</span>
-                      <span className="field-value">{getDisplayValue(opt('clientInfo'), v || '—')}</span>
-                    </div>
+                  {[['Nom', reservation?.client?.nom],['Prénom', reservation?.client?.prenom],['Date naissance', formatDate(reservation?.client?.date_naissance)],['Lieu naissance', reservation?.client?.lieu_naissance],['CIN', reservation?.client?.cin_number],['Expire le', formatDate(reservation?.client?.cin_delivre_le)],['Permis N°', reservation?.client?.driver_license_number],['Expire le', formatDate(reservation?.client?.permis_delivre_le)],['Adresse', reservation?.client?.city],['Téléphone', reservation?.client?.telephone],['Email', reservation?.client?.email]].map(([l, v], i) => (
+                    <div className="field-row" key={i}><span className="field-label">{l} :</span><span className="field-value">{getDisplayValue(opt('clientInfo'), v || '—')}</span></div>
                   ))}
                 </div>
               </div>
-
               <div className="contract-section">
                 <div className="section-title-print">DEUXIÈME CONDUCTEUR</div>
                 <div className="section-content">
@@ -341,19 +307,7 @@ const ContractLocation = ({
                       <div className="field-row" key={i}><span className="field-label">{l} :</span><span className="field-value">___________</span></div>
                     ))
                   ) : secondDriver ? (
-                    [
-                      ['Nom', secondDriver.nom],
-                      ['Prénom', secondDriver.prenom],
-                      ['Date naissance', formatDate(secondDriver.date_naissance)],
-                      ['Lieu naissance', secondDriver.lieu_naissance],
-                      ['CIN', secondDriver.cin_number],
-                      ['Expire le', formatDate(secondDriver.cin_delivre_le)],
-                      ['Permis N°', secondDriver.driver_license_number],
-                      ['Expire le', formatDate(secondDriver.permis_delivre_le)],
-                      ['Adresse', secondDriver.city],
-                      ['Téléphone', secondDriver.telephone],
-                      ['Email', secondDriver.email],
-                    ].map(([l, v], i) => (
+                    [['Nom', secondDriver.nom],['Prénom', secondDriver.prenom],['Date naissance', formatDate(secondDriver.date_naissance)],['Lieu naissance', secondDriver.lieu_naissance],['CIN', secondDriver.cin_number],['Expire le', formatDate(secondDriver.cin_delivre_le)],['Permis N°', secondDriver.driver_license_number],['Expire le', formatDate(secondDriver.permis_delivre_le)],['Adresse', secondDriver.city],['Téléphone', secondDriver.telephone],['Email', secondDriver.email]].map(([l, v], i) => (
                       <div className="field-row" key={i}><span className="field-label">{l} :</span><span className="field-value">{v || '—'}</span></div>
                     ))
                   ) : (
@@ -369,86 +323,34 @@ const ContractLocation = ({
               <div className="contract-section">
                 <div className="section-title-print">VÉHICULE</div>
                 <div className="section-content">
-                  <div className="field-row">
-                    <span className="field-label">Immatriculation :</span>
-                    <span className="field-value matricule-code">{getDisplayValue(opt('vehicleInfo'), reservation?.matricule?.matricule_code || '—')}</span>
-                  </div>
-                  <div className="field-row">
-                    <span className="field-label">Marque/Modèle :</span>
-                    <span className="field-value">{getDisplayValue(opt('vehicleInfo'), `${reservation?.car?.brand || ''} ${reservation?.car?.model || ''}`.trim() || '—')}</span>
-                  </div>
+                  <div className="field-row"><span className="field-label">Immatriculation :</span><span className="field-value matricule-code">{getDisplayValue(opt('vehicleInfo'), reservation?.matricule?.matricule_code || '—')}</span></div>
+                  <div className="field-row"><span className="field-label">Marque/Modèle :</span><span className="field-value">{getDisplayValue(opt('vehicleInfo'), `${reservation?.car?.brand || ''} ${reservation?.car?.model || ''}`.trim() || '—')}</span></div>
                   <div className="field-row"><span className="field-label">Couleur :</span><span className="field-value">{getDisplayValue(opt('vehicleInfo'), reservation?.car?.color || '—')}</span></div>
                   <div className="field-row"><span className="field-label">Année :</span><span className="field-value">{getDisplayValue(opt('vehicleInfo'), reservation?.car?.year || '—')}</span></div>
                   <div className="field-row"><span className="field-label">Carburant :</span><span className="field-value">{getDisplayValue(opt('vehicleInfo'), reservation?.car?.fuel_type || '—')}</span></div>
                   <div className="field-row"><span className="field-label">Transmission :</span><span className="field-value">{getDisplayValue(opt('vehicleInfo'), reservation?.car?.transmission || '—')}</span></div>
                 </div>
               </div>
-
               <div className="contract-section">
                 <div className="section-title-print">LOCATION</div>
                 <div className="section-content">
-                  <div className="field-row">
-                    <span className="field-label">Départ :</span>
-                    <span className="field-value">{getDisplayValue(opt('rentalDates'), `${formatDate(reservation?.start_date)} à ${reservation?.start_time || '08:00'}`)}</span>
-                  </div>
-                  <div className="field-row">
-                    <span className="field-label">Retour :</span>
-                    <span className="field-value">{getDisplayValue(opt('rentalDates'), `${formatDate(reservation?.end_date)} à ${reservation?.end_time || '18:00'}`)}</span>
-                  </div>
-                  <div className="field-row">
-                    <span className="field-label">Durée :</span>
-                    <span className="field-value">
-                      {getDisplayValue(opt('rentalDays'),
-                        `${calculateRentalDays()} jours` +
-                        (reservation?.prolongation_days > 0 ? ` (dont prolongation: ${reservation.prolongation_days} jours)` : ''))}
-                    </span>
-                  </div>
-                  {reservation?.prolongation_days > 0 && (
-                    <div className="field-row">
-                      <span className="field-label">Prolongation :</span>
-                      <span className="field-value">{reservation.prolongation_days} jours</span>
-                    </div>
-                  )}
-                  <div className="field-row">
-                    <span className="field-label">Km départ :</span>
-                    <span className="field-value">{getDisplayValue(opt('kilometrage'), `${reservation?.kilometrage_sortie || '—'} km`)}</span>
-                  </div>
-                  <div className="field-row">
-                    <span className="field-label">Km retour :</span>
-                    <span className="field-value">{getDisplayValue(opt('kilometrage'), reservation?.kilometrage_entree ? `${reservation.kilometrage_entree} km` : '—')}</span>
-                  </div>
-                  <div className="field-row">
-                    <span className="field-label">Livré par :</span>
-                    <span className="field-value">{getDisplayValue(opt('deliveryReception'), getCurrentUserName())}</span>
-                  </div>
-                  <div className="field-row">
-                    <span className="field-label">Reçu par :</span>
-                    <span className="field-value">{getDisplayValue(opt('deliveryReception'), getReservationCreatorName())}</span>
-                  </div>
+                  <div className="field-row"><span className="field-label">Départ :</span><span className="field-value">{getDisplayValue(opt('rentalDates'), `${formatDate(reservation?.start_date)} à ${reservation?.start_time || '08:00'}`)}</span></div>
+                  <div className="field-row"><span className="field-label">Retour :</span><span className="field-value">{getDisplayValue(opt('rentalDates'), `${formatDate(reservation?.end_date)} à ${reservation?.end_time || '18:00'}`)}</span></div>
+                  <div className="field-row"><span className="field-label">Durée :</span><span className="field-value">{getDisplayValue(opt('rentalDays'), `${calculateRentalDays()} jours` + (reservation?.prolongation_days > 0 ? ` (dont prolongation: ${reservation.prolongation_days} jours)` : ''))}</span></div>
+                  {reservation?.prolongation_days > 0 && (<div className="field-row"><span className="field-label">Prolongation :</span><span className="field-value">{reservation.prolongation_days} jours</span></div>)}
+                  <div className="field-row"><span className="field-label">Km départ :</span><span className="field-value">{getDisplayValue(opt('kilometrage'), `${reservation?.kilometrage_sortie || '—'} km`)}</span></div>
+                  <div className="field-row"><span className="field-label">Km retour :</span><span className="field-value">{getDisplayValue(opt('kilometrage'), reservation?.kilometrage_entree ? `${reservation.kilometrage_entree} km` : '—')}</span></div>
+                  <div className="field-row"><span className="field-label">Livré par :</span><span className="field-value">{getDisplayValue(opt('deliveryReception'), getCurrentUserName())}</span></div>
+                  <div className="field-row"><span className="field-label">Reçu par :</span><span className="field-value">{getDisplayValue(opt('deliveryReception'), getReservationCreatorName())}</span></div>
                 </div>
               </div>
-
               <div className="contract-section pricing-section">
                 <div className="section-title-print">TARIFS</div>
                 <div className="section-content">
-                  <div className="field-row">
-                    <span className="field-label">Prix journalier :</span>
-                    <span className="field-value">{getDisplayValue(opt('prices'), `${dailyPrice} DH`)}</span>
-                  </div>
-                  <div className="field-row total-row">
-                    <span className="field-label">Total TTC :</span>
-                    <span className="field-value total-amount">{getDisplayValue(opt('prices'), `${reservation?.total_price || '—'} DH`)}</span>
-                  </div>
-                  <div className="field-row">
-                    <span className="field-label">Montant payé :</span>
-                    <span className="field-value">{getDisplayValue(opt('prices'), `${reservation?.amount_paid || '0'} DH`)}</span>
-                  </div>
-                  <div className="field-row">
-                    <span className="field-label">Reste à payer :</span>
-                    <span className="field-value remaining-amount">
-                      {getDisplayValue(opt('prices'), `${reservation?.remaining_amount || reservation?.total_price || '0'} DH`)}
-                    </span>
-                  </div>
+                  <div className="field-row"><span className="field-label">Prix journalier :</span><span className="field-value">{getDisplayValue(opt('prices'), `${dailyPrice} DH`)}</span></div>
+                  <div className="field-row total-row"><span className="field-label">Total TTC :</span><span className="field-value total-amount">{getDisplayValue(opt('prices'), `${reservation?.total_price || '—'} DH`)}</span></div>
+                  <div className="field-row"><span className="field-label">Montant payé :</span><span className="field-value">{getDisplayValue(opt('prices'), `${reservation?.amount_paid || '0'} DH`)}</span></div>
+                  <div className="field-row"><span className="field-label">Reste à payer :</span><span className="field-value remaining-amount">{getDisplayValue(opt('prices'), `${reservation?.remaining_amount || reservation?.total_price || '0'} DH`)}</span></div>
                 </div>
               </div>
             </td>
@@ -483,23 +385,16 @@ const ContractLocation = ({
       <div className="kilometrage-clause-section">
         <div className="kilometrage-clause-title">⚠️ IMPORTANT - CLAUSE DE DÉPASSEMENT DE KILOMÉTRAGE</div>
         <div className="kilometrage-clause-text">
-          En cas de dépassement du kilométrage mentionné (200km par jour),
-          vous allez payer 1.5 DH pour chaque kilomètre additionnel au-delà de la limite autorisée.
+          En cas de dépassement du kilométrage mentionné (200km par jour), vous allez payer 1.5 DH pour chaque kilomètre additionnel au-delà de la limite autorisée.
         </div>
       </div>
 
       <div className="observations-row-print">
         <ObservationBox title="Observations" option={opt('observations')}>
-          <div className="observation-text">
-            {getDisplayValue(opt('observations'),
-              `Véhicule loué en bon état général. Le client s'engage à retourner le véhicule dans le même état.` +
-              (reservation?.notes ? ` Notes: ${reservation.notes}` : ''))}
-          </div>
+          <div className="observation-text">{getDisplayValue(opt('observations'), `Véhicule loué en bon état général. Le client s'engage à retourner le véhicule dans le même état.` + (reservation?.notes ? ` Notes: ${reservation.notes}` : ''))}</div>
         </ObservationBox>
         <ObservationBox title="Assurance" option={opt('insurance')}>
-          <div className="observation-text">
-            {getDisplayValue(opt('insurance'), 'Assurance tous risques incluse. Franchise applicable en cas de sinistre.')}
-          </div>
+          <div className="observation-text">{getDisplayValue(opt('insurance'), 'Assurance tous risques incluse. Franchise applicable en cas de sinistre.')}</div>
         </ObservationBox>
         <ObservationBox title="Caution" isHalf option={opt('depositGuarantee')}>
           <div className="observation-text">
@@ -510,15 +405,9 @@ const ContractLocation = ({
       </div>
 
       <div className="signatures-row-print">
-        <SignatureBlock label="Signature de l'agent"
-          signature={showSignatures ? signatures.agent : ''}
-          option={opt('signatures')} cachet={includeCache} />
-        <SignatureBlock label="Signature du locataire"
-          signature={showSignatures ? locataireSignature : ''}
-          option={opt('signatures')} />
-        <SignatureBlock label="Signature 2ème conducteur"
-          signature={showSignatures ? secondDriverSignature : ''}
-          option={opt('signatures')} />
+        <SignatureBlock label="Signature de l'agent" signature={showSignatures ? signatures.agent : ''} option={opt('signatures')} cachet={includeCache} />
+        <SignatureBlock label="Signature du locataire" signature={showSignatures ? locataireSignature : ''} option={opt('signatures')} />
+        <SignatureBlock label="Signature 2ème conducteur" signature={showSignatures ? secondDriverSignature : ''} option={opt('signatures')} />
       </div>
 
       <div className="contract-footer-print">
@@ -533,14 +422,12 @@ const ContractLocation = ({
   );
 };
 
-/* ============================================================
-   Main component
-   ============================================================ */
-const ReservationsManagement = ({ onBack, filter }) => {
+// ============================================================
+// Main component
+// ============================================================
+const ReservationStatusManagement = () => {
   const dispatch = useDispatch();
   const [searchParams, setSearchParams] = useSearchParams();
-  const location = useLocation();
-  const navigate = useNavigate();
   const filterParam = searchParams.get('filter');
   const reservations = useSelector(selectReservations);
   const loading = useSelector(selectReservationsLoading);
@@ -553,24 +440,10 @@ const ReservationsManagement = ({ onBack, filter }) => {
   const [modalType, setModalType] = useState('create');
   const [editingItem, setEditingItem] = useState(null);
   const [formData, setFormData] = useState({});
-  const [showConfirmation, setShowConfirmation] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [signatureMenuOpen, setSignatureMenuOpen] = useState(null);
-  const [confirmationConfig, setConfirmationConfig] = useState({
-    type: '', title: '', message: '', reservation: null, onConfirm: null,
-  });
-  const [showContract, setShowContract] = useState(false);
-  const [selectedContractReservation, setSelectedContractReservation] = useState(null);
-  const [contractPaperwork, setContractPaperwork] = useState(DEFAULT_PAPERWORK);
-
-  const [showPrintOptions, setShowPrintOptions] = useState(false);
-  const [printTargetReservation, setPrintTargetReservation] = useState(null);
-  const [includeCacheForPrint, setIncludeCacheForPrint] = useState(true);
-
-  const [displayOptions, setDisplayOptions] = useState(DEFAULT_DISPLAY_OPTIONS);
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState(filter || 'all');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -580,53 +453,43 @@ const ReservationsManagement = ({ onBack, filter }) => {
   const [availableMatricules, setAvailableMatricules] = useState([]);
   const [selectedMatriculeId, setSelectedMatriculeId] = useState('');
 
-  const [showCompleteModal, setShowCompleteModal] = useState(false);
-  const [completeReservationId, setCompleteReservationId] = useState(null);
-  const [kilometrageRetour, setKilometrageRetour] = useState('');
-  const [returnDate, setReturnDate] = useState('');
-  const [returnTime, setReturnTime] = useState('');
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelReservationId, setCancelReservationId] = useState(null);
 
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [reservationToDelete, setReservationToDelete] = useState(null);
+
+  const [showContract, setShowContract] = useState(false);
+  const [selectedContractReservation, setSelectedContractReservation] = useState(null);
+  const [contractPaperwork, setContractPaperwork] = useState(DEFAULT_PAPERWORK);
+  const [showPrintOptions, setShowPrintOptions] = useState(false);
+  const [printTargetReservation, setPrintTargetReservation] = useState(null);
+  const [includeCacheForPrint, setIncludeCacheForPrint] = useState(true);
+
+  const [displayOptions, setDisplayOptions] = useState(DEFAULT_DISPLAY_OPTIONS);
   const [expandedRowId, setExpandedRowId] = useState(null);
-  const processedContractRef = useRef(null);
 
-  useEffect(() => { if (filter) { setStatusFilter(filter); setCurrentPage(1); } }, [filter]);
   useEffect(() => {
     dispatch(fetchReservations()); dispatch(fetchClients()); dispatch(fetchCars());
     dispatch(fetchMatricules()); dispatch(checkLateReservations());
   }, [dispatch]);
-  useEffect(() => {
-    const interval = setInterval(() => { dispatch(checkLateReservations()); }, 60000);
-    return () => clearInterval(interval);
-  }, [dispatch]);
 
   const isToday = (d) => { if (!d) return false; const dt = new Date(d), t = new Date(); return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime() === new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime(); };
-  const isUpcoming = (d) => { if (!d) return false; const dt = new Date(d), t = new Date(); return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()) > new Date(t.getFullYear(), t.getMonth(), t.getDate()); };
-  const isPast = (d) => { if (!d) return false; const dt = new Date(d), t = new Date(); return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()) < new Date(t.getFullYear(), t.getMonth(), t.getDate()); };
   const isThisWeek = (d) => { if (!d) return false; const date = new Date(d), today = new Date(); const sw = new Date(today); sw.setDate(today.getDate() - today.getDay()); sw.setHours(0,0,0,0); const ew = new Date(sw); ew.setDate(sw.getDate() + 6); ew.setHours(23,59,59,999); return date >= sw && date <= ew; };
   const isThisMonth = (d) => { if (!d) return false; const date = new Date(d), today = new Date(); return date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear(); };
-  const isActiveNow = (r) => { if (!r.start_date || !r.end_date) return false; const t = new Date(), s = new Date(r.start_date), e = new Date(r.end_date); return t >= s && t <= e; };
   const calculateRentalDays = (s, e) => { if (!s || !e) return 0; const sd = new Date(s), ed = new Date(e); sd.setHours(0,0,0,0); ed.setHours(0,0,0,0); const diff = Math.abs(ed - sd); const days = Math.ceil(diff / (1000 * 60 * 60 * 24)); return days === 0 ? 1 : days; };
-  const calculateDaysRemaining = (r) => {
-    if (!r.end_date) return '';
-    const t = new Date(), e = new Date(r.end_date);
-    t.setHours(0,0,0,0); e.setHours(0,0,0,0);
-    const diff = Math.ceil((e - t) / (1000 * 60 * 60 * 24));
-    if ((r.status === 'retard' || r.status === 'confirmed') && diff < 0) { const late = Math.abs(diff); return late === 1 ? '+1 jour de retard' : `+${late} jours de retard`; }
-    if (diff < 0) return 'Terminé';
-    if (diff === 0) return 'Dernier jour';
-    if (diff === 1) return '1 jour restant';
-    return `${diff} jours restants`;
-  };
 
-  const createClientWithRetry = async (clientData, maxRetries = 3) => {
-    let lastError;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        if (attempt > 1) await new Promise(res => setTimeout(res, 1000 * attempt));
-        return await dispatch(createClient(clientData)).unwrap();
-      } catch (err) { lastError = err; if (attempt === maxRetries) throw err; }
-    }
-    throw lastError;
+  const showSuccessMessage = (message) => {
+    document.querySelectorAll('.success-notification, .error-notification').forEach(n => n.remove());
+    const n = document.createElement('div'); n.className = 'success-notification';
+    n.innerHTML = `<div class="notification-content"><FaCheck class="notification-icon" /><span>${message}</span></div>`;
+    document.body.appendChild(n); setTimeout(() => n.parentNode && n.remove(), 5000);
+  };
+  const showErrorMessage = (message) => {
+    document.querySelectorAll('.success-notification, .error-notification').forEach(n => n.remove());
+    const n = document.createElement('div'); n.className = 'error-notification';
+    n.innerHTML = `<div class="notification-content"><FaTimes class="notification-icon" /><span>${message}</span><button onclick="this.parentNode.parentNode.remove()" style="background:none;border:none;color:inherit;cursor:pointer;margin-left:10px;"><FaTimes /></button></div>`;
+    document.body.appendChild(n); setTimeout(() => n.parentNode && n.remove(), 8000);
   };
 
   const enrichReservationWithSignatures = async (reservation) => {
@@ -636,42 +499,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
       const list = Array.isArray(result) ? result : Array.isArray(result?.reservations) ? result.reservations : Array.isArray(result?.data) ? result.data : null;
       if (list) { const found = list.find(r => r.id === reservation.id); if (found) fresh = found; }
     } catch (_) {}
-    const hasAnySignature = (r) => {
-      if (!r) return false;
-      if (r.signatures && typeof r.signatures === 'object') {
-        const ok = Object.values(r.signatures).some(v => typeof v === 'string' && v.length > 20);
-        if (ok) return true;
-      }
-      return Object.keys(r).some(k => { if (!k.toLowerCase().includes('sign')) return false; const v = r[k]; return typeof v === 'string' && v.length > 20; });
-    };
-    if (hasAnySignature(fresh)) return fresh;
-    const mergeSignatureResponse = (base, data) => {
-      if (!data || typeof data !== 'object') return base;
-      if (data.data && typeof data.data === 'object' && !data.signatures) data = data.data;
-      if (data.signatures && typeof data.signatures === 'object') {
-        return { ...base, signatures: { ...(base.signatures || {}), ...data.signatures }, ...Object.fromEntries(Object.entries(data).filter(([k]) => k !== 'signatures')) };
-      }
-      const sigKeys = ['agent','locataire','client','secondConducteur','second_driver','secondDriver','second_conducteur','signature','signature_agent','signature_locataire','signature_client','signature_second_conducteur','signature_second_driver','agent_signature','client_signature','locataire_signature','second_driver_signature','second_conducteur_signature','locataire_image','secondConducteur_image','agent_image'];
-      const hasSig = sigKeys.some(k => data[k]);
-      if (hasSig) {
-        const lifted = { ...(base.signatures || {}) };
-        sigKeys.forEach(k => { if (data[k]) lifted[k] = data[k]; });
-        const rest = { ...data }; sigKeys.forEach(k => delete rest[k]);
-        return { ...base, ...rest, signatures: lifted };
-      }
-      return { ...base, ...data };
-    };
-    try {
-      const { api } = await import('../Redux/store');
-      const res = await api.get(`/reservations/${reservation.id}/signatures`);
-      return mergeSignatureResponse(fresh, res.data);
-    } catch (_) {
-      try {
-        const { api } = await import('../Redux/store');
-        const res = await api.get(`/reservations/${reservation.id}/signature`);
-        return mergeSignatureResponse(fresh, res.data);
-      } catch (_2) { return fresh; }
-    }
+    return fresh;
   };
 
   const generateContractPDF = async (reservation) => {
@@ -712,6 +540,15 @@ const ReservationsManagement = ({ onBack, filter }) => {
     } catch (error) { console.error('Error generating contract:', error); showErrorMessage('Erreur lors de la génération du contrat.'); }
   };
 
+  const handleViewContract = async (reservation) => {
+    const enriched = await enrichReservationWithSignatures(reservation);
+    setSelectedContractReservation(enriched);
+    if (enriched.paperwork) {
+      setContractPaperwork({ circulation: enriched.paperwork.circulation || false, carteGrise: enriched.paperwork.carteGrise || false, assurance: enriched.paperwork.assurance || false, vignette: enriched.paperwork.vignette || false, visiteTechnique: enriched.paperwork.visiteTechnique || false, autorisation: enriched.paperwork.autorisation || false });
+    }
+    setShowContract(true);
+  };
+
   const handlePrintContract = async (reservation) => {
     try { const enriched = await enrichReservationWithSignatures(reservation); setPrintTargetReservation(enriched); setShowPrintOptions(true); }
     catch { setPrintTargetReservation(reservation); setShowPrintOptions(true); }
@@ -721,271 +558,61 @@ const ReservationsManagement = ({ onBack, filter }) => {
     setIncludeCacheForPrint(withCache); setShowPrintOptions(false);
     if (!printTargetReservation) return;
     setSelectedContractReservation(printTargetReservation);
-    if (printTargetReservation.paperwork) setContractPaperwork({ ...DEFAULT_PAPERWORK, ...printTargetReservation.paperwork });
+    if (printTargetReservation.paperwork) {
+      setContractPaperwork({ circulation: printTargetReservation.paperwork.circulation || false, carteGrise: printTargetReservation.paperwork.carteGrise || false, assurance: printTargetReservation.paperwork.assurance || false, vignette: printTargetReservation.paperwork.vignette || false, visiteTechnique: printTargetReservation.paperwork.visiteTechnique || false, autorisation: printTargetReservation.paperwork.autorisation || false });
+    }
     await new Promise(r => setTimeout(r, 900));
     generateContractPDF(printTargetReservation);
   };
 
   const handlePrintFromModal = () => { if (!selectedContractReservation) return; setPrintTargetReservation(selectedContractReservation); setShowPrintOptions(true); };
-
-  const handleViewContract = async (reservation) => {
-    const enriched = await enrichReservationWithSignatures(reservation);
-    setSelectedContractReservation(enriched);
-    if (enriched.paperwork) setContractPaperwork({ ...DEFAULT_PAPERWORK, ...enriched.paperwork });
-    setShowContract(true);
-  };
-
-  useEffect(() => {
-    const incoming = location.state?.contractReservation || location.state?.createdReservation || location.state?.reservation || null;
-    if (!incoming) return;
-    if (processedContractRef.current === incoming) return;
-    processedContractRef.current = incoming;
-    (async () => {
-      await new Promise((r) => setTimeout(r, 250));
-      const fromStore = reservations.find((r) => r.id === incoming.id);
-      const target = fromStore || incoming;
-      try { await handleViewContract(target); }
-      catch (err) { console.error('Failed to auto-open contract after navigation:', err); setSelectedContractReservation(target); setShowContract(true); }
-      navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.state]);
-
   const handleDisplayOptionChange = (section, value) => setDisplayOptions(prev => ({ ...prev, [section]: value }));
   const handleResetDisplayOptions = () => setDisplayOptions(DEFAULT_DISPLAY_OPTIONS);
+  const handlePaperworkChange = (field) => setContractPaperwork(prev => ({ ...prev, [field]: !prev[field] }));
 
-  const filteredReservations = reservations.filter(reservation => {
-    if (!ACTIVE_STATUSES.includes(reservation.status)) return false;
+  const filteredReservations = reservations.filter(r => {
+    if (!STATUS_SCOPE.includes(r.status)) return false;
     const matchesSearch = searchTerm === '' ||
-      reservation.client?.nom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      reservation.client?.prenom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      reservation.second_driver_client?.nom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      reservation.second_driver_client?.prenom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      reservation.car?.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      reservation.car?.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      reservation.matricule?.matricule_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      reservation.id.toString().includes(searchTerm);
-    const matchesStatus = statusFilter === 'all' || (statusFilter === 'overdue' ? reservation.status === 'retard' : reservation.status === statusFilter);
+      r.client?.nom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.client?.prenom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.second_driver_client?.nom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.car?.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.car?.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.matricule?.matricule_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.id.toString().includes(searchTerm);
+    const matchesStatus = statusFilter === 'all' || r.status === statusFilter;
     let matchesDate = true;
     if (dateFilter !== 'all') {
-      const s = reservation.start_date, e = reservation.end_date;
+      const s = r.start_date, e = r.end_date;
       switch (dateFilter) {
         case 'today': matchesDate = isToday(s) || isToday(e); break;
         case 'this_week': matchesDate = isThisWeek(s) || isThisWeek(e); break;
         case 'this_month': matchesDate = isThisMonth(s) || isThisMonth(e); break;
-        case 'upcoming': matchesDate = isUpcoming(s); break;
-        case 'past': matchesDate = isPast(e); break;
-        case 'active': matchesDate = isActiveNow(reservation); break;
-        case 'late': matchesDate = reservation.status === 'retard'; break;
         default: matchesDate = true;
       }
     }
     let matchesNotification = true;
     if (filterParam === 'notifications') {
       const today = new Date(); today.setHours(0, 0, 0, 0);
-      const end = reservation.end_date ? new Date(reservation.end_date) : null;
+      const end = r.end_date ? new Date(r.end_date) : null;
       if (end) end.setHours(0, 0, 0, 0);
-      const isLate = reservation.status === 'retard' || (end && end < today && reservation.status !== 'completed' && reservation.status !== 'cancelled');
       const diffDays = end ? Math.ceil((end - today) / (1000 * 60 * 60 * 24)) : null;
-      const isExpiringSoon = diffDays !== null && diffDays >= 0 && diffDays <= 7;
-      matchesNotification = isLate || isExpiringSoon;
+      const start = r.start_date ? new Date(r.start_date) : null;
+      if (start) start.setHours(0, 0, 0, 0);
+      const diffStart = start ? Math.ceil((start - today) / (1000 * 60 * 60 * 24)) : null;
+      matchesNotification = (diffStart !== null && diffStart >= 0 && diffStart <= 7) || (diffDays !== null && diffDays >= 0 && diffDays <= 7);
     }
     return matchesSearch && matchesStatus && matchesDate && matchesNotification;
   }).sort((a, b) => (b.id || 0) - (a.id || 0));
 
   const totalPages = Math.ceil(filteredReservations.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const currentReservations = filteredReservations.slice(startIndex, startIndex + itemsPerPage);
+  const currentReservations = filteredReservations.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   const handlePageChange = (p) => setCurrentPage(p);
   const handleSearch = (e) => { setSearchTerm(e.target.value); setCurrentPage(1); };
   const handleStatusFilter = (e) => { setStatusFilter(e.target.value); setCurrentPage(1); };
   const handleDateFilter = (e) => { setDateFilter(e.target.value); setCurrentPage(1); };
   const clearFilters = () => { setSearchTerm(''); setStatusFilter('all'); setDateFilter('all'); setCurrentPage(1); };
-
-  const handleCreate = () => {
-    setModalType('create'); setEditingItem(null);
-    setFormData({ start_date: new Date().toISOString().split('T')[0], end_date: '', start_time: '08:00', end_time: '18:00', rental_days: 1, total_price: 0, amount_paid: 0, remaining_amount: 0, status: 'pending', car_id: '', client_id: '', matricule_id: '', has_second_driver: false, second_driver_client_id: '', cin_number: '', driver_license_number: '', cin_image: '', driver_license_image: '', notes: '', can_extend_days: false, prolongation_days: 0, sous_location_id: '' });
-    setShowModal(true);
-  };
-
-  const handleEdit = (reservation) => {
-    setModalType('edit'); setEditingItem(reservation);
-    let displayNotes = reservation.notes || '';
-    try { if (displayNotes && displayNotes.trim().startsWith('{')) { const n = JSON.parse(displayNotes); if (n.original_text !== undefined) displayNotes = n.original_text || ''; } } catch {}
-    const totalDaysFromDates = calculateRentalDays(reservation.start_date, reservation.end_date);
-    const prolongation = reservation.prolongation_days || 0;
-    const baseDays = reservation.can_extend_days ? Math.max((reservation.rental_days || totalDaysFromDates) - prolongation, 1) : (reservation.rental_days || totalDaysFromDates);
-    setFormData({ ...reservation, start_date: reservation.start_date.split('T')[0], end_date: reservation.end_date.split('T')[0], rental_days: baseDays, nom: reservation.client?.nom || '', prenom: reservation.client?.prenom || '', telephone: reservation.client?.telephone || '', email: reservation.client?.email || '', city: reservation.client?.city || '', cin_number: reservation.client?.cin_number || '', driver_license_number: reservation.client?.driver_license_number || '', cin_image: reservation.client?.cin_image || '', driver_license_image: reservation.client?.driver_license_image || '', has_second_driver: reservation.has_second_driver || false, second_driver_client_id: reservation.second_driver_client_id || '', notes: displayNotes, can_extend_days: reservation.can_extend_days || false, prolongation_days: reservation.prolongation_days || 0, sous_location_id: reservation.sous_location_id || '' });
-    setShowModal(true);
-  };
-
-  const showDeleteConfirmation = (reservation) => {
-    setConfirmationConfig({ type: 'delete', title: 'Delete Reservation', message: `Are you sure you want to delete reservation #${reservation.id}? This action cannot be undone.`, reservation, onConfirm: () => confirmDelete(reservation.id) });
-    setShowConfirmation(true);
-  };
-
-  const confirmDelete = async (id) => {
-    try { await dispatch(deleteReservation(id)).unwrap(); setShowConfirmation(false); showSuccessMessage('Reservation deleted successfully!'); dispatch(fetchReservations()); }
-    catch (error) { showErrorMessage('Error deleting reservation: ' + error); }
-  };
-
-  /* ============================================================
-     ✅ handleSubmit — now syncs the report after create/update
-     ============================================================ */
-  const handleSubmit = async (e) => {
-    e.preventDefault(); setSubmitting(true);
-    try {
-      let clientId = formData.client_id;
-      let secondDriverClientId = formData.second_driver_client_id;
-      if (!clientId && formData.prenom && formData.telephone) {
-        const clientData = { nom: formData.nom || '', prenom: formData.prenom || '', telephone: formData.telephone || '', email: formData.email || '', city: formData.city || '', cin_number: formData.cin_number || '', driver_license_number: formData.driver_license_number || '', cin_image: formData.cin_image || '', driver_license_image: formData.driver_license_image || '', date_naissance: formData.date_naissance || '', lieu_naissance: formData.lieu_naissance || '', cin_delivre_le: formData.cin_delivre_le || '', permis_delivre_le: formData.permis_delivre_le || '', image_permit: 'default_permit.jpg', image_cn: 'default_cn.jpg' };
-        try {
-          const clientResult = await createClientWithRetry(clientData);
-          if (clientResult.client?.id) clientId = clientResult.client.id;
-          else if (clientResult.id) clientId = clientResult.id;
-          else if (clientResult.data?.id) clientId = clientResult.data.id;
-          else { await new Promise(r => setTimeout(r, 1500)); await dispatch(fetchClients()); const newClient = clients.find(c => c.telephone === formData.telephone); if (newClient) clientId = newClient.id; else throw new Error('Primary client created but not found after refresh'); }
-          showSuccessMessage('Nouveau client (locataire) créé avec succès!');
-        } catch (err) { throw new Error(`Impossible de créer le client principal: ${err.message || err}`); }
-      }
-      if (!clientId) throw new Error('Aucun client principal sélectionné ou créé.');
-      if (formData.has_second_driver) {
-        if (secondDriverClientId && secondDriverClientId !== 'temp_pending') {
-          const sd = clients.find(c => c.id === secondDriverClientId);
-          if (!sd) { secondDriverClientId = null; formData.has_second_driver = false; }
-        } else if (formData.second_driver_temp_data) {
-          const sdData = { ...formData.second_driver_temp_data, image_permit: 'default_permit.jpg', image_cn: 'default_cn.jpg' };
-          if (!sdData.prenom || !sdData.nom || !sdData.telephone) throw new Error('Le deuxième conducteur doit avoir au moins un prénom, nom et téléphone');
-          try {
-            const res = await createClientWithRetry(sdData);
-            let newId;
-            if (res.client?.id) newId = res.client.id;
-            else if (res.id) newId = res.id;
-            else if (res.data?.id) newId = res.data.id;
-            else { await new Promise(r => setTimeout(r, 1500)); await dispatch(fetchClients()); const nc = clients.find(c => c.telephone === sdData.telephone); if (nc) newId = nc.id; else throw new Error('Second driver client created but not found after refresh'); }
-            secondDriverClientId = newId;
-            showSuccessMessage('Deuxième conducteur créé avec succès!');
-          } catch {
-            showErrorMessage('Impossible de créer le deuxième conducteur. Réservation sans 2ème conducteur.');
-            formData.has_second_driver = false; secondDriverClientId = null;
-          }
-        } else if (secondDriverClientId === 'temp_pending' || !secondDriverClientId) {
-          showErrorMessage('Aucun deuxième conducteur sélectionné. Réservation sans 2ème conducteur.');
-          formData.has_second_driver = false; secondDriverClientId = null;
-        }
-        if (secondDriverClientId && secondDriverClientId === clientId) throw new Error('Le deuxième conducteur ne peut pas être le même que le locataire');
-      }
-      const baseDays = parseInt(formData.rental_days, 10) || calculateRentalDays(formData.start_date, formData.end_date) || 1;
-      const prolongationDays = formData.can_extend_days ? (parseInt(formData.prolongation_days, 10) || 0) : 0;
-      const totalRentalDays = baseDays + prolongationDays;
-      const reservationData = { start_date: formData.start_date, end_date: formData.end_date, start_time: formData.start_time || '08:00', end_time: formData.end_time || '18:00', rental_days: totalRentalDays, total_days: totalRentalDays, total_price: formData.total_price || 0, amount_paid: formData.amount_paid || 0, remaining_amount: formData.remaining_amount || ((formData.total_price || 0) - (formData.amount_paid || 0)), payment_history: formData.payment_history || [], status: formData.status || 'pending', car_id: formData.car_id, client_id: clientId, matricule_id: formData.matricule_id || null, has_second_driver: formData.has_second_driver || false, second_driver_client_id: formData.has_second_driver ? secondDriverClientId : null, notes: formData.notes || '', kilometrage_sortie: formData.kilometrage_sortie || null, kilometrage_entree: formData.kilometrage_entree || null, can_extend_days: !!formData.can_extend_days, prolongation_days: prolongationDays, sous_location_id: formData.sous_location_id || null };
-
-      let savedReservation = null;
-
-      if (modalType === 'create') {
-        const result = await dispatch(createReservation(reservationData)).unwrap();
-        savedReservation = result?.reservation || result?.data?.reservation || result;
-        showSuccessMessage('Réservation créée avec succès!');
-      } else {
-        const result = await dispatch(updateReservation({ id: editingItem.id, data: reservationData })).unwrap();
-        savedReservation = result?.reservation || result?.data?.reservation || result;
-        showSuccessMessage('Réservation mise à jour avec succès!');
-      }
-
-      // ✅ FIX: sync the report — defensive payload
-      try {
-        const savedId = savedReservation?.id || editingItem?.id;
-        let toSync = savedReservation && savedReservation.id
-          ? savedReservation
-          : { ...(editingItem || {}), ...reservationData, id: savedId };
-
-        if (savedId) {
-          try {
-            const { api } = await import('../Redux/store');
-            const res = await api.get(`/reservations/${savedId}`);
-            const fetched = res.data?.reservation || res.data?.data || res.data;
-            if (fetched && fetched.id) {
-              toSync = fetched;
-            }
-          } catch (fetchErr) {
-            console.warn('Could not re-fetch reservation for sync, using local data', fetchErr);
-          }
-        }
-
-        const serverHist = Array.isArray(toSync.payment_history) ? toSync.payment_history : [];
-        const localHist = Array.isArray(reservationData.payment_history) ? reservationData.payment_history : [];
-        if (localHist.length > 0 && serverHist.length < localHist.length) {
-          toSync = { ...toSync, payment_history: localHist };
-        }
-
-        if (toSync && toSync.id) {
-          await syncReportForReservation(toSync, dispatch);
-        }
-      } catch (syncErr) {
-        console.error('syncReportForReservation failed:', syncErr);
-      }
-
-      setTimeout(() => dispatch(refreshMatricules()), 500);
-
-      if (formData.status === 'completed' && formData.matricule_id && formData.kilometrage_entree) {
-        try {
-          const currentMatricule = matricules.find(m => m.id == formData.matricule_id);
-          if (!currentMatricule) throw new Error('Matricule not found');
-          await dispatch(updateMatricule({ id: formData.matricule_id, data: { kilometrage: formData.kilometrage_entree } })).unwrap();
-          showSuccessMessage('Réservation mise à jour et kilométrage de retour enregistré!');
-        } catch (err) { showErrorMessage("Échec de l'enregistrement du kilométrage de retour: " + err.message); }
-      }
-
-      setShowModal(false);
-      dispatch(fetchReservations()); dispatch(fetchClients()); dispatch(fetchCars()); dispatch(fetchMatricules());
-    } catch (error) {
-      console.error('Error in handleSubmit:', error);
-      const msg = error.message || error;
-      if (msg.includes('MySQL') || msg.includes('database') || msg.includes('connection')) showErrorMessage('Problème de connexion à la base de données.');
-      else if (msg.includes('Le deuxième conducteur ne peut pas être le même')) showErrorMessage('Le deuxième conducteur ne peut pas être le même que le locataire.');
-      else showErrorMessage('Erreur: ' + msg);
-    } finally { setSubmitting(false); }
-  };
-
-  const showSuccessMessage = (message) => {
-    document.querySelectorAll('.success-notification, .error-notification').forEach(n => n.remove());
-    const n = document.createElement('div'); n.className = 'success-notification';
-    n.innerHTML = `<div class="notification-content"><FaCheck class="notification-icon" /><span>${message}</span></div>`;
-    document.body.appendChild(n); setTimeout(() => n.parentNode && n.remove(), 5000);
-  };
-  const showErrorMessage = (message) => {
-    document.querySelectorAll('.success-notification, .error-notification').forEach(n => n.remove());
-    const n = document.createElement('div'); n.className = 'error-notification';
-    n.innerHTML = `<div class="notification-content"><FaTimes class="notification-icon" /><span>${message}</span><button onclick="this.parentNode.parentNode.remove()" style="background:none;border:none;color:inherit;cursor:pointer;margin-left:10px;"><FaTimes /></button></div>`;
-    document.body.appendChild(n); setTimeout(() => n.parentNode && n.remove(), 8000);
-  };
-
-  const getStatusBadge = (status) => {
-    const cfg = {
-      pending: { class: 'status-badge status-pending', text: 'En attente', icon: FaClock },
-      confirmed: { class: 'status-badge status-confirmed', text: 'Confirmé', icon: FaCheck },
-      contacted: { class: 'status-badge status-contacted', text: 'Contacté', icon: FaUser },
-      completed: { class: 'status-badge status-completed', text: 'Terminé', icon: FaCheck },
-      cancelled: { class: 'status-badge status-cancelled', text: 'Annulé', icon: FaTimes },
-      retard: { class: 'status-badge status-retard', text: 'En retard', icon: FaExclamationTriangle },
-    };
-    const c = cfg[status] || cfg.pending; const IconC = c.icon;
-    return <span className={c.class}><IconC className="status-icon" />{c.text}</span>;
-  };
-
-  const handleExport = () => {
-    if (!filteredReservations.length) { showErrorMessage('No data to export!'); return; }
-    const headers = ['ID', 'Client', 'Second Driver', 'Car', 'Start Date', 'End Date', 'Total Days', 'Total Price', 'Status', 'Prolongation'];
-    const csv = [headers.join(','), ...filteredReservations.map(r => [r.id, `"${r.client?.prenom} ${r.client?.nom}"`, `"${r.has_second_driver ? `${r.second_driver_client?.prenom} ${r.second_driver_client?.nom}` : 'None'}"`, `"${r.car?.brand} ${r.car?.model}"`, new Date(r.start_date).toLocaleDateString(), new Date(r.end_date).toLocaleDateString(), r.total_days || r.rental_days, r.total_price, r.status, r.can_extend_days ? `${r.prolongation_days} j` : 'Non'].join(','))].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a'); const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url); link.setAttribute('download', `reservations_export_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden'; document.body.appendChild(link); link.click(); document.body.removeChild(link);
-    showSuccessMessage('CSV exported successfully!');
-  };
-
-  const refreshData = () => { dispatch(fetchReservations()); dispatch(fetchClients()); dispatch(fetchCars()); dispatch(fetchMatricules()); dispatch(checkLateReservations()); showSuccessMessage('Data refreshed successfully!'); };
 
   const openConfirmModal = (reservation) => {
     const carId = reservation.car_id;
@@ -995,7 +622,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
     setSelectedMatriculeId(reservation.matricule_id || (available[0]?.id ?? '')); setShowConfirmModal(true);
   };
 
-  /* ✅ confirmConfirm — syncs report after confirming */
+  /* ✅ confirmConfirm — syncs report */
   const confirmConfirm = async () => {
     if (!selectedMatriculeId) { showErrorMessage('Veuillez sélectionner un matricule.'); return; }
     try {
@@ -1003,40 +630,67 @@ const ReservationsManagement = ({ onBack, filter }) => {
       const updated = result?.reservation || result?.data?.reservation || result;
       try { if (updated?.id) await syncReportForReservation(updated, dispatch); } catch (e) { console.error(e); }
       showSuccessMessage('Réservation confirmée avec succès !');
+      await dispatch(fetchReservations()); await dispatch(refreshMatricules());
     } catch (error) { showErrorMessage(error.message || 'Erreur lors de la confirmation'); }
     setShowConfirmModal(false); setPendingReservationId(null); setSelectedMatriculeId('');
   };
 
-  const openCompleteModal = (reservation) => {
-    setCompleteReservationId(reservation.id);
-    setKilometrageRetour(reservation.kilometrage_entree || reservation.matricule_kilometrage_at_start || '');
-    const now = new Date(); setReturnDate(now.toISOString().split('T')[0]); setReturnTime(now.toTimeString().slice(0, 5));
-    setShowCompleteModal(true);
-  };
+  const openCancelModal = (reservation) => { setCancelReservationId(reservation.id); setShowCancelModal(true); };
 
-  /* ✅ confirmComplete — syncs report after completing */
-  const confirmComplete = async () => {
-    if (!kilometrageRetour || isNaN(kilometrageRetour) || parseFloat(kilometrageRetour) < 0) { showErrorMessage('Veuillez entrer un kilométrage retour valide.'); return; }
+  /* ✅ confirmCancel — syncs report */
+  const confirmCancel = async () => {
     try {
-      const result = await dispatch(updateReservation({ id: completeReservationId, data: { status: 'completed', end_date: returnDate, end_time: returnTime, kilometrage_entree: parseFloat(kilometrageRetour) } })).unwrap();
+      const result = await dispatch(updateReservation({ id: cancelReservationId, data: { status: 'cancelled' } })).unwrap();
       const updated = result?.reservation || result?.data?.reservation || result;
       try { if (updated?.id) await syncReportForReservation(updated, dispatch); } catch (e) { console.error(e); }
-      showSuccessMessage('Réservation terminée avec succès !');
-    } catch (error) { showErrorMessage(error.message || 'Erreur lors de la terminaison'); }
-    setShowCompleteModal(false); setCompleteReservationId(null); setKilometrageRetour(''); setReturnDate(''); setReturnTime('');
+      showSuccessMessage('Réservation annulée.'); await dispatch(fetchReservations());
+    } catch (error) { showErrorMessage(error.message || "Erreur lors de l'annulation"); }
+    setShowCancelModal(false); setCancelReservationId(null);
   };
 
-  const setStatus = async (id, newStatus, extraData = {}) => {
-    if (newStatus === 'confirmed') { const r = reservations.find(x => x.id === id); if (r) openConfirmModal(r); return; }
-    if (newStatus === 'completed') { const r = reservations.find(x => x.id === id); if (r) openCompleteModal(r); return; }
-    const result = await dispatch(updateReservation({ id, data: { status: newStatus, ...extraData } }));
-    if (result.error) showErrorMessage(result.payload);
-    else {
-      const updated = result.payload?.reservation || result.payload;
-      try { if (updated?.id) await syncReportForReservation(updated, dispatch); } catch (e) { console.error(e); }
-      showSuccessMessage(newStatus === 'cancelled' ? 'Annulée' : 'Mis à jour');
+  const openDeleteModal = (reservation) => { setReservationToDelete(reservation); setShowDeleteModal(true); };
+  const confirmDelete = async () => {
+    if (!reservationToDelete) return;
+    try {
+      await dispatch(deleteReservation(reservationToDelete.id)).unwrap();
+      showSuccessMessage('Réservation supprimée.'); await dispatch(fetchReservations());
+    } catch (error) { showErrorMessage(error.message || 'Erreur lors de la suppression'); }
+    setShowDeleteModal(false); setReservationToDelete(null);
+  };
+
+  const handleEdit = (reservation) => {
+    setModalType('edit'); setEditingItem(reservation);
+    let displayNotes = reservation.notes || '';
+    try { if (displayNotes && displayNotes.trim().startsWith('{')) { const n = JSON.parse(displayNotes); if (n.original_text !== undefined) displayNotes = n.original_text || ''; } } catch {}
+    const totalDaysFromDates = calculateRentalDays(reservation.start_date, reservation.end_date);
+    const prolongation = reservation.prolongation_days || 0;
+    const baseDays = reservation.can_extend_days ? Math.max((reservation.rental_days || totalDaysFromDates) - prolongation, 1) : (reservation.rental_days || totalDaysFromDates);
+    setFormData({ ...reservation, start_date: reservation.start_date?.split('T')[0] || '', end_date: reservation.end_date?.split('T')[0] || '', rental_days: baseDays, nom: reservation.client?.nom || '', prenom: reservation.client?.prenom || '', telephone: reservation.client?.telephone || '', email: reservation.client?.email || '', city: reservation.client?.city || '', cin_number: reservation.client?.cin_number || '', driver_license_number: reservation.client?.driver_license_number || '', has_second_driver: reservation.has_second_driver || false, second_driver_client_id: reservation.second_driver_client_id || '', notes: displayNotes, can_extend_days: reservation.can_extend_days || false, prolongation_days: reservation.prolongation_days || 0, sous_location_id: reservation.sous_location_id || '' });
+    setShowModal(true);
+  };
+
+  /* ✅ handleSubmit — syncs report after update */
+  const handleSubmit = async (e) => {
+    e.preventDefault(); setSubmitting(true);
+    try {
+      const baseDays = parseInt(formData.rental_days, 10) || calculateRentalDays(formData.start_date, formData.end_date) || 1;
+      const prolongationDays = formData.can_extend_days ? (parseInt(formData.prolongation_days, 10) || 0) : 0;
+      const totalRentalDays = baseDays + prolongationDays;
+      const payload = { ...formData, rental_days: totalRentalDays, total_days: totalRentalDays, can_extend_days: !!formData.can_extend_days, prolongation_days: prolongationDays };
+      const result = await dispatch(updateReservation({ id: editingItem.id, data: payload })).unwrap();
+
+      const updated = result?.reservation || result?.data?.reservation || result;
+      try {
+        if (updated?.id) await syncReportForReservation(updated, dispatch);
+      } catch (syncErr) {
+        console.error('syncReportForReservation failed:', syncErr);
+      }
+
+      showSuccessMessage('Réservation mise à jour.');
+      setShowModal(false); setEditingItem(null);
       await dispatch(fetchReservations()); await dispatch(refreshMatricules());
-    }
+    } catch (error) { showErrorMessage(error.message || 'Erreur lors de la mise à jour'); }
+    finally { setSubmitting(false); }
   };
 
   const handleWhatsApp = (reservation) => {
@@ -1048,39 +702,41 @@ const ReservationsManagement = ({ onBack, filter }) => {
     const total = reservation.total_price || 0; const paid = reservation.amount_paid || 0;
     const remaining = reservation.remaining_amount ?? (total - paid);
     const name = client.prenom ? `${client.prenom} ${client.nom}` : client.nom || 'Client';
-    const message = `السلام عليكم ${name}، بخصوص الحجز رقم ${reservation.id}. المجموع: ${total} DH، دفعتي: ${paid} DH، الباقي: ${remaining} DH.`;
+    let message;
+    switch (reservation.status) {
+      case 'contacted': message = `السلام عليكم ${name}، حاولنا نتواصلو معاك بخصوص الحجز ديالك (رقم ${reservation.id}). المجموع: ${total} DH، الباقي: ${remaining} DH. شكراً.`; break;
+      case 'cancelled': message = `السلام عليكم ${name}، تم إلغاء الحجز ديالك (رقم ${reservation.id}). إذا عندك أي سؤال، اتصل بنا. شكراً.`; break;
+      default: message = `السلام عليكم ${name}، وصلاتنا طلب ديال الكرية (رقم ${reservation.id}). المجموع: ${total} DH، دفعتي: ${paid} DH، الباقي: ${remaining} DH. يرجى تأكيد الحجز. شكراً.`;
+    }
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
-  const handleSignatureLink = async (reservation) => {
-    if (reservation.status !== 'confirmed') { showErrorMessage('Seules les réservations confirmées peuvent avoir un lien de signature.'); return; }
-    try {
-      const { api } = await import('../Redux/store');
-      const response = await api.post(`/reservations/${reservation.id}/generate-signature`);
-      const { signature_token, signature_code } = response.data;
-      const link = `${window.location.origin}/sign-contract/${signature_token}`;
-      const text = `Lien de signature : ${link}\nCode : ${signature_code}`;
-      navigator.clipboard.writeText(text).then(() => showSuccessMessage('Lien et code copiés !')).catch(() => showSuccessMessage(`Lien : ${link} | Code : ${signature_code}`));
-    } catch (error) { showErrorMessage(error.response?.data?.message || 'Erreur lors de la génération du lien.'); }
+  const handleExport = () => {
+    if (!filteredReservations.length) { showErrorMessage('No data to export!'); return; }
+    const headers = ['ID', 'Client', 'Véhicule', 'Période', 'Total', 'Statut'];
+    const csv = [headers.join(','), ...filteredReservations.map(r => [r.id, `"${r.client?.prenom} ${r.client?.nom}"`, `"${r.car?.brand} ${r.car?.model}"`, `${new Date(r.start_date).toLocaleDateString()} - ${new Date(r.end_date).toLocaleDateString()}`, r.total_price, r.status].join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a'); const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url); link.setAttribute('download', `statut_reservations_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden'; document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    showSuccessMessage('CSV exported!');
   };
 
-  const handleSecondDriverSignatureLink = async (reservation) => {
-    if (reservation.status !== 'confirmed') { showErrorMessage('Seules les réservations confirmées peuvent avoir un lien de signature.'); return; }
-    try {
-      const { api } = await import('../Redux/store');
-      const response = await api.post(`/reservations/${reservation.id}/generate-second-signature`);
-      const { signature_token, signature_code } = response.data;
-      const link = `${window.location.origin}/sign-contract/${signature_token}`;
-      const text = `Lien de signature (2ème conducteur) : ${link}\nCode : ${signature_code}`;
-      navigator.clipboard.writeText(text).then(() => showSuccessMessage('Lien et code (2ème conducteur) copiés !')).catch(() => showSuccessMessage(`Lien : ${link} | Code : ${signature_code}`));
-    } catch (error) { showErrorMessage(error.response?.data?.message || 'Erreur lors de la génération du lien.'); }
+  const refreshData = () => {
+    dispatch(fetchReservations()); dispatch(fetchClients()); dispatch(fetchCars());
+    dispatch(fetchMatricules()); dispatch(checkLateReservations());
+    showSuccessMessage('Données actualisées.');
   };
 
-  const handlePaperworkChange = (field) => setContractPaperwork(prev => ({ ...prev, [field]: !prev[field] }));
+  const getStatusBadge = (status) => {
+    const c = STATUS_CONFIG[status] || STATUS_CONFIG.pending; const IconC = c.icon;
+    return <span className={`status-badge ${c.class}`}><IconC className="status-icon" />{c.text}</span>;
+  };
+
   const toggleDetailsRow = (id) => setExpandedRowId(prev => (prev === id ? null : id));
 
   return (
-    <div className="reservations-management">
+    <div className="reservation-status-management">
       {selectedContractReservation && (
         <div id="contract-pdf-root" aria-hidden="true" style={{ position: 'fixed', left: '-10000px', top: 0, width: '900px', background: '#ffffff', zIndex: -1, pointerEvents: 'none' }}>
           <ContractLocation reservation={{ ...selectedContractReservation, paperwork: contractPaperwork }} showSignatures={true} currentUser={currentUser} displayOptions={displayOptions} includeCache={includeCacheForPrint} containerId="contract-print-hidden" />
@@ -1149,20 +805,14 @@ const ReservationsManagement = ({ onBack, filter }) => {
       <div className="section-header">
         <div className="header-content">
           <h1 className="section-title">
-            <FaCalendarAlt className="title-icon" />
-            Gestion des Réservations
-            {statusFilter !== 'all' && (
-              <span className="filter-indicator">- Filtre: {statusFilter === 'overdue' ? 'En retard' : statusFilter === 'confirmed' ? 'Confirmé' : statusFilter === 'retard' ? 'En retard' : statusFilter === 'completed' ? 'Terminé' : statusFilter}</span>
-            )}
+            <FaClock className="title-icon" />
+            Statut des Réservations
+            {statusFilter !== 'all' && (<span className="filter-indicator">- Filtre: {STATUS_CONFIG[statusFilter]?.text || statusFilter}</span>)}
           </h1>
-          <p className="section-subtitle">Réservations actives — confirmer, prolonger ou terminer</p>
+          <p className="section-subtitle">Réservations en attente, contactées ou annulées — réserver, contacter ou annuler</p>
         </div>
         <div className="section-actions">
           <button className="btn btn-secondary" onClick={refreshData} disabled={submitting}><FaRedo className="btn-icon" /> Actualiser</button>
-          <button className="btn btn-primary" onClick={handleCreate} disabled={submitting}>
-            {submitting ? <FaSpinner className="btn-icon spinning" /> : <FaPlus className="btn-icon" />}
-            {submitting ? 'Traitement...' : 'Nouvelle Réservation'}
-          </button>
           <button className="btn btn-secondary" onClick={handleExport} disabled={submitting}><FaFileExport className="btn-icon" /> Exporter CSV</button>
         </div>
       </div>
@@ -1170,16 +820,16 @@ const ReservationsManagement = ({ onBack, filter }) => {
       <div className="search-filter-section">
         <div className="search-box">
           <FaSearch className="search-icon" />
-          <input type="text" placeholder="Rechercher par client, deuxième conducteur, véhicule, immatriculation ou ID..." value={searchTerm} onChange={handleSearch} className="search-input" />
+          <input type="text" placeholder="Rechercher par client, véhicule, immatriculation ou ID..." value={searchTerm} onChange={handleSearch} className="search-input" />
         </div>
         <div className="filter-group">
           <div className="filter-item">
             <label htmlFor="status-filter"><FaFilter className="filter-icon" />Statut</label>
             <select id="status-filter" value={statusFilter} onChange={handleStatusFilter} className="filter-select">
               <option value="all">Tous les statuts</option>
-              <option value="confirmed">Confirmé</option>
-              <option value="retard">En retard</option>
-              <option value="completed">Terminé</option>
+              <option value="pending">En attente</option>
+              <option value="contacted">Contacté</option>
+              <option value="cancelled">Annulé</option>
             </select>
           </div>
           <div className="filter-item">
@@ -1189,10 +839,6 @@ const ReservationsManagement = ({ onBack, filter }) => {
               <option value="today">Aujourd'hui</option>
               <option value="this_week">Cette semaine</option>
               <option value="this_month">Ce mois</option>
-              <option value="upcoming">À venir</option>
-              <option value="past">Passé</option>
-              <option value="active">En cours</option>
-              <option value="late">En retard</option>
             </select>
           </div>
           {(searchTerm !== '' || statusFilter !== 'all' || dateFilter !== 'all') && (
@@ -1203,19 +849,19 @@ const ReservationsManagement = ({ onBack, filter }) => {
 
       {filterParam === 'notifications' && (
         <div className="filter-indicator">
-          <span className="filter-indicator-text"><FaExclamationTriangle size={16} /> Affichage des réservations en retard ou se terminant dans ≤ 7 jours</span>
+          <span className="filter-indicator-text"><FaExclamationTriangle size={16} /> Affichage des réservations urgentes (≤ 7 jours)</span>
           <button onClick={() => setSearchParams({})} className="clear-filter-btn"><FaTimes size={16} /> Effacer le filtre</button>
         </div>
       )}
 
       <div className="results-summary">
-        <span className="results-count">Affichage de {currentReservations.length} sur {filteredReservations.length} réservations{filteredReservations.length !== reservations.length && ` (filtré sur ${reservations.length} au total)`}</span>
+        <span className="results-count">Affichage de {currentReservations.length} sur {filteredReservations.length} réservation(s)</span>
         <span className="page-info">Page {currentPage} sur {totalPages || 1}</span>
       </div>
 
       <div className="content-container">
         {loading ? (
-          <div className="loading-state"><FaSpinner className="spinning" size={48} /><p>Chargement des réservations...</p></div>
+          <div className="loading-state"><FaSpinner className="spinning" size={48} /><p>Chargement...</p></div>
         ) : currentReservations.length > 0 ? (
           <>
             <div style={{ overflowX: 'auto' }}>
@@ -1223,13 +869,12 @@ const ReservationsManagement = ({ onBack, filter }) => {
                 <thead>
                   <tr>
                     <th>Locataire</th><th>2ème Conducteur</th><th>Véhicule</th><th>Période</th>
-                    <th>Jours</th><th>Jours Restants</th><th>Prix</th><th>Statut</th><th>Actions</th>
+                    <th>Jours</th><th>Prix</th><th>Statut</th><th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {currentReservations.map(reservation => {
                     const totalDays = calculateRentalDays(reservation.start_date, reservation.end_date);
-                    const daysRemaining = calculateDaysRemaining(reservation);
                     const isExpanded = expandedRowId === reservation.id;
                     const rowPaymentHistory = Array.isArray(reservation.payment_history) ? reservation.payment_history : [];
                     return (
@@ -1241,52 +886,39 @@ const ReservationsManagement = ({ onBack, filter }) => {
                               <div className="client-phone"><FaPhone className="icon-small" /> {reservation.client?.telephone}</div>
                             </div>
                           </td>
-                          <td className="second-driver-cell">
+                          <td>
                             {reservation.has_second_driver ? (
                               <div className="client-info-cell">
                                 <div className="client-name-main"><FaUserFriends className="icon-small" />{reservation.second_driver_client?.prenom} {reservation.second_driver_client?.nom}</div>
-                                <div className="client-phone"><FaPhone className="icon-small" /> {reservation.second_driver_client?.telephone}</div>
                               </div>
                             ) : (<span className="no-second-driver"><FaUserPlus className="icon-small" /> Aucun</span>)}
                           </td>
-                          <td className="car-info">
+                          <td>
                             <div className="car-info-container">
                               <div className="car-brand-model">{reservation.car?.brand} {reservation.car?.model}</div>
-                              <div className="car-details">
-                                <span className="car-color-year"><FaPalette className="icon-small" />{reservation.car?.color || 'N/A'} | {reservation.car?.year || 'N/A'}</span>
-                                {reservation.matricule?.matricule_code && (<span className="car-matricule"><FaCar className="icon-small" /> {reservation.matricule.matricule_code}</span>)}
-                              </div>
+                              {reservation.matricule?.matricule_code && (<div className="car-matricule-text"><FaCar className="icon-small" /> {reservation.matricule.matricule_code}</div>)}
                             </div>
                           </td>
                           <td className="reservation-period">{new Date(reservation.start_date).toLocaleDateString('fr-FR')} - {new Date(reservation.end_date).toLocaleDateString('fr-FR')}</td>
-                          <td className="rental-days">{totalDays} jours</td>
-                          <td className={`days-remaining ${reservation.status === 'retard' ? 'late' : ''}`}>{daysRemaining}</td>
+                          <td className="rental-days">{totalDays} j</td>
                           <td className="price-cell">{reservation.total_price} DH</td>
                           <td>{getStatusBadge(reservation.status)}</td>
                           <td>
                             <div className="action-buttons-circular">
-                              {(reservation.status === 'confirmed' || reservation.status === 'retard') && (
-                                <button className="icon-action-btn" onClick={() => setStatus(reservation.id, 'completed')} title="Terminer" disabled={submitting} style={{ color: '#eab308' }}><FaCheck size={16} /></button>
+                              {['pending', 'contacted'].includes(reservation.status) && (
+                                <button className="icon-action-btn" onClick={() => openConfirmModal(reservation)} title="Réserver (confirmer avec matricule)" disabled={submitting} style={{ color: '#10b981' }}><FaCheckCircle size={16} /></button>
+                              )}
+                              {['pending', 'contacted'].includes(reservation.status) && (
+                                <button className="icon-action-btn" onClick={() => openCancelModal(reservation)} title="Annuler la réservation" disabled={submitting} style={{ color: '#dc3545' }}><FaBan size={16} /></button>
                               )}
                               <button className="icon-action-btn" onClick={() => toggleDetailsRow(reservation.id)} title={isExpanded ? "Masquer les détails" : "Voir les détails"} disabled={submitting} style={{ color: '#06b6d4' }}>
                                 {isExpanded ? <FaChevronUp size={16} /> : <FaEye size={16} />}
                               </button>
-                              <div style={{ position: 'relative', display: 'inline-block' }}>
-                                <button className="icon-action-btn" onClick={() => setSignatureMenuOpen(signatureMenuOpen === reservation.id ? null : reservation.id)} title="Copier un lien de signature" style={{ color: '#3b82f6' }}><FaKey size={16} /></button>
-                                {signatureMenuOpen === reservation.id && (
-                                  <div className="signature-dropdown">
-                                    <button className="signature-dropdown-item" onClick={() => { handleSignatureLink(reservation); setSignatureMenuOpen(null); }}><FaKey size={14} /> Lien signature (locataire)</button>
-                                    {reservation.has_second_driver && (
-                                      <button className="signature-dropdown-item" onClick={() => { handleSecondDriverSignatureLink(reservation); setSignatureMenuOpen(null); }}><FaUserFriends size={14} /> Lien signature (2ème conducteur)</button>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
                               <button className="icon-action-btn" onClick={() => handleViewContract(reservation)} title="Voir le contrat" disabled={submitting} style={{ color: '#06b6d4' }}><FaFileSignature size={16} /></button>
                               <button className="icon-action-btn" onClick={() => handlePrintContract(reservation)} title="Imprimer le contrat" disabled={submitting} style={{ color: '#8b5cf6' }}><FaPrint size={16} /></button>
                               <button className="icon-action-btn" onClick={() => handleWhatsApp(reservation)} title="Envoyer un message WhatsApp" disabled={submitting} style={{ color: '#25d366' }}><FaPhone size={16} /></button>
-                              <button className="icon-action-btn" onClick={() => handleEdit(reservation)} title="Modifier la réservation" disabled={submitting} style={{ color: '#10b981' }}><FaEdit size={16} /></button>
-                              <button className="icon-action-btn" onClick={() => showDeleteConfirmation(reservation)} title="Supprimer la réservation" disabled={submitting} style={{ color: '#ef4444' }}><FaTrash size={16} /></button>
+                              <button className="icon-action-btn" onClick={() => handleEdit(reservation)} title="Modifier" disabled={submitting} style={{ color: '#eab308' }}><FaEdit size={16} /></button>
+                              <button className="icon-action-btn" onClick={() => openDeleteModal(reservation)} title="Supprimer" disabled={submitting} style={{ color: '#ef4444' }}><FaTrash size={16} /></button>
                             </div>
                           </td>
                         </tr>
@@ -1343,8 +975,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
         ) : (
           <div className="no-data">
             <FaDatabase size={48} />
-            <p>{reservations.length === 0 ? 'Aucune réservation trouvée' : 'Aucune réservation ne correspond à vos critères de recherche'}</p>
-            <button className="btn btn-primary" onClick={handleCreate} disabled={submitting}><FaPlus className="btn-icon" /> Créer une nouvelle réservation</button>
+            <p>{reservations.length === 0 ? 'Aucune réservation' : 'Aucune réservation ne correspond à vos critères'}</p>
             {(searchTerm !== '' || statusFilter !== 'all' || dateFilter !== 'all') && (
               <button className="btn btn-secondary" onClick={clearFilters} style={{ marginTop: '1rem' }}>Effacer les filtres</button>
             )}
@@ -1358,99 +989,71 @@ const ReservationsManagement = ({ onBack, filter }) => {
           clients={clients} cars={cars} matricules={matricules} submitting={submitting} currentUser={currentUser} />
       )}
 
-      {showConfirmation && createPortal(
-        <div className="full-overlay full-overlay-center" role="dialog" aria-modal="true">
-          <div className="confirmation-modal">
-            <div className="confirmation-header">
-              <div className={`confirmation-icon ${confirmationConfig.type}`}><FaExclamationTriangle /></div>
-              <h3 className="confirmation-title">{confirmationConfig.title}</h3>
-            </div>
-            <div className="confirmation-body">
-              <p className="confirmation-message">{confirmationConfig.message}</p>
-              {confirmationConfig.reservation && (
-                <div className="reservation-preview">
-                  <div className="reservation-info-preview">
-                    <h4>Réservation #{confirmationConfig.reservation.id}</h4>
-                    <div className="reservation-meta-preview">
-                      <div className="reservation-client"><strong>Client:</strong> {confirmationConfig.reservation.client?.prenom} {confirmationConfig.reservation.client?.nom}</div>
-                      {confirmationConfig.reservation.has_second_driver && (
-                        <div className="reservation-second-driver"><strong>2ème Conducteur:</strong> {confirmationConfig.reservation.second_driver_client?.prenom} {confirmationConfig.reservation.second_driver_client?.nom}</div>
-                      )}
-                      <div className="reservation-car">
-                        <strong>Véhicule:</strong> {confirmationConfig.reservation.car?.brand} {confirmationConfig.reservation.car?.model}
-                        {confirmationConfig.reservation.matricule?.matricule_code && (<div style={{ marginTop: '5px', color: '#495057' }}><strong>Immatriculation:</strong> {confirmationConfig.reservation.matricule.matricule_code}</div>)}
-                      </div>
-                      <div className="reservation-period"><strong>Période:</strong> {new Date(confirmationConfig.reservation.start_date).toLocaleDateString('fr-FR')} - {new Date(confirmationConfig.reservation.end_date).toLocaleDateString('fr-FR')}</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="confirmation-actions">
-              <button className="btn-confirm-cancel" onClick={() => setShowConfirmation(false)} disabled={submitting}>Annuler</button>
-              <button className={`btn-confirm-${confirmationConfig.type}`} onClick={confirmationConfig.onConfirm} disabled={submitting}>
-                {submitting ? <FaSpinner className="spinning" /> : 'Supprimer la réservation'}
-              </button>
-            </div>
-          </div>
-        </div>, document.body
-      )}
-
       {showConfirmModal && createPortal(
         <div className="full-overlay full-overlay-center" role="dialog" aria-modal="true">
           <div className="confirmation-modal" style={{ maxWidth: '500px' }}>
-            <div className="confirmation-header" style={{ paddingBottom: '0.5rem' }}><h3 className="confirmation-title">Confirmer la réservation</h3></div>
+            <div className="confirmation-header" style={{ paddingBottom: '0.5rem' }}>
+              <div className="confirmation-icon" style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981', border: '2px solid rgba(16,185,129,0.2)' }}><FaCheckCircle /></div>
+              <h3 className="confirmation-title">Réserver la réservation</h3>
+            </div>
             <div className="confirmation-body">
-              <p style={{ marginBottom: '1rem' }}>Sélectionnez le matricule à attribuer :</p>
-              {availableMatricules.length === 0 ? (<p style={{ color: 'red' }}>Aucun matricule disponible pour ce véhicule.</p>) : (
+              <p style={{ marginBottom: '1rem', textAlign: 'center', color: '#6c757d' }}>Sélectionnez le matricule à attribuer :</p>
+              {availableMatricules.length === 0 ? (<p style={{ color: '#dc3545', textAlign: 'center' }}>Aucun matricule disponible pour ce véhicule.</p>) : (
                 <div className="form-group">
                   <label style={{ fontWeight: 600, display: 'block', marginBottom: '0.5rem' }}>Matricule</label>
                   <select value={selectedMatriculeId} onChange={(e) => setSelectedMatriculeId(e.target.value)} className="filter-select" style={{ width: '100%', padding: '0.75rem' }}>
                     <option value="">Sélectionner un matricule</option>
-                    {availableMatricules.map(m => (<option key={m.id} value={m.id}>{m.matricule_code} - {m.kilometrage} km</option>))}
+                    {availableMatricules.map(m => (<option key={m.id} value={m.id}>{m.matricule_code} — {m.kilometrage} km</option>))}
                   </select>
                 </div>
               )}
             </div>
             <div className="confirmation-actions">
               <button className="btn-confirm-cancel" onClick={() => setShowConfirmModal(false)}>Annuler</button>
-              <button className="btn-confirm-delete" style={{ background: '#10b981', boxShadow: '0 4px 15px rgba(16,185,129,0.3)' }} onClick={confirmConfirm} disabled={availableMatricules.length === 0 || !selectedMatriculeId}>Confirmer</button>
+              <button className="btn-confirm-delete" style={{ background: '#10b981', boxShadow: '0 4px 15px rgba(16,185,129,0.3)' }} onClick={confirmConfirm} disabled={availableMatricules.length === 0 || !selectedMatriculeId}>Réserver</button>
             </div>
           </div>
         </div>, document.body
       )}
 
-      {showCompleteModal && createPortal(
+      {showCancelModal && createPortal(
         <div className="full-overlay full-overlay-center" role="dialog" aria-modal="true">
-          <div className="confirmation-modal" style={{ maxWidth: '500px' }}>
-            <div className="confirmation-header" style={{ paddingBottom: '0.5rem' }}><h3 className="confirmation-title">Terminer la réservation</h3></div>
+          <div className="confirmation-modal">
+            <div className="confirmation-header">
+              <div className="confirmation-icon" style={{ background: 'rgba(220,53,69,0.1)', color: '#dc3545', border: '2px solid rgba(220,53,69,0.2)' }}><FaBan /></div>
+              <h3 className="confirmation-title">Annuler la réservation</h3>
+            </div>
             <div className="confirmation-body">
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                <div className="form-group">
-                  <label style={{ fontWeight: 600, display: 'block', marginBottom: '0.5rem' }}>Date de retour</label>
-                  <input type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className="search-input" style={{ width: '80%', padding: '0.75rem', borderRadius: '20px' }} />
-                </div>
-                <div className="form-group">
-                  <label style={{ fontWeight: 600, display: 'block', marginBottom: '0.5rem' }}>Heure de retour</label>
-                  <input type="time" value={returnTime} onChange={(e) => setReturnTime(e.target.value)} className="search-input" style={{ width: '80%', padding: '0.75rem', borderRadius: '20px' }} />
-                </div>
-              </div>
-              <div className="form-group" style={{ marginTop: '1rem' }}>
-                <label style={{ fontWeight: 600, display: 'block', marginBottom: '0.5rem' }}>Km retour</label>
-                <input type="number" value={kilometrageRetour} onChange={(e) => setKilometrageRetour(e.target.value)} className="search-input" placeholder="Ex: 12345" style={{ width: '91%', padding: '0.75rem', borderRadius: '20px' }} />
-              </div>
+              <p className="confirmation-message">Êtes-vous sûr de vouloir annuler la réservation ?</p>
             </div>
             <div className="confirmation-actions">
-              <button className="btn-confirm-cancel" onClick={() => setShowCompleteModal(false)}>Annuler</button>
-              <button className="btn-confirm-delete" style={{ background: '#eab308', color: '#0f172a', boxShadow: '0 4px 15px rgba(234,179,8,0.3)' }} onClick={confirmComplete} disabled={!kilometrageRetour || isNaN(kilometrageRetour)}>Terminer</button>
+              <button className="btn-confirm-cancel" onClick={() => setShowCancelModal(false)}>Retour</button>
+              <button className="btn-confirm-delete" onClick={confirmCancel}>Confirmer l'annulation</button>
             </div>
           </div>
         </div>, document.body
       )}
 
-      {/* ===== STYLES (identiques à ton fichier original) ===== */}
+      {showDeleteModal && reservationToDelete && createPortal(
+        <div className="full-overlay full-overlay-center" role="dialog" aria-modal="true">
+          <div className="confirmation-modal">
+            <div className="confirmation-header">
+              <div className="confirmation-icon delete"><FaExclamationTriangle /></div>
+              <h3 className="confirmation-title">Supprimer la réservation</h3>
+            </div>
+            <div className="confirmation-body">
+              <p className="confirmation-message">Êtes-vous sûr de vouloir supprimer la réservation <strong>#{reservationToDelete.id}</strong> ? Cette action est irréversible.</p>
+            </div>
+            <div className="confirmation-actions">
+              <button className="btn-confirm-cancel" onClick={() => setShowDeleteModal(false)}>Annuler</button>
+              <button className="btn-confirm-delete" onClick={confirmDelete}>Supprimer</button>
+            </div>
+          </div>
+        </div>, document.body
+      )}
+
       <style>{`
-        .reservations-management { padding: 2rem; min-height: 100vh; font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; background: #f8fafc; color: #334155; }
+        .reservation-status-management { padding: 2rem; min-height: 100vh; font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; background: #f8fafc; color: #334155; }
         .spinning { animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .full-overlay { position: fixed; top: 0; right: 0; bottom: 0; left: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); overflow-y: auto; overflow-x: hidden; z-index: 9999; padding: 1.5rem; }
@@ -1467,13 +1070,13 @@ const ReservationsManagement = ({ onBack, filter }) => {
         .section-subtitle { color: #64748b; font-size: 1rem; margin: 0; font-weight: 400; }
         .section-actions { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
         .btn { display: inline-flex; align-items: center; gap: 0.5rem; height: 2.5rem; padding: 0 1rem; border-radius: 9999px; border: none; cursor: pointer; font-size: 0.875rem; font-weight: 500; transition: all 0.2s; font-family: inherit; }
-        .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
         .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3); }
-        .btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4); }
+        .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 25px rgba(102,126,234,0.4); }
         .btn-secondary { background: #f1f5f9; color: #1e293b; }
         .btn-secondary:hover:not(:disabled) { background: #e2e8f0; transform: translateY(-1px); }
         .btn-clear { background: #ef4444; color: #fff; }
-        .btn-clear:hover:not(:disabled) { background: #dc2626; transform: translateY(-1px); }
+        .btn-clear:hover:not(:disabled) { background: #dc2626; }
         .btn-icon { font-size: 0.875rem; }
         .search-filter-section { background: #fff; border: 1px solid #e2e8f0; border-radius: 1rem; padding: 1rem; margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
         .search-box { position: relative; flex: 1; min-width: 240px; }
@@ -1490,13 +1093,37 @@ const ReservationsManagement = ({ onBack, filter }) => {
         .results-count { font-weight: 500; }
         .page-info { font-weight: 600; color: #334155; }
         .content-container { background: white; border: 1px solid #e2e8f0; border-radius: 1rem; overflow: hidden; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05); }
+        .data-table { width: 100%; font-size: 0.875rem; border-collapse: collapse; min-width: 1100px; }
+        .data-table th { text-align: left; padding: 0.75rem 1rem; background: #f8fafc; color: #64748b; font-weight: 500; white-space: nowrap; border-bottom: 1px solid #e2e8f0; }
+        .data-table td { padding: 0.75rem 1rem; border-top: 1px solid #e2e8f0; color: #334155; vertical-align: middle; }
+        .data-table tr:hover { background: #f8fafc; }
+        .client-name { font-weight: 500; color: #0f172a; }
+        .client-info-cell { display: flex; flex-direction: column; gap: 2px; }
+        .client-name-main { font-weight: 500; }
+        .client-phone { font-size: 0.75rem; color: #64748b; display: flex; align-items: center; gap: 4px; }
+        .no-second-driver { font-size: 0.75rem; color: #94a3b8; display: flex; align-items: center; gap: 4px; }
+        .car-info-container { display: flex; flex-direction: column; gap: 2px; }
+        .car-brand-model { font-weight: 500; color: #0f172a; }
+        .car-matricule-text { font-size: 0.75rem; color: #64748b; font-family: monospace; }
+        .reservation-period { color: #64748b; font-size: 0.8rem; }
+        .rental-days { text-align: center; font-weight: 500; color: #334155; }
+        .price-cell { font-weight: 500; color: #16a34a; }
+        .icon-small { font-size: 0.7rem; }
+        .status-badge { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.625rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 500; white-space: nowrap; }
+        .status-pending { background: #fef3c7; color: #92400e; }
+        .status-contacted { background: #e0e7ff; color: #3730a3; }
+        .status-cancelled { background: #fee2e2; color: #991b1b; }
+        .status-icon { font-size: 0.7rem; }
         .action-buttons-circular { display: grid; grid-template-columns: repeat(4, 32px); gap: 0.5rem; justify-content: flex-end; justify-items: center; align-items: center; }
-        .icon-action-btn { width: 32px; height: 32px; border-radius: 0.5rem; display: inline-flex; align-items: center; justify-content: center; border: none; background: none; cursor: pointer; transition: all 0.2s ease; padding: 0; }
+        .icon-action-btn { padding: 0.5rem; background: none; border: none; cursor: pointer; border-radius: 0.5rem; transition: all 0.2s; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; }
         .icon-action-btn:hover:not(:disabled) { background: rgba(15, 23, 42, 0.06); }
         .icon-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .signature-dropdown { position: absolute; top: 100%; right: 0; margin-top: 4px; background: white; border-radius: 0.5rem; box-shadow: 0 10px 25px rgba(0,0,0,0.15); border: 1px solid #e2e8f0; min-width: 220px; z-index: 9999; padding: 4px 0; overflow: hidden; }
-        .signature-dropdown-item { display: flex; align-items: center; gap: 8px; padding: 8px 16px; width: 100%; border: none; background: transparent; cursor: pointer; font-size: 0.85rem; color: #0f172a; transition: background 0.2s; font-family: inherit; text-align: left; }
-        .signature-dropdown-item:hover { background: #f1f5f9; }
+        .no-data { text-align: center; padding: 4rem 2rem; color: #64748b; }
+        .no-data svg { margin-bottom: 1.5rem; opacity: 0.3; color: #667eea; }
+        .no-data p { font-size: 1.05rem; color: #495057; margin: 0 0 2rem 0; }
+        .pagination-container { padding: 2rem; border-top: 1px solid #f1f3f4; display: flex; justify-content: center; }
+        .loading-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4rem 2rem; color: #64748b; }
+        .loading-state p { margin-top: 1rem; }
         .contract-modal-header { padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; flex-wrap: wrap; gap: 1rem; }
         .contract-modal-header h2 { margin: 0; color: #fff; font-size: 1.5rem; font-weight: 700; }
         .contract-modal-actions { display: flex; gap: 1rem; }
@@ -1517,54 +1144,13 @@ const ReservationsManagement = ({ onBack, filter }) => {
         .confirmation-icon.delete { background: rgba(220, 53, 69, 0.1); color: #dc3545; border: 2px solid rgba(220, 53, 69, 0.2); }
         .confirmation-title { font-size: 1.5rem; font-weight: 700; color: #0f172a; margin: 0; }
         .confirmation-body { padding: 1.5rem 2rem; }
-        .confirmation-message { color: #64748b; font-size: 1rem; line-height: 1.6; margin-bottom: 1.5rem; text-align: center; }
-        .reservation-preview { padding: 1.5rem; background: #f8f9fa; border-radius: 0.75rem; border: 1px solid #e9ecef; }
-        .reservation-info-preview { padding: 1.5rem; background: #f8f9fa; border-radius: 0.75rem; border: 1px solid #e9ecef; }
-        .reservation-info-preview h4 { margin: 0 0 1rem 0; color: #0f172a; font-size: 1.1rem; font-weight: 600; }
-        .reservation-meta-preview { display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.9rem; }
-        .reservation-client, .reservation-car, .reservation-period, .reservation-second-driver { color: #64748b; }
-        .reservation-client strong, .reservation-car strong, .reservation-period strong, .reservation-second-driver strong { color: #334155; }
+        .confirmation-message { color: #64748b; font-size: 1rem; line-height: 1.6; margin-bottom: 1rem; text-align: center; }
         .confirmation-actions { padding: 1.5rem 2rem 2rem; display: flex; gap: 1rem; justify-content: flex-end; flex-wrap: wrap; }
-        .btn-confirm-cancel { padding: 0.75rem 1.5rem; border: 1px solid #6c757d; background: transparent; color: #6c757d; border-radius: 0.75rem; font-size: 0.875rem; font-weight: 600; cursor: pointer; transition: all 0.3s ease; font-family: inherit; }
+        .btn-confirm-cancel { padding: 0.75rem 1.5rem; border: 1px solid #6c757d; background: transparent; color: #6c757d; border-radius: 0.75rem; font-size: 0.875rem; font-weight: 600; cursor: pointer; transition: all 0.3s ease; }
         .btn-confirm-cancel:hover:not(:disabled) { background: #6c757d; color: white; }
-        .btn-confirm-delete { padding: 0.75rem 1.5rem; border: none; background: #dc3545; color: white; border-radius: 0.75rem; font-size: 0.875rem; font-weight: 600; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3); display: flex; align-items: center; gap: 0.5rem; font-family: inherit; }
-        .btn-confirm-delete:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(220, 53, 69, 0.4); }
+        .btn-confirm-delete { padding: 0.75rem 1.5rem; border: none; background: #dc3545; color: white; border-radius: 0.75rem; font-size: 0.875rem; font-weight: 600; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3); display: flex; align-items: center; gap: 0.5rem; }
+        .btn-confirm-delete:hover:not(:disabled) { background: #c82333; transform: translateY(-2px); box-shadow: 0 6px 20px rgba(220, 53, 69, 0.4); }
         .btn-confirm-delete:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-        .data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; min-width: 1100px; }
-        .data-table tr { position: relative; }
-        .data-table tr:hover { z-index: 1; }
-        .data-table td:last-child { position: relative; z-index: 2; }
-        .data-table th { text-align: left; padding: 0.75rem 1rem; background: #f8fafc; color: #64748b; font-weight: 500; white-space: nowrap; border-bottom: 1px solid #e2e8f0; }
-        .data-table td { padding: 0.75rem 1rem; border-top: 1px solid #e2e8f0; color: #334155; vertical-align: middle; }
-        .data-table tr:hover { background: #f8fafc; }
-        .client-info-cell { display: flex; flex-direction: column; gap: 2px; }
-        .client-name-main { font-weight: 500; color: #0f172a; }
-        .client-phone { font-size: 0.75rem; color: #64748b; display: flex; align-items: center; gap: 4px; }
-        .no-second-driver { font-size: 0.75rem; color: #94a3b8; display: flex; align-items: center; gap: 4px; }
-        .car-info-container { display: flex; flex-direction: column; gap: 4px; }
-        .car-brand-model { font-weight: 600; color: #0f172a; }
-        .car-details { display: flex; gap: 10px; flex-wrap: wrap; font-size: 0.75rem; color: #64748b; }
-        .car-color-year { display: flex; align-items: center; gap: 4px; padding: 4px 12px; background: linear-gradient(135deg, #ffcc00 0%, #ff9900 100%); border-radius: 10px; border: 2px solid #ff6600; font-size: 0.8rem; font-weight: 700; color: #ffffff; white-space: nowrap; text-shadow: 1px 1px 2px rgba(0,0,0,0.3); box-shadow: 0 3px 6px rgba(255, 102, 0, 0.3); }
-        .car-matricule { display: flex; align-items: center; gap: 4px; padding: 4px 12px; background: linear-gradient(135deg, #00cc66 0%, #009933 100%); border-radius: 10px; border: 2px solid #006633; font-size: 0.8rem; font-weight: 700; color: #ffffff; white-space: nowrap; text-shadow: 1px 1px 2px rgba(0,0,0,0.3); box-shadow: 0 3px 6px rgba(0, 102, 51, 0.3); }
-        .icon-small { font-size: 0.7rem; }
-        .reservation-period { color: #64748b; font-size: 0.8rem; }
-        .rental-days { text-align: center; font-weight: 600; color: #334155; }
-        .days-remaining { text-align: center; font-weight: 500; color: #16a34a; font-size: 0.8rem; }
-        .days-remaining.late { color: #ea580c; font-weight: 600; }
-        .price-cell { font-weight: 600; color: #16a34a; }
-        .status-badge { padding: 0.25rem 0.625rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 500; display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; }
-        .status-pending { background: #fef3c7; color: #92400e; }
-        .status-confirmed { background: #dcfce7; color: #166534; }
-        .status-retard { background: #ffedd5; color: #9a3412; }
-        .status-contacted { background: #e0e7ff; color: #3730a3; }
-        .status-completed { background: #dcfce7; color: #166534; }
-        .status-cancelled { background: #fee2e2; color: #991b1b; }
-        .status-icon { font-size: 0.7rem; }
-        .no-data { text-align: center; padding: 4rem 2rem; color: #64748b; }
-        .no-data p { margin: 1rem 0 2rem; font-size: 1.1rem; }
-        .pagination-container { padding: 2rem; border-top: 1px solid #f1f3f4; display: flex; justify-content: center; }
-        .loading-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4rem 2rem; color: #64748b; }
-        .loading-state p { margin-top: 1rem; }
         .display-options-panel { background: white; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; border: 1px solid #e2e8f0; }
         .display-options-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem; }
         .display-options-header h3 { font-size: 0.95rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; margin: 0; color: #0f172a; }
@@ -1585,11 +1171,11 @@ const ReservationsManagement = ({ onBack, filter }) => {
         .checkbox-label input { width: 18px; height: 18px; cursor: pointer; }
         .success-notification, .error-notification { position: fixed; top: 2rem; right: 2rem; z-index: 10500; animation: slideInRight 0.3s ease-out; }
         @keyframes slideInRight { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
-        .success-notification .notification-content { background: #dcfce7; color: #166534; padding: 1rem 1.5rem; border-radius: 0.75rem; display: flex; align-items: center; gap: 0.75rem; box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3); }
-        .error-notification .notification-content { background: #fee2e2; color: #991b1b; padding: 1rem 1.5rem; border-radius: 0.75rem; display: flex; align-items: center; gap: 0.75rem; box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3); }
+        .success-notification .notification-content { background: #dcfce7; color: #166534; padding: 1rem 1.5rem; border-radius: 0.75rem; border: 1px solid #bbf7d0; display: flex; align-items: center; gap: 0.75rem; box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3); }
+        .error-notification .notification-content { background: #fee2e2; color: #991b1b; padding: 1rem 1.5rem; border-radius: 0.75rem; border: 1px solid #fecaca; display: flex; align-items: center; gap: 0.75rem; box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3); }
         .notification-icon { font-size: 1.1rem; }
 
-        /* CONTRACT (print) */
+        /* CONTRACT */
         .contract-container-print { max-width: 1100px; margin: 0 auto; background: white; font-family: 'Inter', 'Segoe UI', sans-serif; font-size: 11px; color: #0c4a6e; line-height: 1.5; padding: 0 6px; }
         .contract-header-table { width: 100%; border-bottom: 2px solid #d4af37; margin-bottom: 10px; padding-bottom: 6px; }
         .header-left { width: 30%; vertical-align: top; }
@@ -1654,22 +1240,20 @@ const ReservationsManagement = ({ onBack, filter }) => {
         .contract-number-box.stylish .contract-number-value { font-size: 20px; font-weight: 800; color: #1a1a2e; }
 
         @media (max-width: 768px) {
-          .reservations-management { padding: 1rem; }
-          .section-header { flex-direction: column; gap: 1rem; }
-          .section-actions { width: 100%; justify-content: space-between; }
+          .reservation-status-management { padding: 1rem; }
+          .section-header { flex-direction: column; align-items: flex-start; }
           .search-filter-section { flex-direction: column; align-items: stretch; }
           .search-box { min-width: auto; }
           .filter-group { justify-content: space-between; }
           .filter-item { flex: 1; }
           .filter-select { min-width: auto; }
           .results-summary { flex-direction: column; gap: 0.5rem; align-items: flex-start; }
+          .confirmation-actions { flex-direction: column; }
           .full-modal { margin: 0.5rem; border-radius: 20px; }
           .contract-modal-header { flex-direction: column; gap: 1rem; }
-          .contract-modal-actions { width: 100%; justify-content: center; }
           .observations-row-print { flex-direction: column; }
           .observation-box.half-width { flex: 1; }
           .signatures-row-print { flex-direction: column; gap: 10px; }
-          .confirmation-actions { flex-direction: column; }
           .print-options-preview { grid-template-columns: 1fr; }
           .display-options-grid { grid-template-columns: 1fr; }
         }
@@ -1682,4 +1266,4 @@ const ReservationsManagement = ({ onBack, filter }) => {
   );
 };
 
-export default ReservationsManagement;
+export default ReservationStatusManagement;

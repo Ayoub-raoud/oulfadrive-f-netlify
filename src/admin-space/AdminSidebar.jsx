@@ -1,353 +1,344 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  FaTachometerAlt, FaUsers, FaCar, FaUser, FaCalendarAlt,
-  FaEnvelope, FaExclamationTriangle, FaIdCard, FaCog, FaCreditCard, FaLock
-} from 'react-icons/fa';
+  LayoutDashboard, Users, Car, User, CalendarCheck, Mail,
+  AlertTriangle, IdCard, CreditCard, Lock, LogOut, Bell, Tag,
+  Building2, Wallet, ClipboardList,
+} from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useDispatch, useSelector } from 'react-redux';
+import { logoutUtilisateur, selectReservations } from '../Redux/store';
+import { calculateAllNotifications } from '../Redux/notificationSlice';
+import { MENU_ITEMS, hasAccess } from '../config/permissions';
+import SidebarNotificationsPanel from './SidebarNotificationsPanel';
+import '../Css/AdminSidebar.css';
 
-const AdminSidebar = ({ activeTab, setActiveTab, sidebarOpen, setSidebarOpen, user }) => {
-  // Define all possible menu items
-  const allMenuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: <FaTachometerAlt />, roles: ['admin', 'employee'] },
-    { id: 'users', label: 'Utilisateurs', icon: <FaUsers />, roles: ['admin'] },
-    { id: 'cars', label: 'Véhicules', icon: <FaCar />, roles: ['admin', 'employee'] },
-    { id: 'clients', label: 'Clients', icon: <FaUser />, roles: ['admin', 'employee'] },
-    { id: 'reservations', label: 'Réservations', icon: <FaCalendarAlt />, roles: ['admin', 'employee'] },
-    { id: 'contacts', label: 'Contacts', icon: <FaEnvelope />, roles: ['admin', 'employee'] },
-    { id: 'accidents', label: 'Accidents', icon: <FaExclamationTriangle />, roles: ['admin', 'employee'] },
-    { id: 'matricules', label: 'Immatriculations', icon: <FaIdCard />, roles: ['admin', 'employee'] },
-    { id: 'credit', label: 'Crédit', icon: <FaCreditCard />, roles: ['admin', 'employee'] }
-  ];
+const ICONS = {
+  dashboard: LayoutDashboard,
+  users: Users,
+  cars: Car,
+  clients: User,
+  reservations: CalendarCheck,
+  'reservation-status': ClipboardList,
+  contacts: Mail,
+  accidents: AlertTriangle,
+  matricules: IdCard,
+  credit: CreditCard,
+  'sous-locations': Tag,
+  garages: Building2,
+  payments: Wallet,
+};
 
-  const userRole = user?.role?.toLowerCase() || 'employee';
+const NOTIFICATION_MENU_MAP = {
+  matricules: 'matricules',
+  reservations: 'reservations',
+  accidents: 'accidents',
+  payments: 'payments',
+};
 
-  // Check if item is accessible for current user
-  const isItemAccessible = (item) => {
-    return item.roles.includes(userRole);
+// ============================================================
+// Badge color priority: critical > warning > info > success
+// ============================================================
+const VARIANT_PRIORITY = { critical: 4, warning: 3, info: 2, success: 1 };
+
+const pickWorstVariant = (variants) => {
+  let worst = null;
+  let worstP = 0;
+  variants.forEach((v) => {
+    const p = VARIANT_PRIORITY[v] || 0;
+    if (p > worstP) { worst = v; worstP = p; }
+  });
+  return worst;
+};
+
+// Given a list of notification items, return the color variant
+// Rules:  expired OR <= 3 days  → critical (red)
+//         <= 7 days              → warning  (yellow)
+const variantFromItems = (items) => {
+  if (!items || items.length === 0) return null;
+  const variants = items.map((it) => {
+    if (it.isExpired || it.isLate || it.isOverdue) return 'critical';
+    const days =
+      it.daysRemaining !== undefined ? it.daysRemaining :
+      it.daysSince !== undefined ? -it.daysSince :
+      null;
+    if (days !== null) {
+      if (days <= 3) return 'critical';
+      if (days <= 7) return 'warning';
+    }
+    return null;
+  });
+  return pickWorstVariant(variants);
+};
+
+const AdminSidebar = ({
+  activeTab, setActiveTab, sidebarOpen, setSidebarOpen, user,
+}) => {
+  const navigate = useNavigate();
+  const dispatch = useDispatch();
+  const reservations = useSelector(selectReservations);
+  const myPermissions = useSelector((s) => s.permissions?.myPermissions || []);
+  const notificationsState = useSelector((s) => s.notifications?.notifications);
+
+  const [showNotifPanel, setShowNotifPanel] = useState(false);
+
+  // ============ Fetch notifications on mount + auto-refresh ============
+  useEffect(() => {
+    dispatch(calculateAllNotifications());
+    const interval = setInterval(
+      () => dispatch(calculateAllNotifications()),
+      2 * 60 * 1000
+    );
+    return () => clearInterval(interval);
+  }, [dispatch]);
+
+  // ============ Date helpers ============
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const daysUntil = (dateStr) => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    d.setHours(0, 0, 0, 0);
+    return Math.ceil((d - today) / (1000 * 60 * 60 * 24));
   };
 
+  // ============ Reservation-status (pending / contacted) ============
+  const reservationStatusItems = reservations.filter(
+    (r) => r.status === 'pending' || r.status === 'contacted'
+  );
+  const reservationStatusCount = reservationStatusItems.length;
+
+  // ============ Reservations (confirmed + retard only) ============
+  const reservationItems = reservations.filter(
+    (r) => r.status === 'confirmed' || r.status === 'retard'
+  );
+
+  // ============ Per-menu badge (with variant) ============
+  const getBadge = (pageSlug) => {
+    // ---------- reservation-status (pending + contacted) ----------
+    // pending/contacted → yellow
+    // starting within ≤ 3 days → red
+    if (pageSlug === 'reservation-status') {
+      if (reservationStatusCount === 0) return null;
+      const variants = reservationStatusItems.map((r) => {
+        const d = daysUntil(r.start_date);
+        if (d !== null && d >= 0 && d <= 3) return 'critical';
+        return 'warning';
+      });
+      return {
+        count: reservationStatusCount,
+        variant: pickWorstVariant(variants) || 'warning',
+      };
+    }
+
+    // ---------- matricules ----------
+    // expired or ≤ 3 days → red ; ≤ 7 days → yellow
+    if (pageSlug === 'matricules') {
+      const items = notificationsState?.matricules?.items || [];
+      if (items.length === 0) return null;
+      return {
+        count: items.length,
+        variant: variantFromItems(items) || 'warning',
+      };
+    }
+
+    // ---------- reservations ----------
+    // retard → red
+    // confirmed ending within ≤ 3 days → blue (NO 7-day window)
+    // otherwise → no badge
+    if (pageSlug === 'reservations') {
+      const retardItems = reservationItems.filter((r) => r.status === 'retard');
+      const confirmedEndingSoon = reservationItems.filter((r) => {
+        if (r.status !== 'confirmed') return false;
+        const d = daysUntil(r.end_date);
+        return d !== null && d >= 0 && d <= 3;
+      });
+      const relevant = [...retardItems, ...confirmedEndingSoon];
+      if (relevant.length === 0) return null;
+      return {
+        count: relevant.length,
+        variant: retardItems.length > 0 ? 'critical' : 'info',
+      };
+    }
+
+    // ---------- accidents ----------
+    // ≤ 3 days → red ; ≤ 7 days → yellow
+    if (pageSlug === 'accidents') {
+      const items = notificationsState?.accidents?.items || [];
+      if (items.length === 0) return null;
+      return {
+        count: items.length,
+        variant: variantFromItems(items) || 'warning',
+      };
+    }
+
+    // ---------- payments ----------
+    // overdue or ≤ 3 days → red ; ≤ 7 days → yellow
+    if (pageSlug === 'payments') {
+      const items = notificationsState?.payments?.items || [];
+      if (items.length === 0) return null;
+      return {
+        count: items.length,
+        variant: variantFromItems(items) || 'warning',
+      };
+    }
+
+    return null;
+  };
+
+  const allMenuItems = MENU_ITEMS.map((item) => ({ ...item, icon: ICONS[item.id] }));
+  const userRole = user?.role?.toLowerCase() || 'employee';
+  const isItemAccessible = (item) =>
+    hasAccess(userRole, item.roles, myPermissions, item.id);
+
   const handleItemClick = (itemId) => {
-    const item = allMenuItems.find(item => item.id === itemId);
+    const item = allMenuItems.find((i) => i.id === itemId);
     if (item && isItemAccessible(item)) {
       setActiveTab(itemId);
       setSidebarOpen(false);
+      navigate(`/admin/${itemId}`);
     }
-    // If not accessible, do nothing (block the click)
+  };
+
+  // Badge click → navigate WITH notification filter
+  const handleBadgeClick = (e, item) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!isItemAccessible(item)) return;
+    setActiveTab(item.id);
+    setSidebarOpen(false);
+    navigate(`/admin/${item.id}?filter=notifications`);
+  };
+
+  const handleLogout = async () => {
+    await dispatch(logoutUtilisateur());
+    setSidebarOpen(false);
+    navigate('/admin');
+  };
+
+  const getUserName = () =>
+    user?.Fullname || user?.full_name || user?.name || 'Administrateur';
+
+  const totalNotifications = notificationsState?.totalCount || 0;
+  const totalCritical = notificationsState?.totalCriticalCount || 0;
+
+  const renderNavItem = (item) => {
+    const accessible = isItemAccessible(item);
+    const isActive = activeTab === item.id;
+    const badge = getBadge(item.id);
+    const Icon = item.icon;
+
+    return (
+      <div
+        key={item.id}
+        onClick={() => accessible && handleItemClick(item.id)}
+        className={`
+          nav-item
+          ${isActive && accessible ? 'active' : ''}
+          ${!accessible ? 'disabled' : ''}
+        `}
+        style={!accessible ? { cursor: 'not-allowed' } : undefined}
+      >
+        <Icon size={18} />
+        <span className="nav-label">{item.label}</span>
+
+        {badge && (
+          <span
+            className={`badge ${badge.variant || 'warning'} clickable`}
+            title={`Filtrer la page par notifications (${badge.count})`}
+            onClick={(e) => accessible && handleBadgeClick(e, item)}
+            role="button"
+            tabIndex={0}
+          >
+            {badge.count > 99 ? '99+' : badge.count}
+          </span>
+        )}
+
+        {!accessible && <Lock size={14} className="lock-icon" />}
+      </div>
+    );
   };
 
   return (
     <>
-      <style jsx>{`
-        * {
-          margin: 0;
-          padding: 0;
-          box-sizing: border-box;
-        }
-
-        .sidebar {
-          width: 280px;
-          background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
-          color: white;
-          padding: 0;
-          height: 100vh;
-          position: fixed;
-          left: 0;
-          top: 0;
-          overflow-y: auto;
-          overflow-x: hidden; /* Prevent horizontal scroll */
-          box-shadow: 4px 0 20px rgba(0, 0, 0, 0.1);
-          z-index: 1000;
-          transition: transform 0.3s ease;
-          transform-origin: left top;
-        }
-
-        .scaled-80 .sidebar {
-          transform: scale(0.8);
-          width: 350px; /* Compensate for scaling */
-          height: 125vh; /* Compensate for scaling */
-          overflow-x: hidden; /* Prevent horizontal scroll in scaled mode */
-        }
-
-        .sidebar.open {
-          transform: translateX(0);
-        }
-
-        .scaled-80 .sidebar.open {
-          transform: scale(0.8) translateX(0);
-        }
-
-        .sidebar-header {
-          padding: 30px 25px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-          background: rgba(0, 0, 0, 0.2);
-        }
-
-        .sidebar-header h1 {
-          font-size: 1.8rem;
-          font-weight: 700;
-          color: #f8fafc;
-          margin-bottom: 5px;
-          background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-        }
-
-        .sidebar-header p {
-          color: #cbd5e1;
-          font-size: 0.9rem;
-          font-weight: 400;
-        }
-
-        .user-info {
-          padding: 20px 25px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-          background: rgba(0, 0, 0, 0.1);
-        }
-
-        .user-name {
-          font-size: 1.1rem;
-          font-weight: 600;
-          color: #f8fafc;
-          margin-bottom: 8px;
-        }
-
-        .user-role {
-          color: #94a3b8;
-          font-size: 0.85rem;
-          font-weight: 500;
-          background: rgba(255, 255, 255, 0.1);
-          padding: 6px 12px;
-          border-radius: 20px;
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-        }
-
-        .role-badge {
-          text-transform: capitalize;
-        }
-
-        .nav-menu {
-          padding: 25px 0;
-          width: 100%;
-        }
-
-        .nav-item {
-          display: flex;
-          align-items: center;
-          padding: 15px 25px;
-          color: #cbd5e1;
-          text-decoration: none;
-          transition: all 0.3s ease;
-          border-left: 4px solid transparent;
-          cursor: pointer;
-          font-weight: 500;
-          position: relative;
-          width: 100%;
-        }
-
-        .nav-item.accessible:hover {
-          background: rgba(255, 255, 255, 0.05);
-          color: #f8fafc;
-          border-left-color: #3b82f6;
-        }
-
-        .nav-item.restricted {
-          cursor: not-allowed;
-          opacity: 0.6;
-          pointer-events: none;
-          user-select: none;
-        }
-
-        .nav-item.active.accessible {
-          background: rgba(59, 130, 246, 0.1);
-          color: #3b82f6;
-          border-left-color: #3b82f6;
-        }
-
-        .nav-item.active.restricted {
-          background: rgba(107, 114, 128, 0.1);
-          color: #6b7280;
-          border-left-color: #6b7280;
-        }
-
-        .nav-icon {
-          width: 20px;
-          height: 20px;
-          margin-right: 15px;
-          opacity: 0.8;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-        }
-
-        .nav-item.accessible .nav-icon {
-          opacity: 0.8;
-        }
-
-        .nav-item.active.accessible .nav-icon {
-          opacity: 1;
-        }
-
-        .nav-item.restricted .nav-icon {
-          opacity: 0.5;
-        }
-
-        .lock-icon {
-          margin-left: auto;
-          opacity: 0.7;
-          font-size: 0.8rem;
-          flex-shrink: 0;
-        }
-
-        .restricted-tooltip {
-          position: absolute;
-          left: 100%;
-          top: 50%;
-          margin-left: 10px;
-          transform: translateY(-50%);
-          background: rgba(0, 0, 0, 0.9);
-          color: white;
-          padding: 8px 12px;
-          border-radius: 6px;
-          font-size: 0.75rem;
-          white-space: nowrap;
-          opacity: 0;
-          visibility: hidden;
-          transition: all 0.3s ease;
-          pointer-events: none;
-          z-index: 1001;
-          min-width: max-content;
-        }
-
-        .restricted-tooltip::before {
-          content: '';
-          position: absolute;
-          right: 100%;
-          top: 50%;
-          transform: translateY(-50%);
-          border: 6px solid transparent;
-          border-right-color: rgba(0, 0, 0, 0.9);
-        }
-
-        .nav-item.restricted:hover .restricted-tooltip {
-          opacity: 1;
-          visibility: visible;
-          transform: translateY(-50%);
-        }
-
-        /* Mobile Responsive */
-        @media (max-width: 768px) {
-          .sidebar {
-            transform: translateX(-100%);
-            overflow-x: hidden;
-          }
-          
-          .sidebar.open {
-            transform: translateX(0);
-          }
-
-          .scaled-80 .sidebar {
-            transform: scale(0.8) translateX(-100%);
-          }
-          
-          .scaled-80 .sidebar.open {
-            transform: scale(0.8) translateX(0);
-          }
-
-          .restricted-tooltip {
-            display: none; /* Hide tooltip on mobile */
-          }
-
-          .nav-item {
-            padding: 12px 20px;
-          }
-        }
-
-        @media (max-width: 480px) {
-          .sidebar {
-            width: 260px;
-          }
-          
-          .scaled-80 .sidebar {
-            width: 325px;
-          }
-          
-          .sidebar-header {
-            padding: 20px;
-          }
-          
-          .sidebar-header h1 {
-            font-size: 1.5rem;
-          }
-          
-          .user-info {
-            padding: 15px 20px;
-          }
-          
-          .nav-item {
-            padding: 12px 20px;
-            font-size: 0.9rem;
-          }
-        }
-
-        /* Prevent horizontal scroll globally */
-        body {
-          overflow-x: hidden;
-        }
-
-        .admin-dashboard {
-          overflow-x: hidden;
-        }
-
-        .main-content {
-          overflow-x: hidden;
-        }
-      `}</style>
-
-      <div className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
+      <aside className={`sidebar-desktop ${sidebarOpen ? 'translate-x-0' : ''}`}>
         <div className="sidebar-header">
-          <h1>OULFA DRIVE</h1>
-          <p>Admin Dashboard</p>
-        </div>
-        
-        <div className="user-info">
-          <div className="user-name">{user?.Fullname || 'Admin User'}</div>
-          <div className="user-role">
-            <FaCog />
-            <span className="role-badge">{user?.role || 'employee'}</span>
+          <div>
+            <h2 className="sidebar-title">
+              OulfaDrive<span>Panel</span>
+            </h2>
+            <p className="sidebar-user-name">{getUserName()}</p>
           </div>
+
+          <button
+            type="button"
+            className="sidebar-bell-btn"
+            onClick={() => setShowNotifPanel(true)}
+            title="Voir toutes les notifications"
+          >
+            <Bell className="sidebar-bell" size={20} />
+            {totalNotifications > 0 && (
+              <span
+                className={`sidebar-bell-badge ${
+                  totalCritical > 0 ? 'critical' : 'warning'
+                }`}
+              >
+                {totalNotifications > 99 ? '99+' : totalNotifications}
+              </span>
+            )}
+          </button>
         </div>
 
-        <nav className="nav-menu">
-          {allMenuItems.map(item => {
-            const isAccessible = isItemAccessible(item);
-            const isActive = activeTab === item.id;
-            
-            return (
-              <div 
-                key={item.id}
-                className={`nav-item ${isAccessible ? 'accessible' : 'restricted'} ${isActive ? 'active' : ''}`}
-                onClick={() => handleItemClick(item.id)}
-              >
-                <span className="nav-icon">{item.icon}</span>
-                <span className="nav-label" style={{flex: 1}}>{item.label}</span>
-                {!isAccessible && (
-                  <>
-                    <span className="lock-icon">
-                      <FaLock />
-                    </span>
-                    <div className="restricted-tooltip">
-                      Requires {item.roles.join(' or ')} role
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })}
-        </nav>
+        <nav className="sidebar-nav">{allMenuItems.map(renderNavItem)}</nav>
+
+        <div className="sidebar-footer">
+          <button className="logout-btn" onClick={handleLogout}>
+            <LogOut size={18} />
+            Déconnexion
+          </button>
+        </div>
+      </aside>
+
+      {sidebarOpen && (
+        <div
+          className="sidebar-overlay visible"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <div className={`sidebar-mobile ${sidebarOpen ? 'open' : ''}`}>
+        <div className="sidebar-mobile-header">
+          <div className="logo">
+            <div className="icon">A</div>
+            <div>
+              <p className="text">AdminPanel</p>
+              <p className="sub">Console</p>
+            </div>
+          </div>
+          <button className="close-btn" onClick={() => setSidebarOpen(false)}>
+            ✕
+          </button>
+        </div>
+
+        <nav className="sidebar-nav">{allMenuItems.map(renderNavItem)}</nav>
+
+        <div className="sidebar-footer">
+          <button className="logout-btn" onClick={handleLogout}>
+            <LogOut size={18} />
+            Déconnexion
+          </button>
+        </div>
       </div>
+
+      <SidebarNotificationsPanel
+        isOpen={showNotifPanel}
+        onClose={() => setShowNotifPanel(false)}
+        onItemNavigate={(menu) => {
+          setActiveTab(menu);
+          setSidebarOpen(false);
+          navigate(`/admin/${menu}?filter=notifications`);
+        }}
+      />
     </>
   );
 };

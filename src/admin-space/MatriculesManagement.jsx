@@ -1,5 +1,8 @@
+// src/components/admin/MatriculesManagement.jsx
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
+import { useSearchParams } from 'react-router-dom';
 import {
   FaPlus, FaEdit, FaTrash, FaFileExport, FaDatabase, FaCar,
   FaCalendarAlt, FaExclamationTriangle, FaArrowLeft, FaDollarSign,
@@ -11,6 +14,7 @@ import {
   FaTools, FaWrench, FaGasPump, FaWind, FaVial, FaShieldAlt,
   FaExclamationCircle, FaBell
 } from 'react-icons/fa';
+import PaginationControls from '../components/PaginationControls';
 import {
   fetchMatricules,
   createMatricule,
@@ -32,6 +36,8 @@ import AdminModal from './AdminModal';
 
 const MatriculesManagement = ({ onBack, filter }) => {
   const dispatch = useDispatch();
+  const [searchParams, setSearchParams] = useSearchParams();
+const filterParam = searchParams.get('filter');
   const matricules = useSelector(selectMatricules);
   const reservations = useSelector(selectReservations);
   const accidents = useSelector(selectAccidents);
@@ -55,7 +61,6 @@ const MatriculesManagement = ({ onBack, filter }) => {
     onConfirm: null
   });
 
-  // États de recherche et filtre
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState(filter || 'all');
   const [vidangeFilter, setVidangeFilter] = useState('all');
@@ -63,22 +68,15 @@ const MatriculesManagement = ({ onBack, filter }) => {
   const [fuelTypeFilter, setFuelTypeFilter] = useState('all');
   const [transmissionFilter, setTransmissionFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 12;
+const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [sortConfig, setSortConfig] = useState({ key: 'id', direction: 'asc' });
 
-  // État pour le tri
-  const [sortConfig, setSortConfig] = useState({
-    key: null,
-    direction: 'asc'
-  });
-
-  // États de vue détaillée
   const [selectedMatricule, setSelectedMatricule] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
   const [reservationsPage, setReservationsPage] = useState(1);
   const [accidentsPage, setAccidentsPage] = useState(1);
   const detailsItemsPerPage = 6;
 
-  // État de création d'accident
   const [showAccidentModal, setShowAccidentModal] = useState(false);
   const [selectedMatriculeForAccident, setSelectedMatriculeForAccident] = useState(null);
   const [accidentFormData, setAccidentFormData] = useState({
@@ -99,13 +97,9 @@ const MatriculesManagement = ({ onBack, filter }) => {
   });
   const [availableClients, setAvailableClients] = useState([]);
 
-  // État des raisons d'inactivité
   const [inactiveReasons, setInactiveReasons] = useState({});
-
-  // État des alertes de maintenance
   const [maintenanceAlerts, setMaintenanceAlerts] = useState({});
 
-  // Gérer les changements de filtre
   useEffect(() => {
     if (filter) {
       setStatusFilter(filter);
@@ -120,133 +114,104 @@ const MatriculesManagement = ({ onBack, filter }) => {
     dispatch(fetchCars());
   }, [dispatch]);
 
-  // Calculer les raisons d'inactivité et les alertes de maintenance
   useEffect(() => {
     if (matricules.length > 0 && reservations.length > 0 && accidents.length > 0) {
       const reasons = {};
       const alerts = {};
-      
+
       matricules.forEach(matricule => {
         if (matricule.status === 'inactive') {
           reasons[matricule.id] = getInactiveReason(matricule);
         }
-        
-        // Vérifier les alertes de maintenance
         const maintenanceAlertsForMatricule = checkMaintenanceAlerts(matricule);
         if (maintenanceAlertsForMatricule.length > 0) {
           alerts[matricule.id] = maintenanceAlertsForMatricule;
         }
       });
-      
+
       setInactiveReasons(reasons);
       setMaintenanceAlerts(alerts);
     }
   }, [matricules, reservations, accidents]);
 
-  // ✅ Calculate rental days correctly (same as reservations component)
   const calculateRentalDays = (startDate, endDate) => {
     if (!startDate || !endDate) return 0;
-    
     const start = new Date(startDate);
     const end = new Date(endDate);
-    
-    // Reset times to compare only dates
     start.setHours(0, 0, 0, 0);
     end.setHours(0, 0, 0, 0);
-    
     const diffTime = Math.abs(end - start);
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
     return diffDays === 0 ? 1 : diffDays;
   };
 
-  // Fonction pour vérifier les alertes de maintenance
   const checkMaintenanceAlerts = (matricule) => {
     const alerts = [];
     const currentKm = matricule.kilometrage || 0;
 
-    // Vérifier la maintenance additionnelle
     if (matricule.additional_maintenance && Array.isArray(matricule.additional_maintenance)) {
       matricule.additional_maintenance.forEach(item => {
         if (item.needs_attention || item.requires_attention) {
           if (item.actual_km > item.recommended_km) {
             const kmOverdue = item.actual_km - item.recommended_km;
             alerts.push({
-              type: 'additional_maintenance',
-              severity: 'high',
+              type: 'additional_maintenance', severity: 'high',
               message: `${item.name}: DÉPASSÉ de ${kmOverdue} km`,
-              itemName: item.name,
-              overdue: kmOverdue,
-              actualKm: item.actual_km,
-              recommendedKm: item.recommended_km
+              itemName: item.name, overdue: kmOverdue,
+              actualKm: item.actual_km, recommendedKm: item.recommended_km
             });
           } else if (item.actual_km >= item.recommended_km - 500) {
             const kmRemaining = item.recommended_km - item.actual_km;
             alerts.push({
-              type: 'additional_maintenance',
-              severity: 'medium',
+              type: 'additional_maintenance', severity: 'medium',
               message: `${item.name}: Dans ${kmRemaining} km`,
-              itemName: item.name,
-              remaining: kmRemaining,
-              actualKm: item.actual_km,
-              recommendedKm: item.recommended_km
+              itemName: item.name, remaining: kmRemaining,
+              actualKm: item.actual_km, recommendedKm: item.recommended_km
             });
           }
         }
       });
     }
 
-    // Vérifier les kilométrages périodiques
     if (matricule.periodic_km_maintenance && Array.isArray(matricule.periodic_km_maintenance)) {
       matricule.periodic_km_maintenance.forEach(item => {
         if (currentKm >= item.next_change_km) {
           const kmOverdue = currentKm - item.next_change_km;
           alerts.push({
-            type: 'periodic_km',
-            severity: 'high',
+            type: 'periodic_km', severity: 'high',
             message: `${item.name}: DÉPASSÉ de ${kmOverdue} km`,
-            itemName: item.name,
-            overdue: kmOverdue,
-            currentKm: currentKm,
-            nextChangeKm: item.next_change_km
+            itemName: item.name, overdue: kmOverdue,
+            currentKm: currentKm, nextChangeKm: item.next_change_km
           });
         } else if (currentKm >= item.next_change_km - 1000) {
           const kmRemaining = item.next_change_km - currentKm;
           alerts.push({
-            type: 'periodic_km',
-            severity: 'medium',
+            type: 'periodic_km', severity: 'medium',
             message: `${item.name}: Dans ${kmRemaining} km`,
-            itemName: item.name,
-            remaining: kmRemaining,
-            currentKm: currentKm,
-            nextChangeKm: item.next_change_km
+            itemName: item.name, remaining: kmRemaining,
+            currentKm: currentKm, nextChangeKm: item.next_change_km
           });
         }
       });
     }
 
-    // Vérifier la vidange
     if (matricule.vidange_status === 'not done') {
       const maintenanceInterval = 10000;
       const kmSinceLastReset = currentKm % maintenanceInterval;
       const kmRemaining = maintenanceInterval - kmSinceLastReset;
-      
+
       if (kmRemaining <= 0) {
         const kmOverdue = Math.abs(kmRemaining);
         alerts.push({
-          type: 'vidange',
-          severity: 'high',
+          type: 'vidange', severity: 'high',
           message: `Vidange: DÉPASSÉ de ${kmOverdue} km`,
-          overdue: kmOverdue,
-          currentKm: currentKm
+          overdue: kmOverdue, currentKm: currentKm
         });
       } else if (kmRemaining <= 1000) {
         alerts.push({
-          type: 'vidange',
-          severity: 'medium',
+          type: 'vidange', severity: 'medium',
           message: `Vidange: Dans ${kmRemaining} km`,
-          remaining: kmRemaining,
-          currentKm: currentKm
+          remaining: kmRemaining, currentKm: currentKm
         });
       }
     }
@@ -254,12 +219,10 @@ const MatriculesManagement = ({ onBack, filter }) => {
     return alerts;
   };
 
-  // Fonction pour obtenir la raison d'inactivité d'un matricule
   const getInactiveReason = (matricule) => {
-    // Vérifier s'il y a des accidents actifs pour ce matricule
-    const matriculeAccidents = accidents.filter(accident => 
-      accident.matricule_id === matricule.id && 
-      accident.status !== 'completed' && 
+    const matriculeAccidents = accidents.filter(accident =>
+      accident.matricule_id === matricule.id &&
+      accident.status !== 'completed' &&
       accident.status !== 'fixed'
     );
 
@@ -272,9 +235,8 @@ const MatriculesManagement = ({ onBack, filter }) => {
       };
     }
 
-    // Vérifier s'il y a des réservations actives pour ce matricule
-    const activeReservations = reservations.filter(reservation => 
-      reservation.matricule_id === matricule.id && 
+    const activeReservations = reservations.filter(reservation =>
+      reservation.matricule_id === matricule.id &&
       ['pending', 'confirmed', 'contacted'].includes(reservation.status)
     );
 
@@ -287,97 +249,83 @@ const MatriculesManagement = ({ onBack, filter }) => {
       };
     }
 
-    // Vérifier les raisons de maintenance
     if (matricule.vidange_status === 'not done') {
-      return {
-        type: 'maintenance',
-        message: 'Maintenance requise (Vidange non effectuée)'
-      };
+      return { type: 'maintenance', message: 'Maintenance requise (Vidange non effectuée)' };
     }
 
-    // Raison par défaut
-    return {
-      type: 'manual',
-      message: 'Défini manuellement comme inactif'
-    };
+    return { type: 'manual', message: 'Défini manuellement comme inactif' };
   };
 
-  // Filtrer les matricules basés sur la recherche et les filtres
   const filteredMatricules = matricules.filter(matricule => {
-    // Filtre de recherche
-    const matchesSearch = searchTerm === '' || 
-      matricule.matricule_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      matricule.car?.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      matricule.car?.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      matricule.id.toString().includes(searchTerm);
+  const matchesSearch = searchTerm === '' ||
+    matricule.matricule_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    matricule.car?.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    matricule.car?.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    matricule.id.toString().includes(searchTerm);
 
-    // Filtre de statut
-    let matchesStatus = true;
-    if (statusFilter !== 'all') {
-      if (statusFilter === 'reserved') {
-        // Vérifier si le matricule est dans une réservation active
-        const isReserved = reservations.some(reservation => 
-          (reservation.status === 'confirmed' || 
-           reservation.status === 'retard' || 
-           reservation.status === 'pending') &&
-          reservation.matricule_id === matricule.id
-        );
-        matchesStatus = isReserved;
-      } else if (statusFilter === 'late') {
-        // Vérifier si le matricule est dans une réservation en retard
-        const isLate = reservations.some(reservation => 
-          reservation.status === 'retard' &&
-          reservation.matricule_id === matricule.id
-        );
-        matchesStatus = isLate;
-      } else {
-        matchesStatus = matricule.status === statusFilter;
-      }
+  let matchesStatus = true;
+  if (statusFilter !== 'all') {
+    if (statusFilter === 'reserved') {
+      const isReserved = reservations.some(reservation =>
+        (reservation.status === 'confirmed' ||
+          reservation.status === 'retard' ||
+          reservation.status === 'pending') &&
+        reservation.matricule_id === matricule.id
+      );
+      matchesStatus = isReserved;
+    } else if (statusFilter === 'late') {
+      const isLate = reservations.some(reservation =>
+        reservation.status === 'retard' &&
+        reservation.matricule_id === matricule.id
+      );
+      matchesStatus = isLate;
+    } else {
+      matchesStatus = matricule.status === statusFilter;
     }
+  }
 
-    // Filtre vidange
-    const matchesVidange = vidangeFilter === 'all' || matricule.vidange_status === vidangeFilter;
+  const matchesVidange = vidangeFilter === 'all' || matricule.vidange_status === vidangeFilter;
+  const matchesCar = carFilter === 'all' || matricule.car_id == carFilter;
+  const matchesFuelType = fuelTypeFilter === 'all' ||
+    (matricule.car && matricule.car.fuel_type === fuelTypeFilter);
+  const matchesTransmission = transmissionFilter === 'all' ||
+    (matricule.car && matricule.car.transmission === transmissionFilter);
 
-    // Filtre voiture
-    const matchesCar = carFilter === 'all' || matricule.car_id == carFilter;
+  // 🔔 Notification filter: matricules with expiring/expired visit tech OR insurance
+  let matchesNotification = true;
+  if (filterParam === 'notifications') {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const isExpiringOrExpired = (dateStr) => {
+      if (!dateStr) return false;
+      const d = new Date(dateStr);
+      d.setHours(0, 0, 0, 0);
+      const diffDays = Math.ceil((d - today) / (1000 * 60 * 60 * 24));
+      return diffDays <= 7; // expired OR expiring within 7 days
+    };
+    matchesNotification =
+      isExpiringOrExpired(matricule.visit_tech) ||
+      isExpiringOrExpired(matricule.date_assurance);
+  }
 
-    // Filtre type de carburant (NOUVEAU)
-    const matchesFuelType = fuelTypeFilter === 'all' || 
-      (matricule.car && matricule.car.fuel_type === fuelTypeFilter);
+  return matchesSearch && matchesStatus && matchesVidange &&
+    matchesCar && matchesFuelType && matchesTransmission && matchesNotification;
+});
 
-    // Filtre transmission (NOUVEAU)
-    const matchesTransmission = transmissionFilter === 'all' || 
-      (matricule.car && matricule.car.transmission === transmissionFilter);
-
-    return matchesSearch && matchesStatus && matchesVidange && 
-           matchesCar && matchesFuelType && matchesTransmission;
-  });
-
-  // Fonction pour gérer le tri
   const handleSort = (key) => {
     let direction = 'asc';
-    
-    if (sortConfig.key === key && sortConfig.direction === 'asc') {
-      direction = 'desc';
-    } else if (sortConfig.key === key && sortConfig.direction === 'desc') {
-      direction = 'none';
-    }
-    
+    if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
+    else if (sortConfig.key === key && sortConfig.direction === 'desc') direction = 'none';
     setSortConfig({ key, direction });
   };
 
-  // Fonction pour trier les matricules
   const getSortedMatricules = () => {
-    if (!sortConfig.key || sortConfig.direction === 'none') {
-      return filteredMatricules;
-    }
+    if (!sortConfig.key || sortConfig.direction === 'none') return filteredMatricules;
 
     const sorted = [...filteredMatricules].sort((a, b) => {
-      // Récupérer les valeurs pour le tri
       let aValue = a[sortConfig.key];
       let bValue = b[sortConfig.key];
 
-      // Gestion spéciale pour les objets imbriqués
       if (sortConfig.key === 'car') {
         aValue = a.car ? `${a.car.brand} ${a.car.model}`.toLowerCase() : '';
         bValue = b.car ? `${b.car.brand} ${b.car.model}`.toLowerCase() : '';
@@ -400,42 +348,25 @@ const MatriculesManagement = ({ onBack, filter }) => {
         bValue = statusOrder[b.status] || 5;
       }
 
-      // Comparaison
-      if (aValue < bValue) {
-        return sortConfig.direction === 'asc' ? -1 : 1;
-      }
-      if (aValue > bValue) {
-        return sortConfig.direction === 'asc' ? 1 : -1;
-      }
+      if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
 
     return sorted;
   };
 
-  // Obtenir l'icône de tri
   const getSortIcon = (key) => {
-    if (sortConfig.key !== key) {
-      return <FaSort className="sort-icon" />;
-    }
-    
-    if (sortConfig.direction === 'asc') {
-      return <FaSortUp className="sort-icon active" />;
-    }
-    
-    if (sortConfig.direction === 'desc') {
-      return <FaSortDown className="sort-icon active" />;
-    }
-    
+    if (sortConfig.key !== key) return <FaSort className="sort-icon" />;
+    if (sortConfig.direction === 'asc') return <FaSortUp className="sort-icon active" />;
+    if (sortConfig.direction === 'desc') return <FaSortDown className="sort-icon active" />;
     return <FaSort className="sort-icon" />;
   };
 
   const getAvailableClientsForAccident = (matriculeId, accidentDate) => {
     if (!matriculeId || !accidentDate) return [];
-
     const accidentDateObj = new Date(accidentDate);
-    
-    return reservations.filter(reservation => 
+    return reservations.filter(reservation =>
       reservation.matricule_id === matriculeId &&
       (reservation.status === 'completed' || reservation.status === 'confirmed') &&
       new Date(reservation.start_date) <= accidentDateObj &&
@@ -462,16 +393,14 @@ const MatriculesManagement = ({ onBack, filter }) => {
     return statusMap[status] || status;
   };
 
-  // Mettre à jour les clients disponibles quand la date d'accident ou le matricule change
   useEffect(() => {
     if (selectedMatriculeForAccident && accidentFormData.date_accident) {
       const clients = getAvailableClientsForAccident(
-        selectedMatriculeForAccident.id, 
+        selectedMatriculeForAccident.id,
         accidentFormData.date_accident
       );
       setAvailableClients(clients);
-      
-      // Sélectionner automatiquement le premier client si un seul est disponible
+
       if (clients.length === 1) {
         setAccidentFormData(prev => ({ ...prev, client_id: clients[0].id }));
       } else {
@@ -480,45 +409,18 @@ const MatriculesManagement = ({ onBack, filter }) => {
     }
   }, [selectedMatriculeForAccident, accidentFormData.date_accident, reservations]);
 
-  // Pagination
   const sortedMatricules = getSortedMatricules();
   const totalPages = Math.ceil(sortedMatricules.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const currentMatricules = sortedMatricules.slice(startIndex, startIndex + itemsPerPage);
 
-  const handlePageChange = (page) => {
-    setCurrentPage(page);
-  };
-
-  const handleSearch = (e) => {
-    setSearchTerm(e.target.value);
-    setCurrentPage(1);
-  };
-
-  const handleStatusFilter = (e) => {
-    setStatusFilter(e.target.value);
-    setCurrentPage(1);
-  };
-
-  const handleVidangeFilter = (e) => {
-    setVidangeFilter(e.target.value);
-    setCurrentPage(1);
-  };
-
-  const handleCarFilter = (e) => {
-    setCarFilter(e.target.value);
-    setCurrentPage(1);
-  };
-
-  const handleFuelTypeFilter = (e) => {
-    setFuelTypeFilter(e.target.value);
-    setCurrentPage(1);
-  };
-
-  const handleTransmissionFilter = (e) => {
-    setTransmissionFilter(e.target.value);
-    setCurrentPage(1);
-  };
+  const handlePageChange = (page) => setCurrentPage(page);
+  const handleSearch = (e) => { setSearchTerm(e.target.value); setCurrentPage(1); };
+  const handleStatusFilter = (e) => { setStatusFilter(e.target.value); setCurrentPage(1); };
+  const handleVidangeFilter = (e) => { setVidangeFilter(e.target.value); setCurrentPage(1); };
+  const handleCarFilter = (e) => { setCarFilter(e.target.value); setCurrentPage(1); };
+  const handleFuelTypeFilter = (e) => { setFuelTypeFilter(e.target.value); setCurrentPage(1); };
+  const handleTransmissionFilter = (e) => { setTransmissionFilter(e.target.value); setCurrentPage(1); };
 
   const clearFilters = () => {
     setSearchTerm('');
@@ -531,7 +433,6 @@ const MatriculesManagement = ({ onBack, filter }) => {
     setSortConfig({ key: null, direction: 'asc' });
   };
 
-  // Fonctions de détails des matricules
   const handleViewDetails = (matricule) => {
     setSelectedMatricule(matricule);
     setReservationsPage(1);
@@ -544,16 +445,9 @@ const MatriculesManagement = ({ onBack, filter }) => {
     setSelectedMatricule(null);
   };
 
-  // Obtenir les données spécifiques au matricule
-  const getMatriculeReservations = (matriculeId) => {
-    return reservations.filter(r => r.matricule_id === matriculeId);
-  };
+  const getMatriculeReservations = (matriculeId) => reservations.filter(r => r.matricule_id === matriculeId);
+  const getMatriculeAccidents = (matriculeId) => accidents.filter(a => a.matricule_id === matriculeId);
 
-  const getMatriculeAccidents = (matriculeId) => {
-    return accidents.filter(a => a.matricule_id === matriculeId);
-  };
-
-  // Pagination pour les détails
   const matriculeReservations = selectedMatricule ? getMatriculeReservations(selectedMatricule.id) : [];
   const matriculeAccidents = selectedMatricule ? getMatriculeAccidents(selectedMatricule.id) : [];
 
@@ -564,19 +458,13 @@ const MatriculesManagement = ({ onBack, filter }) => {
     (reservationsPage - 1) * detailsItemsPerPage,
     reservationsPage * detailsItemsPerPage
   );
-
   const currentAccidents = matriculeAccidents.slice(
     (accidentsPage - 1) * detailsItemsPerPage,
     accidentsPage * detailsItemsPerPage
   );
 
-  const handleReservationsPageChange = (page) => {
-    setReservationsPage(page);
-  };
-
-  const handleAccidentsPageChange = (page) => {
-    setAccidentsPage(page);
-  };
+  const handleReservationsPageChange = (page) => setReservationsPage(page);
+  const handleAccidentsPageChange = (page) => setAccidentsPage(page);
 
   const handleCreate = () => {
     setModalType('create');
@@ -620,10 +508,10 @@ const MatriculesManagement = ({ onBack, filter }) => {
   const handleAddToAccident = (matricule) => {
     setSelectedMatriculeForAccident(matricule);
     const clients = getAvailableClientsForAccident(
-      matricule.id, 
+      matricule.id,
       new Date().toISOString().split('T')[0]
     );
-    
+
     setAvailableClients(clients);
     setAccidentFormData({
       date_accident: new Date().toISOString().split('T')[0],
@@ -650,8 +538,7 @@ const MatriculesManagement = ({ onBack, filter }) => {
   const handleCreateAccident = async (e) => {
     e.preventDefault();
     setSubmittingAccident(true);
-    
-    // Valider les champs requis
+
     if (!accidentFormData.client_id) {
       showErrorMessage('Veuillez sélectionner un client pour le rapport d\'accident');
       setSubmittingAccident(false);
@@ -659,7 +546,6 @@ const MatriculesManagement = ({ onBack, filter }) => {
     }
 
     try {
-      // Préparer les données d'accident complètes avec tous les champs requis
       const completeAccidentData = {
         date_accident: accidentFormData.date_accident,
         amount_of_losses: accidentFormData.amount_of_losses || 0,
@@ -681,29 +567,17 @@ const MatriculesManagement = ({ onBack, filter }) => {
         image_facture: accidentFormData.image_facture || []
       };
 
-      console.log('Envoi des données d\'accident:', completeAccidentData);
-
-      // Créer l'accident - le statut du matricule sera mis à jour automatiquement par le backend
       await dispatch(createAccident(completeAccidentData)).unwrap();
-      
-      showSuccessMessage('Accident créé avec succès ! Le statut du matricule sera mis à jour en fonction du type d\'accident et du statut.');
+      showSuccessMessage('Accident créé avec succès ! Le statut du matricule sera mis à jour.');
       setShowAccidentModal(false);
       setSelectedMatriculeForAccident(null);
       setAccidentFormData({
         date_accident: new Date().toISOString().split('T')[0],
-        amount_of_losses: 0,
-        amount_assurance: 0,
-        matricule_id: '',
-        car_id: '',
-        client_id: '',
-        status: 'pending',
-        accident_type: 'grave',
-        procedure_type: 'classic',
-        expert_decision: 'pending',
-        img_accident: [],
-        img_evaluation_expert: [],
-        img_fixed: [],
-        image_facture: []
+        amount_of_losses: 0, amount_assurance: 0,
+        matricule_id: '', car_id: '', client_id: '',
+        status: 'pending', accident_type: 'grave', procedure_type: 'classic',
+        expert_decision: 'pending', img_accident: [], img_evaluation_expert: [],
+        img_fixed: [], image_facture: []
       });
     } catch (error) {
       console.error('Erreur lors de la création de l\'accident:', error);
@@ -736,9 +610,7 @@ const MatriculesManagement = ({ onBack, filter }) => {
   };
 
   const showSuccessMessage = (message) => {
-    const existingNotifications = document.querySelectorAll('.success-notification, .error-notification');
-    existingNotifications.forEach(notification => notification.remove());
-
+    document.querySelectorAll('.success-notification, .error-notification').forEach(n => n.remove());
     const notification = document.createElement('div');
     notification.className = 'success-notification';
     notification.innerHTML = `
@@ -748,18 +620,11 @@ const MatriculesManagement = ({ onBack, filter }) => {
       </div>
     `;
     document.body.appendChild(notification);
-
-    setTimeout(() => {
-      if (notification.parentNode) {
-        notification.remove();
-      }
-    }, 5000);
+    setTimeout(() => { if (notification.parentNode) notification.remove(); }, 5000);
   };
 
   const showErrorMessage = (message) => {
-    const existingNotifications = document.querySelectorAll('.success-notification, .error-notification');
-    existingNotifications.forEach(notification => notification.remove());
-
+    document.querySelectorAll('.success-notification, .error-notification').forEach(n => n.remove());
     const notification = document.createElement('div');
     notification.className = 'error-notification';
     notification.innerHTML = `
@@ -772,18 +637,12 @@ const MatriculesManagement = ({ onBack, filter }) => {
       </div>
     `;
     document.body.appendChild(notification);
-
-    setTimeout(() => {
-      if (notification.parentNode) {
-        notification.remove();
-      }
-    }, 8000);
+    setTimeout(() => { if (notification.parentNode) notification.remove(); }, 8000);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
-    
     try {
       if (modalType === 'create') {
         await dispatch(createMatricule(formData)).unwrap();
@@ -792,7 +651,6 @@ const MatriculesManagement = ({ onBack, filter }) => {
         await dispatch(updateMatricule({ id: editingItem.id, data: formData })).unwrap();
         showSuccessMessage('Matricule mis à jour avec succès !');
       }
-      
       setShowModal(false);
       dispatch(fetchMatricules());
     } catch (error) {
@@ -826,47 +684,35 @@ const MatriculesManagement = ({ onBack, filter }) => {
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
-    
     link.setAttribute('href', url);
     link.setAttribute('download', `export_matricules_${new Date().toISOString().split('T')[0]}.csv`);
     link.style.visibility = 'hidden';
-    
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     showSuccessMessage('CSV exporté avec succès !');
   };
 
-  // Obtenir les statistiques des matricules
   const getMatriculeStats = () => {
     const totalMatricules = matricules.length;
     const activeMatricules = matricules.filter(m => m.status === 'active').length;
     const vidangeDone = matricules.filter(m => m.vidange_status === 'done').length;
     const inactiveMatricules = matricules.filter(m => m.status === 'inactive').length;
-    
     return { totalMatricules, activeMatricules, vidangeDone, inactiveMatricules };
   };
 
   const stats = getMatriculeStats();
 
   const getStatusBadge = (status, matricule = null) => {
-    // Déterminer le statut réel basé sur les réservations
     let actualStatus = status;
     if (status === 'active' && matricule) {
-      const isReserved = reservations.some(r => 
-        (r.status === 'confirmed' || r.status === 'pending') && 
-        r.matricule_id === matricule.id
-      );
-      const isLate = reservations.some(r => 
-        r.status === 'retard' && 
-        r.matricule_id === matricule.id
-      );
-      
-      if (isLate) {
-        actualStatus = 'late';
-      } else if (isReserved) {
-        actualStatus = 'reserved';
-      }
+      const isReserved = reservations.some(r =>
+        (r.status === 'confirmed' || r.status === 'pending') && r.matricule_id === matricule.id);
+      const isLate = reservations.some(r =>
+        r.status === 'retard' && r.matricule_id === matricule.id);
+
+      if (isLate) actualStatus = 'late';
+      else if (isReserved) actualStatus = 'reserved';
     }
 
     const statusConfig = {
@@ -883,11 +729,12 @@ const MatriculesManagement = ({ onBack, filter }) => {
     };
 
     const config = statusConfig[actualStatus] || { class: 'status-badge status-pending', text: status };
-    
+    const IconComponent = config.icon;
+
     return (
       <div className="status-badge-container">
         <span className={config.class}>
-          {config.icon && <config.icon className="status-icon" />}
+          {IconComponent && <IconComponent className="status-icon" />}
           {config.text}
         </span>
         {actualStatus === 'inactive' && matricule && matricule.id && inactiveReasons[matricule.id] && (
@@ -897,19 +744,13 @@ const MatriculesManagement = ({ onBack, filter }) => {
               <div className="tooltip-content">
                 <strong>Raison d'inactivité :</strong> {inactiveReasons[matricule.id].message}
                 {inactiveReasons[matricule.id].type === 'accident' && (
-                  <div className="reason-details">
-                    Type : Accident - ${inactiveReasons[matricule.id].accident?.amount_of_losses} pertes
-                  </div>
+                  <div className="reason-details">Type : Accident - {inactiveReasons[matricule.id].accident?.amount_of_losses} pertes</div>
                 )}
                 {inactiveReasons[matricule.id].type === 'reservation' && (
-                  <div className="reason-details">
-                    Type : Réservation Active
-                  </div>
+                  <div className="reason-details">Type : Réservation Active</div>
                 )}
                 {inactiveReasons[matricule.id].type === 'maintenance' && (
-                  <div className="reason-details">
-                    Type : Maintenance Requise
-                  </div>
+                  <div className="reason-details">Type : Maintenance Requise</div>
                 )}
               </div>
             </div>
@@ -921,29 +762,17 @@ const MatriculesManagement = ({ onBack, filter }) => {
 
   const getMaintenanceBadge = (status) => {
     return status === 'yes' ? (
-      <span className="maintenance-badge done">
-        <FaCheck className="badge-icon" />
-        Effectué
-      </span>
+      <span className="maintenance-badge done"><FaCheck className="badge-icon" /> Effectué</span>
     ) : (
-      <span className="maintenance-badge not-done">
-        <FaTimes className="badge-icon" />
-        Non Effectué
-      </span>
+      <span className="maintenance-badge not-done"><FaTimes className="badge-icon" /> Non Effectué</span>
     );
   };
 
   const getMaintenanceAlertBadge = (alert) => {
     return alert.severity === 'high' ? (
-      <span className="alert-badge high">
-        <FaExclamationCircle className="badge-icon" />
-        Urgent
-      </span>
+      <span className="alert-badge high"><FaExclamationCircle className="badge-icon" /> Urgent</span>
     ) : (
-      <span className="alert-badge medium">
-        <FaExclamationTriangle className="badge-icon" />
-        Attention
-      </span>
+      <span className="alert-badge medium"><FaExclamationTriangle className="badge-icon" /> Attention</span>
     );
   };
 
@@ -955,83 +784,43 @@ const MatriculesManagement = ({ onBack, filter }) => {
     showSuccessMessage('Données actualisées avec succès !');
   };
 
-  // Générer les boutons de pagination
   const renderPaginationButtons = (currentPage, totalPages, onPageChange, type = 'main') => {
     const buttons = [];
     const maxVisiblePages = 5;
-
     let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
     let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-
     if (endPage - startPage + 1 < maxVisiblePages) {
       startPage = Math.max(1, endPage - maxVisiblePages + 1);
     }
 
-    // Bouton précédent
     buttons.push(
-      <button
-        key="prev"
-        className={`pagination-btn ${type} ${currentPage === 1 ? 'disabled' : ''}`}
-        onClick={() => onPageChange(currentPage - 1)}
-        disabled={currentPage === 1}
-      >
+      <button key="prev" className={`pagination-btn ${type} ${currentPage === 1 ? 'disabled' : ''}`}
+        onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1}>
         <FaChevronLeft />
       </button>
     );
 
-    // Première page
     if (startPage > 1) {
-      buttons.push(
-        <button
-          key={1}
-          className={`pagination-btn ${type} ${currentPage === 1 ? 'active' : ''}`}
-          onClick={() => onPageChange(1)}
-        >
-          1
-        </button>
-      );
-      if (startPage > 2) {
-        buttons.push(<span key="ellipsis1" className={`pagination-ellipsis ${type}`}>...</span>);
-      }
+      buttons.push(<button key={1} className={`pagination-btn ${type} ${currentPage === 1 ? 'active' : ''}`}
+        onClick={() => onPageChange(1)}>1</button>);
+      if (startPage > 2) buttons.push(<span key="e1" className={`pagination-ellipsis ${type}`}>...</span>);
     }
 
-    // Numéros de page
     for (let i = startPage; i <= endPage; i++) {
-      buttons.push(
-        <button
-          key={i}
-          className={`pagination-btn ${type} ${currentPage === i ? 'active' : ''}`}
-          onClick={() => onPageChange(i)}
-        >
-          {i}
-        </button>
-      );
+      buttons.push(<button key={i} className={`pagination-btn ${type} ${currentPage === i ? 'active' : ''}`}
+        onClick={() => onPageChange(i)}>{i}</button>);
     }
 
-    // Dernière page
     if (endPage < totalPages) {
-      if (endPage < totalPages - 1) {
-        buttons.push(<span key="ellipsis2" className={`pagination-ellipsis ${type}`}>...</span>);
-      }
-      buttons.push(
-        <button
-          key={totalPages}
-          className={`pagination-btn ${type} ${currentPage === totalPages ? 'active' : ''}`}
-          onClick={() => onPageChange(totalPages)}
-        >
-          {totalPages}
-        </button>
-      );
+      if (endPage < totalPages - 1) buttons.push(<span key="e2" className={`pagination-ellipsis ${type}`}>...</span>);
+      buttons.push(<button key={totalPages}
+        className={`pagination-btn ${type} ${currentPage === totalPages ? 'active' : ''}`}
+        onClick={() => onPageChange(totalPages)}>{totalPages}</button>);
     }
 
-    // Bouton suivant
     buttons.push(
-      <button
-        key="next"
-        className={`pagination-btn ${type} ${currentPage === totalPages ? 'disabled' : ''}`}
-        onClick={() => onPageChange(currentPage + 1)}
-        disabled={currentPage === totalPages}
-      >
+      <button key="next" className={`pagination-btn ${type} ${currentPage === totalPages ? 'disabled' : ''}`}
+        onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages}>
         <FaChevronRight />
       </button>
     );
@@ -1039,11 +828,9 @@ const MatriculesManagement = ({ onBack, filter }) => {
     return buttons;
   };
 
-  // Obtenir les voitures uniques pour le filtre
   const uniqueCars = [...new Set(matricules.map(m => m.car_id).filter(Boolean))];
   const carOptions = cars.filter(car => uniqueCars.includes(car.id));
 
-  // Obtenir l'explication du statut du matricule basé sur le type d'accident
   const getMatriculeStatusExplanation = (accidentType) => {
     if (accidentType === 'grave') {
       return "Le matricule sera inactif jusqu'à ce que le statut atteigne 'waiting' ou 'completed'";
@@ -1052,7 +839,6 @@ const MatriculesManagement = ({ onBack, filter }) => {
     }
   };
 
-  // Obtenir les éléments de maintenance pour la vue détaillée
   const getMaintenanceItems = (matricule) => {
     return [
       { label: 'Paquets Voiture', value: matricule.paquets_de_voiture, icon: FaCar },
@@ -1064,25 +850,13 @@ const MatriculesManagement = ({ onBack, filter }) => {
     ];
   };
 
-  // Obtenir les alertes de maintenance pour un matricule
-  const getMatriculeMaintenanceAlerts = (matriculeId) => {
-    return maintenanceAlerts[matriculeId] || [];
-  };
+  const getMatriculeMaintenanceAlerts = (matriculeId) => maintenanceAlerts[matriculeId] || [];
+  const hasMaintenanceAlerts = (matriculeId) => maintenanceAlerts[matriculeId] && maintenanceAlerts[matriculeId].length > 0;
 
-  // Vérifier si un matricule a des alertes
-  const hasMaintenanceAlerts = (matriculeId) => {
-    return maintenanceAlerts[matriculeId] && maintenanceAlerts[matriculeId].length > 0;
-  };
-
-  // Obtenir les éléments de maintenance additionnelle
   const getAdditionalMaintenanceItems = (matricule) => {
-    if (!matricule.additional_maintenance || !Array.isArray(matricule.additional_maintenance)) {
-      return [];
-    }
-    
+    if (!matricule.additional_maintenance || !Array.isArray(matricule.additional_maintenance)) return [];
     return matricule.additional_maintenance.map(item => ({
-      ...item,
-      type: 'additional_maintenance',
+      ...item, type: 'additional_maintenance',
       isOverdue: item.actual_km > item.recommended_km,
       kmOverdue: item.actual_km - item.recommended_km,
       kmRemaining: item.recommended_km - item.actual_km,
@@ -1090,17 +864,11 @@ const MatriculesManagement = ({ onBack, filter }) => {
     }));
   };
 
-  // Obtenir les éléments de maintenance périodique
   const getPeriodicMaintenanceItems = (matricule) => {
-    if (!matricule.periodic_km_maintenance || !Array.isArray(matricule.periodic_km_maintenance)) {
-      return [];
-    }
-    
+    if (!matricule.periodic_km_maintenance || !Array.isArray(matricule.periodic_km_maintenance)) return [];
     const currentKm = matricule.kilometrage || 0;
-    
     return matricule.periodic_km_maintenance.map(item => ({
-      ...item,
-      type: 'periodic_km',
+      ...item, type: 'periodic_km',
       isOverdue: currentKm >= item.next_change_km,
       kmOverdue: currentKm - item.next_change_km,
       kmRemaining: item.next_change_km - currentKm
@@ -1125,10 +893,10 @@ const MatriculesManagement = ({ onBack, filter }) => {
             Gestion des Matricules
             {statusFilter !== 'all' && (
               <span className="filter-indicator">
-                - Filtre : {statusFilter === 'reserved' ? 'Réservé' : 
-                          statusFilter === 'late' ? 'En Retard' : 
-                          statusFilter === 'active' ? 'Actif' :
-                          statusFilter === 'inactive' ? 'Inactif' : statusFilter}
+                - Filtre : {statusFilter === 'reserved' ? 'Réservé' :
+                  statusFilter === 'late' ? 'En Retard' :
+                    statusFilter === 'active' ? 'Actif' :
+                      statusFilter === 'inactive' ? 'Inactif' : statusFilter}
               </span>
             )}
           </h1>
@@ -1136,21 +904,19 @@ const MatriculesManagement = ({ onBack, filter }) => {
         </div>
         <div className="section-actions">
           <button className="btn btn-secondary" onClick={refreshData} disabled={submitting}>
-            <FaRedo className="btn-icon" />
-            Actualiser
+            <FaRedo className="btn-icon" /> Actualiser
           </button>
           <button className="btn btn-primary" onClick={handleCreate} disabled={submitting}>
             {submitting ? <FaSpinner className="btn-icon spinning" /> : <FaPlus className="btn-icon" />}
             {submitting ? 'Traitement...' : 'Nouveau Matricule'}
           </button>
           <button className="btn btn-secondary" onClick={handleExport} disabled={submitting}>
-            <FaFileExport className="btn-icon" />
-            Exporter CSV
+            <FaFileExport className="btn-icon" /> Exporter CSV
           </button>
         </div>
       </div>
 
-      {/* Cartes de Statistiques */}
+      {/* Stats */}
       <div className="stats-grid">
         <div className="stat-card stat-total">
           <div className="stat-content">
@@ -1182,7 +948,7 @@ const MatriculesManagement = ({ onBack, filter }) => {
         </div>
       </div>
 
-      {/* Section Recherche et Filtres - RESTRUCTURED TO MATCH RESERVATIONS */}
+      {/* Search + Filters */}
       <div className="search-filter-section">
         <div className="search-container">
           <div className="search-box">
@@ -1199,16 +965,8 @@ const MatriculesManagement = ({ onBack, filter }) => {
           <div className="filters-row">
             <div className="filter-group">
               <div className="filter-item">
-                <label htmlFor="status-filter">
-                  <FaFilter className="filter-icon" />
-                  Statut
-                </label>
-                <select
-                  id="status-filter"
-                  value={statusFilter}
-                  onChange={handleStatusFilter}
-                  className="filter-select"
-                >
+                <label htmlFor="status-filter"><FaFilter className="filter-icon" />Statut</label>
+                <select id="status-filter" value={statusFilter} onChange={handleStatusFilter} className="filter-select">
                   <option value="all">Tous les Statuts</option>
                   <option value="active">Actif</option>
                   <option value="inactive">Inactif</option>
@@ -1218,16 +976,8 @@ const MatriculesManagement = ({ onBack, filter }) => {
               </div>
 
               <div className="filter-item">
-                <label htmlFor="vidange-filter">
-                  <FaOilCan className="filter-icon" />
-                  Vidange
-                </label>
-                <select
-                  id="vidange-filter"
-                  value={vidangeFilter}
-                  onChange={handleVidangeFilter}
-                  className="filter-select"
-                >
+                <label htmlFor="vidange-filter"><FaOilCan className="filter-icon" />Vidange</label>
+                <select id="vidange-filter" value={vidangeFilter} onChange={handleVidangeFilter} className="filter-select">
                   <option value="all">Tous les Statuts</option>
                   <option value="done">Effectuée</option>
                   <option value="not done">Non Effectuée</option>
@@ -1235,36 +985,18 @@ const MatriculesManagement = ({ onBack, filter }) => {
               </div>
 
               <div className="filter-item">
-                <label htmlFor="car-filter">
-                  <FaCar className="filter-icon" />
-                  Voiture
-                </label>
-                <select
-                  id="car-filter"
-                  value={carFilter}
-                  onChange={handleCarFilter}
-                  className="filter-select"
-                >
+                <label htmlFor="car-filter"><FaCar className="filter-icon" />Voiture</label>
+                <select id="car-filter" value={carFilter} onChange={handleCarFilter} className="filter-select">
                   <option value="all">Toutes les Voitures</option>
                   {carOptions.map(car => (
-                    <option key={car.id} value={car.id}>
-                      {car.brand} {car.model}
-                    </option>
+                    <option key={car.id} value={car.id}>{car.brand} {car.model}</option>
                   ))}
                 </select>
               </div>
 
               <div className="filter-item">
-                <label htmlFor="fuel-filter">
-                  <FaGasPump className="filter-icon" />
-                  Carburant
-                </label>
-                <select
-                  id="fuel-filter"
-                  value={fuelTypeFilter}
-                  onChange={handleFuelTypeFilter}
-                  className="filter-select"
-                >
+                <label htmlFor="fuel-filter"><FaGasPump className="filter-icon" />Carburant</label>
+                <select id="fuel-filter" value={fuelTypeFilter} onChange={handleFuelTypeFilter} className="filter-select">
                   <option value="all">Tous les carburants</option>
                   <option value="petrol">Essence</option>
                   <option value="diesel">Diesel</option>
@@ -1273,36 +1005,39 @@ const MatriculesManagement = ({ onBack, filter }) => {
               </div>
 
               <div className="filter-item">
-                <label htmlFor="transmission-filter">
-                  <FaCog className="filter-icon" />
-                  Transmission
-                </label>
-                <select
-                  id="transmission-filter"
-                  value={transmissionFilter}
-                  onChange={handleTransmissionFilter}
-                  className="filter-select"
-                >
+                <label htmlFor="transmission-filter"><FaCog className="filter-icon" />Transmission</label>
+                <select id="transmission-filter" value={transmissionFilter} onChange={handleTransmissionFilter} className="filter-select">
                   <option value="all">Toutes les transmissions</option>
                   <option value="manual">Manuelle</option>
                   <option value="automatic">Automatique</option>
                 </select>
               </div>
             </div>
-            
+
             <div className="filter-actions">
-              {(searchTerm !== '' || statusFilter !== 'all' || vidangeFilter !== 'all' || 
+              {(searchTerm !== '' || statusFilter !== 'all' || vidangeFilter !== 'all' ||
                 carFilter !== 'all' || fuelTypeFilter !== 'all' || transmissionFilter !== 'all') && (
-                <button className="btn btn-clear" onClick={clearFilters}>
-                  Effacer les Filtres
-                </button>
+                <button className="btn btn-clear" onClick={clearFilters}>Effacer les Filtres</button>
               )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Résumé des Résultats */}
+      {/* Results summary */}
+      {filterParam === 'notifications' && (
+  <div className="filter-indicator">
+    <span className="filter-indicator-text">
+      <FaBell size={16} /> Affichage des matricules avec visite technique ou assurance à renouveler (≤ 7 jours)
+    </span>
+    <button
+      onClick={() => setSearchParams({})}
+      className="clear-filter-btn"
+    >
+      <FaTimes size={16} /> Effacer le filtre
+    </button>
+  </div>
+)}
       <div className="results-summary">
         <div className="summary-left">
           <span className="results-count">
@@ -1312,204 +1047,143 @@ const MatriculesManagement = ({ onBack, filter }) => {
           {sortConfig.key && sortConfig.direction !== 'none' && (
             <span className="sort-indicator">
               <FaSort className="sort-indicator-icon" />
-              Trié par: {sortConfig.key === 'car' ? 'Voiture' : 
-                        sortConfig.key === 'matricule_code' ? 'Matricule' : 
-                        sortConfig.key === 'kilometrage' ? 'Kilométrage' : 
-                        sortConfig.key === 'visit_tech' ? 'Visite Technique' : 
-                        sortConfig.key === 'vidange_status' ? 'Vidange' : 
-                        sortConfig.key === 'status' ? 'Statut' : 'ID'} 
+              Trié par: {sortConfig.key === 'car' ? 'Voiture' :
+                sortConfig.key === 'matricule_code' ? 'Matricule' :
+                  sortConfig.key === 'kilometrage' ? 'Kilométrage' :
+                    sortConfig.key === 'visit_tech' ? 'Visite Technique' :
+                      sortConfig.key === 'vidange_status' ? 'Vidange' :
+                        sortConfig.key === 'status' ? 'Statut' : 'ID'}
               ({sortConfig.direction === 'asc' ? 'Croissant' : 'Décroissant'})
-              <button 
-                className="btn-clear-sort" 
-                onClick={() => setSortConfig({ key: null, direction: 'asc' })}
-              >
+              <button className="btn-clear-sort" onClick={() => setSortConfig({ key: null, direction: 'asc' })}>
                 <FaTimes />
               </button>
             </span>
           )}
         </div>
-        <span className="page-info">
-          Page {currentPage} sur {totalPages}
-        </span>
+        <span className="page-info">Page {currentPage} sur {totalPages}</span>
       </div>
 
       <div className="content-container">
         {currentMatricules.length > 0 ? (
           <>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th onClick={() => handleSort('id')} className="sortable-header">
-                    <div className="header-content">
-                      ID
-                      {getSortIcon('id')}
-                    </div>
-                  </th>
-                  <th onClick={() => handleSort('matricule_code')} className="sortable-header">
-                    <div className="header-content">
-                      Matricule
-                      {getSortIcon('matricule_code')}
-                    </div>
-                  </th>
-                  <th onClick={() => handleSort('car')} className="sortable-header">
-                    <div className="header-content">
-                      Voiture
-                      {getSortIcon('car')}
-                    </div>
-                  </th>
-                  <th onClick={() => handleSort('kilometrage')} className="sortable-header">
-                    <div className="header-content">
-                      Kilométrage
-                      {getSortIcon('kilometrage')}
-                    </div>
-                  </th>
-                  <th onClick={() => handleSort('visit_tech')} className="sortable-header">
-                    <div className="header-content">
-                      Visite Technique
-                      {getSortIcon('visit_tech')}
-                    </div>
-                  </th>
-                  <th onClick={() => handleSort('vidange_status')} className="sortable-header">
-                    <div className="header-content">
-                      Vidange
-                      {getSortIcon('vidange_status')}
-                    </div>
-                  </th>
-                  <th onClick={() => handleSort('status')} className="sortable-header">
-                    <div className="header-content">
-                      Statut
-                      {getSortIcon('status')}
-                    </div>
-                  </th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {currentMatricules.map(matricule => {
-                  const hasAlerts = hasMaintenanceAlerts(matricule.id);
-                  const alertsCount = getMatriculeMaintenanceAlerts(matricule.id).length;
-                  
-                  return (
-                    <tr key={matricule.id}>
-                      <td className="matricule-id">#{matricule.id}</td>
-                      <td className="matricule-code">
-                        <strong>{matricule.matricule_code}</strong>
-                      </td>
-                      <td>
-                        {matricule.car ? (
-                          <div className="car-info">
-                            <div className="car-name">{matricule.car.brand} {matricule.car.model}</div>
-                            <div className="car-details">
-                              {matricule.car.year} • {matricule.car.color}
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="no-car">Aucune voiture assignée</span>
-                        )}
-                      </td>
-                      <td className="kilometrage-cell">
-                        <FaTachometerAlt className="kilometrage-icon" />
-                        {matricule.kilometrage?.toLocaleString()} km
-                        {matricule.kilometrage_entree && (
-                          <div className="last-return">
-                            Dernier retour : {matricule.kilometrage_entree} km
-                          </div>
-                        )}
-                      </td>
-                      <td>{matricule.visit_tech ? new Date(matricule.visit_tech).toLocaleDateString('fr-FR') : 'Non définie'}</td>
-                      <td>{getStatusBadge(matricule.vidange_status)}</td>
-                      <td>{getStatusBadge(matricule.status, matricule)}</td>
-                      <td>
-                        <div className="action-buttons">
-                          <button 
-                            className="action-btn view" 
-                            onClick={() => handleViewDetails(matricule)}
-                            title="Voir les Détails"
-                          >
-                            <FaEye />
-                            {hasAlerts && (
-                              <span className="action-alert-indicator">
-                                {alertsCount > 0 && (
-                                  <>
-                                    <span className="alert-dot"></span>
-                                    {alertsCount > 1 && (
-                                      <span className="alert-count">{alertsCount}</span>
-                                    )}
-                                  </>
-                                )}
-                              </span>
-                            )}
-                          </button>
-                          <button 
-                            className="action-btn accident" 
-                            onClick={() => handleAddToAccident(matricule)}
-                            title="Ajouter à un Accident"
-                          >
-                            <FaCarCrash />
-                          </button>
-                          <button 
-                            className="action-btn edit" 
-                            onClick={() => handleEdit(matricule)}
-                            title="Modifier"
-                            disabled={submitting}
-                          >
-                            <FaEdit />
-                          </button>
-                          <button 
-                            className="action-btn delete" 
-                            onClick={() => showDeleteConfirmation(matricule)}
-                            title="Supprimer"
-                            disabled={submitting}
-                          >
-                            <FaTrash />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th onClick={() => handleSort('matricule_code')} className="sortable-header">
+                      <div className="header-content">Matricule {getSortIcon('matricule_code')}</div>
+                    </th>
+                    <th onClick={() => handleSort('car')} className="sortable-header">
+                      <div className="header-content">Voiture {getSortIcon('car')}</div>
+                    </th>
+                    <th onClick={() => handleSort('kilometrage')} className="sortable-header">
+                      <div className="header-content">Kilométrage {getSortIcon('kilometrage')}</div>
+                    </th>
+                    <th onClick={() => handleSort('visit_tech')} className="sortable-header">
+                      <div className="header-content">Visite Technique {getSortIcon('visit_tech')}</div>
+                    </th>
+                    <th onClick={() => handleSort('vidange_status')} className="sortable-header">
+                      <div className="header-content">Vidange {getSortIcon('vidange_status')}</div>
+                    </th>
+                    <th onClick={() => handleSort('status')} className="sortable-header">
+                      <div className="header-content">Statut {getSortIcon('status')}</div>
+                    </th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {currentMatricules.map(matricule => {
+                    const hasAlerts = hasMaintenanceAlerts(matricule.id);
+                    const alertsCount = getMatriculeMaintenanceAlerts(matricule.id).length;
 
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="pagination-container">
-                <div className="pagination">
-                  {renderPaginationButtons(currentPage, totalPages, handlePageChange, 'main')}
-                </div>
-              </div>
-            )}
+                    return (
+                      <tr key={matricule.id}>
+                        <td className="matricule-code"><strong>{matricule.matricule_code}</strong></td>
+                        <td>
+                          {matricule.car ? (
+                            <div className="car-info">
+                              <div className="car-name">{matricule.car.brand} {matricule.car.model}</div>
+                              <div className="car-details">{matricule.car.year} • {matricule.car.color}</div>
+                            </div>
+                          ) : (
+                            <span className="no-car">Aucune voiture assignée</span>
+                          )}
+                        </td>
+                        <td className="kilometrage-cell">
+                          <FaTachometerAlt className="kilometrage-icon" />
+                          {matricule.kilometrage?.toLocaleString()} km
+                          {matricule.kilometrage_entree && (
+                            <div className="last-return">Dernier retour : {matricule.kilometrage_entree} km</div>
+                          )}
+                        </td>
+                        <td>{matricule.visit_tech ? new Date(matricule.visit_tech).toLocaleDateString('fr-FR') : 'Non définie'}</td>
+                        <td>{getStatusBadge(matricule.vidange_status)}</td>
+                        <td>{getStatusBadge(matricule.status, matricule)}</td>
+                        <td>
+                          <div className="action-buttons">
+                            <button className="action-btn view" onClick={() => handleViewDetails(matricule)} title="Voir les Détails">
+                              <FaEye />
+                              {hasAlerts && (
+                                <span className="action-alert-indicator">
+                                  {alertsCount > 0 && (
+                                    <>
+                                      <span className="alert-dot"></span>
+                                      {alertsCount > 1 && <span className="alert-count">{alertsCount}</span>}
+                                    </>
+                                  )}
+                                </span>
+                              )}
+                            </button>
+                            <button className="action-btn accident" onClick={() => handleAddToAccident(matricule)} title="Ajouter à un Accident">
+                              <FaCarCrash />
+                            </button>
+                            <button className="action-btn edit" onClick={() => handleEdit(matricule)} title="Modifier" disabled={submitting}>
+                              <FaEdit />
+                            </button>
+                            <button className="action-btn delete" onClick={() => showDeleteConfirmation(matricule)} title="Supprimer" disabled={submitting}>
+                              <FaTrash />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="pagination-container">
+  <PaginationControls
+    currentPage={currentPage}
+    totalPages={totalPages}
+    onPageChange={handlePageChange}
+    itemsPerPage={itemsPerPage}
+    onItemsPerPageChange={setItemsPerPage}
+    totalItems={sortedMatricules.length}
+  />
+</div>
           </>
         ) : (
           <div className="no-data">
             <FaDatabase size={48} />
-            <p>
-              {matricules.length === 0 
-                ? 'Aucun matricule trouvé' 
-                : 'Aucun matricule ne correspond à vos critères de recherche'}
-            </p>
+            <p>{matricules.length === 0 ? 'Aucun matricule trouvé' : 'Aucun matricule ne correspond à vos critères de recherche'}</p>
             <button className="btn btn-primary" onClick={handleCreate} disabled={submitting}>
-              <FaPlus className="btn-icon" />
-              Nouveau Matricule
+              <FaPlus className="btn-icon" /> Nouveau Matricule
             </button>
             {(searchTerm !== '' || statusFilter !== 'all' || vidangeFilter !== 'all' || carFilter !== 'all') && (
-              <button className="btn btn-secondary" onClick={clearFilters} style={{marginTop: '1rem'}}>
-                Effacer les Filtres
-              </button>
+              <button className="btn btn-secondary" onClick={clearFilters} style={{ marginTop: '1rem' }}>Effacer les Filtres</button>
             )}
           </div>
         )}
       </div>
 
-      {/* Modal de Détails du Matricule */}
-      {showDetails && selectedMatricule && (
+      {/* Details Modal — same shell as AdminModal */}
+      {showDetails && selectedMatricule && createPortal(
         <div className="details-modal-overlay">
           <div className="details-modal">
             <div className="details-header">
               <div className="matricule-header-info">
-                <div className="matricule-avatar-large">
-                  {selectedMatricule.matricule_code.substring(0, 2)}
-                </div>
+                <div className="matricule-avatar-large">{selectedMatricule.matricule_code.substring(0, 2)}</div>
                 <div className="matricule-info">
                   <h2>{selectedMatricule.matricule_code}</h2>
                   <div className="matricule-contact">
@@ -1519,52 +1193,24 @@ const MatriculesManagement = ({ onBack, filter }) => {
                   </div>
                 </div>
               </div>
-              <button className="close-details-btn" onClick={handleCloseDetails}>
-                <FaTimes />
-              </button>
+              <button className="close-details-btn" onClick={handleCloseDetails}><FaTimes /></button>
             </div>
 
             <div className="details-content">
-              {/* Section Informations du Matricule */}
               <div className="details-section">
-                <div className="section-title">
-                  <FaIdCard />
-                  <span>Informations du Matricule</span>
-                </div>
+                <div className="section-title"><FaIdCard /><span>Informations du Matricule</span></div>
                 <div className="info-grid">
-                  <div className="info-item">
-                    <label>Statut</label>
-                    <div>{getStatusBadge(selectedMatricule.status, selectedMatricule)}</div>
-                  </div>
-                  <div className="info-item">
-                    <label>Statut Vidange</label>
-                    <div>{getStatusBadge(selectedMatricule.vidange_status)}</div>
-                  </div>
-                  <div className="info-item">
-                    <label>Kilométrage Actuel</label>
-                    <div>{selectedMatricule.kilometrage?.toLocaleString()} km</div>
-                  </div>
-                  <div className="info-item">
-                    <label>Dernier Kilométrage Entrée</label>
-                    <div>{selectedMatricule.kilometrage_entree?.toLocaleString() || 'N/A'} km</div>
-                  </div>
-                  <div className="info-item">
-                    <label>Dernier Kilométrage Sortie</label>
-                    <div>{selectedMatricule.kilometrage_sortie?.toLocaleString() || 'N/A'} km</div>
-                  </div>
-                  <div className="info-item">
-                    <label>Visite Technique</label>
-                    <div>{selectedMatricule.visit_tech ? new Date(selectedMatricule.visit_tech).toLocaleDateString('fr-FR') : 'Non définie'}</div>
-                  </div>
+                  <div className="info-item"><label>Statut</label><div>{getStatusBadge(selectedMatricule.status, selectedMatricule)}</div></div>
+                  <div className="info-item"><label>Statut Vidange</label><div>{getStatusBadge(selectedMatricule.vidange_status)}</div></div>
+                  <div className="info-item"><label>Kilométrage Actuel</label><div>{selectedMatricule.kilometrage?.toLocaleString()} km</div></div>
+                  <div className="info-item"><label>Dernier Kilométrage Entrée</label><div>{selectedMatricule.kilometrage_entree?.toLocaleString() || 'N/A'} km</div></div>
+                  <div className="info-item"><label>Dernier Kilométrage Sortie</label><div>{selectedMatricule.kilometrage_sortie?.toLocaleString() || 'N/A'} km</div></div>
+                  <div className="info-item"><label>Visite Technique</label><div>{selectedMatricule.visit_tech ? new Date(selectedMatricule.visit_tech).toLocaleDateString('fr-FR') : 'Non définie'}</div></div>
                 </div>
 
-                {/* Alertes de Maintenance */}
                 {hasMaintenanceAlerts(selectedMatricule.id) && (
                   <div className="maintenance-alerts-section">
-                    <h4 className="alerts-title">
-                      <FaExclamationTriangle className="alerts-icon" />
-                      Alertes de Maintenance
-                    </h4>
+                    <h4 className="alerts-title"><FaExclamationTriangle className="alerts-icon" />Alertes de Maintenance</h4>
                     <div className="alerts-list">
                       {getMatriculeMaintenanceAlerts(selectedMatricule.id).map((alert, index) => (
                         <div key={index} className={`alert-item ${alert.severity}`}>
@@ -1595,12 +1241,8 @@ const MatriculesManagement = ({ onBack, filter }) => {
                   </div>
                 )}
 
-                {/* Statut de Maintenance */}
                 <div className="maintenance-section">
-                  <h4 className="maintenance-title">
-                    <FaTools className="maintenance-icon" />
-                    Statut de Maintenance
-                  </h4>
+                  <h4 className="maintenance-title"><FaTools className="maintenance-icon" />Statut de Maintenance</h4>
                   <div className="maintenance-grid">
                     {getMaintenanceItems(selectedMatricule).map((item, index) => (
                       <div key={index} className="maintenance-item">
@@ -1614,121 +1256,6 @@ const MatriculesManagement = ({ onBack, filter }) => {
                   </div>
                 </div>
 
-                {/* Maintenance Additionnelle */}
-                <div className="additional-maintenance-section">
-                  <h4 className="maintenance-title">
-                    <FaWrench className="maintenance-icon" />
-                    Maintenance Additionnelle
-                  </h4>
-                  {getAdditionalMaintenanceItems(selectedMatricule).length > 0 ? (
-                    <div className="maintenance-details-grid">
-                      {getAdditionalMaintenanceItems(selectedMatricule).map((item, index) => (
-                        <div key={index} className={`maintenance-detail-item ${item.isOverdue ? 'overdue' : item.needsAttention ? 'attention' : 'normal'}`}>
-                          <div className="maintenance-detail-header">
-                            <span className="maintenance-detail-name">{item.name}</span>
-                            {item.isOverdue ? (
-                              <span className="maintenance-detail-status overdue">
-                                <FaExclamationCircle /> DÉPASSÉ
-                              </span>
-                            ) : item.needsAttention ? (
-                              <span className="maintenance-detail-status attention">
-                                <FaExclamationTriangle /> ATTENTION
-                              </span>
-                            ) : (
-                              <span className="maintenance-detail-status normal">
-                                <FaCheck /> NORMAL
-                              </span>
-                            )}
-                          </div>
-                          <div className="maintenance-detail-info">
-                            <div className="km-info">
-                              <span>Kilométrage Actuel: <strong>{item.actual_km?.toLocaleString()} km</strong></span>
-                              <span>Kilométrage Recommandé: <strong>{item.recommended_km?.toLocaleString()} km</strong></span>
-                            </div>
-                            {item.isOverdue ? (
-                              <div className="maintenance-alert">
-                                <FaExclamationCircle />
-                                <span>En retard de {item.kmOverdue?.toLocaleString()} km</span>
-                              </div>
-                            ) : item.needsAttention ? (
-                              <div className="maintenance-warning">
-                                <FaExclamationTriangle />
-                                <span>Dans {item.kmRemaining?.toLocaleString()} km</span>
-                              </div>
-                            ) : null}
-                          </div>
-                          {item.description && (
-                            <div className="maintenance-detail-description">
-                              <small>{item.description}</small>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="no-maintenance-data">
-                      <FaWrench size={32} />
-                      <p>Aucune maintenance additionnelle définie</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Maintenance Périodique */}
-                <div className="periodic-maintenance-section">
-                  <h4 className="maintenance-title">
-                    <FaCalendarCheck className="maintenance-icon" />
-                    Maintenance Périodique (Kilométrage)
-                  </h4>
-                  {getPeriodicMaintenanceItems(selectedMatricule).length > 0 ? (
-                    <div className="maintenance-details-grid">
-                      {getPeriodicMaintenanceItems(selectedMatricule).map((item, index) => (
-                        <div key={index} className={`maintenance-detail-item ${item.isOverdue ? 'overdue' : 'normal'}`}>
-                          <div className="maintenance-detail-header">
-                            <span className="maintenance-detail-name">{item.name}</span>
-                            {item.isOverdue ? (
-                              <span className="maintenance-detail-status overdue">
-                                <FaExclamationCircle /> DÉPASSÉ
-                              </span>
-                            ) : (
-                              <span className="maintenance-detail-status normal">
-                                <FaCheck /> À VENIR
-                              </span>
-                            )}
-                          </div>
-                          <div className="maintenance-detail-info">
-                            <div className="km-info">
-                              <span>Kilométrage Actuel: <strong>{selectedMatricule.kilometrage?.toLocaleString()} km</strong></span>
-                              <span>Prochain Changement: <strong>{item.next_change_km?.toLocaleString()} km</strong></span>
-                            </div>
-                            {item.isOverdue ? (
-                              <div className="maintenance-alert">
-                                <FaExclamationCircle />
-                                <span>En retard de {item.kmOverdue?.toLocaleString()} km</span>
-                              </div>
-                            ) : (
-                              <div className="maintenance-warning">
-                                <FaExclamationTriangle />
-                                <span>Dans {item.kmRemaining?.toLocaleString()} km</span>
-                              </div>
-                            )}
-                          </div>
-                          {item.description && (
-                            <div className="maintenance-detail-description">
-                              <small>{item.description}</small>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="no-maintenance-data">
-                      <FaCalendarCheck size={32} />
-                      <p>Aucune maintenance périodique définie</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Affichage de la Raison d'Inactivité */}
                 {selectedMatricule.status === 'inactive' && inactiveReasons[selectedMatricule.id] && (
                   <div className="inactive-reason-display">
                     <FaInfoCircle className="reason-icon" />
@@ -1739,272 +1266,220 @@ const MatriculesManagement = ({ onBack, filter }) => {
                 )}
               </div>
 
-              {/* Section Réservations */}
               <div className="details-section">
-                <div className="section-title">
-                  <FaCalendarAlt />
-                  <span>Réservations ({matriculeReservations.length})</span>
-                </div>
+                <div className="section-title"><FaCalendarAlt /><span>Réservations ({matriculeReservations.length})</span></div>
                 {matriculeReservations.length > 0 ? (
                   <>
                     <div className="items-grid">
                       {currentReservations.map(reservation => (
                         <div key={reservation.id} className="item-card">
                           <div className="item-header">
-                            <div className="item-title">
-                              <FaUser className="item-icon" />
-                              {reservation.client?.prenom} {reservation.client?.nom}
-                            </div>
+                            <div className="item-title"><FaUser className="item-icon" />{reservation.client?.prenom} {reservation.client?.nom}</div>
                             {getStatusBadge(reservation.status)}
                           </div>
                           <div className="item-details">
-                            <div className="item-detail">
-                              <FaCalendarAlt className="detail-icon" />
-                              {new Date(reservation.start_date).toLocaleDateString('fr-FR')} - {new Date(reservation.end_date).toLocaleDateString('fr-FR')}
-                            </div>
-                            <div className="item-detail">
-                              <FaClock className="detail-icon" />
-                              {calculateRentalDays(reservation.start_date, reservation.end_date)} jours
-                            </div>
-                            <div className="item-detail">
-                              <FaMoneyBill className="detail-icon" />
-                              {reservation.total_price} MAD
-                            </div>
+                            <div className="item-detail"><FaCalendarAlt className="detail-icon" />{new Date(reservation.start_date).toLocaleDateString('fr-FR')} - {new Date(reservation.end_date).toLocaleDateString('fr-FR')}</div>
+                            <div className="item-detail"><FaClock className="detail-icon" />{calculateRentalDays(reservation.start_date, reservation.end_date)} jours</div>
+                            <div className="item-detail"><FaMoneyBill className="detail-icon" />{reservation.total_price} MAD</div>
                           </div>
                           <div className="item-id">Réservation #{reservation.id}</div>
                         </div>
                       ))}
                     </div>
-                    
-                    {/* Pagination des Réservations */}
                     {totalReservationsPages > 1 && (
-                      <div className="details-pagination">
-                        <div className="pagination">
-                          {renderPaginationButtons(reservationsPage, totalReservationsPages, handleReservationsPageChange, 'details')}
-                        </div>
-                      </div>
-                    )}
+  <div className="details-pagination">
+    <PaginationControls
+      currentPage={reservationsPage}
+      totalPages={totalReservationsPages}
+      onPageChange={handleReservationsPageChange}
+      itemsPerPage={detailsItemsPerPage}
+      onItemsPerPageChange={() => {}}
+      totalItems={matriculeReservations.length}
+      pageSizeOptions={[detailsItemsPerPage]}
+    />
+  </div>
+)}
                   </>
                 ) : (
-                  <div className="no-items">
-                    <FaCalendarAlt size={32} />
-                    <p>Aucune réservation trouvée pour ce matricule</p>
-                  </div>
+                  <div className="no-items"><FaCalendarAlt size={32} /><p>Aucune réservation trouvée pour ce matricule</p></div>
                 )}
               </div>
 
-              {/* Section Accidents */}
               <div className="details-section">
-                <div className="section-title">
-                  <FaCarCrash />
-                  <span>Accidents ({matriculeAccidents.length})</span>
-                </div>
+                <div className="section-title"><FaCarCrash /><span>Accidents ({matriculeAccidents.length})</span></div>
                 {matriculeAccidents.length > 0 ? (
                   <>
                     <div className="items-grid">
                       {currentAccidents.map(accident => (
                         <div key={accident.id} className="item-card accident-card">
                           <div className="item-header">
-                            <div className="item-title">
-                              <FaCarCrash className="item-icon accident" />
-                              Rapport d'Accident
-                            </div>
-                            <div className="accident-date">
-                              {new Date(accident.date_accident).toLocaleDateString('fr-FR')}
-                            </div>
+                            <div className="item-title"><FaCarCrash className="item-icon accident" />Rapport d'Accident</div>
+                            <div className="accident-date">{new Date(accident.date_accident).toLocaleDateString('fr-FR')}</div>
                           </div>
                           <div className="item-details">
-                            <div className="item-detail">
-                              <FaUser className="detail-icon" />
-                              {accident.client?.prenom} {accident.client?.nom}
-                            </div>
-                            <div className="item-detail">
-                              <FaMoneyBill className="detail-icon" />
-                              Pertes : {accident.amount_of_losses} MAD
-                            </div>
-                            <div className="item-detail">
-                              <FaShieldAlt className="detail-icon" />
-                              Assurance : {accident.amount_assurance} MAD
-                            </div>
-                            <div className="item-detail">
-                              <FaInfoCircle className="detail-icon" />
-                              Statut : {accident.status}
-                            </div>
+                            <div className="item-detail"><FaUser className="detail-icon" />{accident.client?.prenom} {accident.client?.nom}</div>
+                            <div className="item-detail"><FaMoneyBill className="detail-icon" />Pertes : {accident.amount_of_losses} MAD</div>
+                            <div className="item-detail"><FaShieldAlt className="detail-icon" />Assurance : {accident.amount_assurance} MAD</div>
+                            <div className="item-detail"><FaInfoCircle className="detail-icon" />Statut : {accident.status}</div>
                           </div>
                           <div className="item-id">Accident #{accident.id}</div>
                         </div>
                       ))}
                     </div>
-                    
-                    {/* Pagination des Accidents */}
                     {totalAccidentsPages > 1 && (
-                      <div className="details-pagination">
-                        <div className="pagination">
-                          {renderPaginationButtons(accidentsPage, totalAccidentsPages, handleAccidentsPageChange, 'details')}
-                        </div>
-                      </div>
-                    )}
+  <div className="details-pagination">
+    <PaginationControls
+      currentPage={accidentsPage}
+      totalPages={totalAccidentsPages}
+      onPageChange={handleAccidentsPageChange}
+      itemsPerPage={detailsItemsPerPage}
+      onItemsPerPageChange={() => {}}
+      totalItems={matriculeAccidents.length}
+      pageSizeOptions={[detailsItemsPerPage]}
+    />
+  </div>
+)}
                   </>
                 ) : (
-                  <div className="no-items">
-                    <FaCarCrash size={32} />
-                    <p>Aucun accident trouvé pour ce matricule</p>
-                  </div>
+                  <div className="no-items"><FaCarCrash size={32} /><p>Aucun accident trouvé pour ce matricule</p></div>
                 )}
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {/* Modal de Création d'Accident */}
-      {showAccidentModal && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <div className="modal-header">
-              <h3 className="modal-title">
-                <FaCarCrash className="modal-icon" />
-                Ajouter au Rapport d'Accident
-              </h3>
-              <button 
-                className="modal-close" 
+      {/* ============================================================
+          Accident Modal — SAME shell as AdminModal
+          (gradient header + icon circle + subtitle + absolute close,
+           padded form body, bordered footer with pill buttons)
+          ============================================================ */}
+      {showAccidentModal && createPortal(
+        <div className="acc-overlay" role="dialog" aria-modal="true">
+          <div className="acc-modal">
+            <header className="acc-header">
+              <div className="acc-header-icon">
+                <FaCarCrash size={28} />
+              </div>
+              <div className="acc-header-title">
+                <h2>Ajouter au Rapport d'Accident</h2>
+                <p>Renseignez les informations de l'accident ci-dessous</p>
+              </div>
+              <button
+                type="button"
+                className="acc-header-close"
                 onClick={() => setShowAccidentModal(false)}
+                disabled={submittingAccident}
+                aria-label="Fermer"
               >
-                <FaTimes />
+                <FaTimes size={20} />
               </button>
-            </div>
-            
-            <form onSubmit={handleCreateAccident}>
-              <div className="modal-body">
-                <div className="form-group">
-                  <label>Matricule</label>
-                  <input
-                    type="text"
-                    value={selectedMatriculeForAccident?.matricule_code || ''}
-                    disabled
-                    className="form-input"
-                  />
+            </header>
+
+            <form onSubmit={handleCreateAccident} className="acc-form">
+              <div className="acc-body">
+                <div className="acc-grid-2">
+                  <div className="acc-field">
+                    <label className="acc-label">Matricule</label>
+                    <input
+                      type="text"
+                      value={selectedMatriculeForAccident?.matricule_code || ''}
+                      disabled
+                      className="acc-input"
+                    />
+                  </div>
+
+                  <div className="acc-field">
+                    <label className="acc-label">Voiture</label>
+                    <input
+                      type="text"
+                      value={selectedMatriculeForAccident?.car
+                        ? `${selectedMatriculeForAccident.car.brand} ${selectedMatriculeForAccident.car.model}`
+                        : 'Aucune voiture assignée'}
+                      disabled
+                      className="acc-input"
+                    />
+                  </div>
                 </div>
-                
-                <div className="form-group">
-                  <label>Voiture</label>
-                  <input
-                    type="text"
-                    value={selectedMatriculeForAccident?.car ? 
-                      `${selectedMatriculeForAccident.car.brand} ${selectedMatriculeForAccident.car.model}` : 
-                      'Aucune voiture assignée'}
-                    disabled
-                    className="form-input"
-                  />
-                </div>
-                
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Type d'Accident *</label>
+
+                <div className="acc-grid-2">
+                  <div className="acc-field">
+                    <label className="acc-label acc-required">Type d'Accident</label>
                     <select
                       value={accidentFormData.accident_type || 'grave'}
-                      onChange={(e) => setAccidentFormData(prev => ({ 
-                        ...prev, 
-                        accident_type: e.target.value 
-                      }))}
-                      className="form-input"
+                      onChange={(e) => setAccidentFormData(prev => ({ ...prev, accident_type: e.target.value }))}
+                      className="acc-input"
                       required
                     >
                       <option value="grave">Accident Grave</option>
                       <option value="non_grave">Accident Non-Grave</option>
                     </select>
-                    <div className="form-help-text">
-                      {getMatriculeStatusExplanation(accidentFormData.accident_type)}
-                    </div>
+                    <span className="acc-hint">{getMatriculeStatusExplanation(accidentFormData.accident_type)}</span>
                   </div>
-                  
-                  <div className="form-group">
-                    <label>Type de Procédure *</label>
+
+                  <div className="acc-field">
+                    <label className="acc-label acc-required">Type de Procédure</label>
                     <select
                       value={accidentFormData.procedure_type || 'classic'}
-                      onChange={(e) => setAccidentFormData(prev => ({ 
-                        ...prev, 
-                        procedure_type: e.target.value 
-                      }))}
-                      className="form-input"
+                      onChange={(e) => setAccidentFormData(prev => ({ ...prev, procedure_type: e.target.value }))}
+                      className="acc-input"
                       required
                     >
                       <option value="classic">Procédure Classique</option>
                       <option value="forphie">Procédure Forphie</option>
                     </select>
-                    <div className="form-help-text">
-                      {accidentFormData.procedure_type === 'forphie' 
-                        ? 'Seules les images d\'accident et d\'évaluation d\'expert sont requises' 
-                        : 'Tous les types d\'images sont requis'}
-                    </div>
                   </div>
                 </div>
-                
-                <div className="form-group">
-                  <label>Statut de l'Accident *</label>
-                  <select
-                    value={accidentFormData.status || 'pending'}
-                    onChange={(e) => setAccidentFormData(prev => ({ 
-                      ...prev, 
-                      status: e.target.value 
-                    }))}
-                    className="form-input"
-                    required
-                  >
-                    <option value="pending">En Attente</option>
-                    <option value="evaluation_owner">Évaluation Propriétaire</option>
-                    <option value="contact expert">Contact Expert</option>
-                    <option value="evaluation_expert">Évaluation Expert</option>
-                    <option value="fixed">Réparé</option>
-                    <option value="waiting">En Attente</option>
-                    <option value="completed">Terminé</option>
-                  </select>
-                </div>
-                
-                <div className="form-group">
-                  <label>Date de l'Accident *</label>
-                  <input
-                    type="date"
-                    value={accidentFormData.date_accident}
-                    onChange={(e) => {
-                      const selectedDate = e.target.value;
-                      setAccidentFormData(prev => ({ 
-                        ...prev, 
-                        date_accident: selectedDate 
-                      }));
-                      
-                      // Mettre à jour la liste des clients disponibles
-                      if (selectedMatriculeForAccident) {
-                        const clients = getAvailableClientsForAccident(
-                          selectedMatriculeForAccident.id, 
-                          selectedDate
-                        );
-                        setAvailableClients(clients);
-                        
-                        if (clients.length === 1) {
-                          setAccidentFormData(prev => ({ ...prev, client_id: clients[0].id }));
-                        } else {
-                          setAccidentFormData(prev => ({ ...prev, client_id: '' }));
+
+                <div className="acc-grid-2">
+                  <div className="acc-field">
+                    <label className="acc-label acc-required">Statut de l'Accident</label>
+                    <select
+                      value={accidentFormData.status || 'pending'}
+                      onChange={(e) => setAccidentFormData(prev => ({ ...prev, status: e.target.value }))}
+                      className="acc-input"
+                      required
+                    >
+                      <option value="pending">En Attente</option>
+                      <option value="evaluation_owner">Évaluation Propriétaire</option>
+                      <option value="contact expert">Contact Expert</option>
+                      <option value="evaluation_expert">Évaluation Expert</option>
+                      <option value="fixed">Réparé</option>
+                      <option value="waiting">En Attente</option>
+                      <option value="completed">Terminé</option>
+                    </select>
+                  </div>
+
+                  <div className="acc-field">
+                    <label className="acc-label acc-required">Date de l'Accident</label>
+                    <input
+                      type="date"
+                      value={accidentFormData.date_accident}
+                      onChange={(e) => {
+                        const selectedDate = e.target.value;
+                        setAccidentFormData(prev => ({ ...prev, date_accident: selectedDate }));
+                        if (selectedMatriculeForAccident) {
+                          const clients = getAvailableClientsForAccident(selectedMatriculeForAccident.id, selectedDate);
+                          setAvailableClients(clients);
+                          setAccidentFormData(prev => ({
+                            ...prev,
+                            client_id: clients.length === 1 ? clients[0].id : ''
+                          }));
                         }
-                      }
-                    }}
-                    className="form-input"
-                    required
-                  />
-                  <div className="form-help-text">
-                    Les clients disponibles seront ceux avec des réservations <strong>terminées ou confirmées</strong> qui incluent cette date
+                      }}
+                      className="acc-input"
+                      required
+                    />
                   </div>
                 </div>
-                
-                <div className="form-group">
-                  <label>Sélectionner le Client *</label>
+
+                <div className="acc-field">
+                  <label className="acc-label acc-required">Sélectionner le Client</label>
                   <select
                     value={accidentFormData.client_id || ''}
-                    onChange={(e) => setAccidentFormData(prev => ({ 
-                      ...prev, 
-                      client_id: e.target.value 
-                    }))}
-                    className="form-input"
+                    onChange={(e) => setAccidentFormData(prev => ({ ...prev, client_id: e.target.value }))}
+                    className="acc-input"
                     required
                   >
                     <option value="">Sélectionner un client</option>
@@ -2014,80 +1489,57 @@ const MatriculesManagement = ({ onBack, filter }) => {
                       </option>
                     ))}
                   </select>
-                  {availableClients.length === 0 && accidentFormData.date_accident && (
-                    <div className="form-help-text">
-                      Aucune réservation terminée ou confirmée trouvée pour ce matricule le {accidentFormData.date_accident}
-                    </div>
-                  )}
                 </div>
-                
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Montant des Pertes (€) *</label>
+
+                <div className="acc-grid-2">
+                  <div className="acc-field">
+                    <label className="acc-label acc-required">Montant des Pertes (€)</label>
                     <input
                       type="number"
                       value={accidentFormData.amount_of_losses || 0}
-                      onChange={(e) => setAccidentFormData(prev => ({ 
-                        ...prev, 
-                        amount_of_losses: parseFloat(e.target.value) || 0 
-                      }))}
-                      className="form-input"
+                      onChange={(e) => setAccidentFormData(prev => ({ ...prev, amount_of_losses: parseFloat(e.target.value) || 0 }))}
+                      className="acc-input"
                       min="0"
                       step="0.01"
                       required
                     />
                   </div>
-                  
-                  <div className="form-group">
-                    <label>Montant Assurance (€) *</label>
+                  <div className="acc-field">
+                    <label className="acc-label acc-required">Montant Assurance (€)</label>
                     <input
                       type="number"
                       value={accidentFormData.amount_assurance || 0}
-                      onChange={(e) => setAccidentFormData(prev => ({ 
-                        ...prev, 
-                        amount_assurance: parseFloat(e.target.value) || 0 
-                      }))}
-                      className="form-input"
+                      onChange={(e) => setAccidentFormData(prev => ({ ...prev, amount_assurance: parseFloat(e.target.value) || 0 }))}
+                      className="acc-input"
                       min="0"
                       step="0.01"
                       required
                     />
                   </div>
                 </div>
-
-                <div className="form-notification">
-                  <div className="notification-warning">
-                    <FaExclamationTriangle className="notification-icon" />
-                    <span>
-                      <strong>Note :</strong> Le statut du matricule sera automatiquement mis à jour en fonction du type d'accident et du statut :
-                      <br />
-                      • <strong>Accidents graves :</strong> Matricule inactif jusqu'au statut 'waiting' ou 'completed'
-                      <br />
-                      • <strong>Accidents non-graves :</strong> Matricule inactif seulement pendant le statut 'fixed'
-                    </span>
-                  </div>
-                </div>
               </div>
-              
-              <div className="modal-actions">
-                <button 
-                  type="button" 
-                  className="btn btn-secondary"
+
+              <div className="acc-footer">
+                <button
+                  type="button"
+                  className="acc-btn-secondary"
                   onClick={() => setShowAccidentModal(false)}
+                  disabled={submittingAccident}
                 >
                   Annuler
                 </button>
-                <button 
-                  type="submit" 
-                  className="btn btn-primary"
+                <button
+                  type="submit"
+                  className="acc-btn-primary"
                   disabled={!accidentFormData.client_id || submittingAccident}
                 >
-                  {submittingAccident ? 'Traitement...' : 'Créer Rapport d\'Accident'}
+                  {submittingAccident ? 'Traitement…' : "Créer Rapport d'Accident"}
                 </button>
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {showModal && (
@@ -2103,25 +1555,20 @@ const MatriculesManagement = ({ onBack, filter }) => {
         />
       )}
 
-      {/* Modal de Confirmation */}
-      {showConfirmation && (
+      {/* Confirmation Modal — full-screen overlay (no sidebar offset) */}
+      {showConfirmation && createPortal(
         <div className="confirmation-modal-overlay">
           <div className="confirmation-modal">
             <div className="confirmation-header">
-              <div className={`confirmation-icon ${confirmationConfig.type}`}>
-                <FaExclamationTriangle />
-              </div>
+              <div className={`confirmation-icon ${confirmationConfig.type}`}><FaExclamationTriangle /></div>
               <h3 className="confirmation-title">{confirmationConfig.title}</h3>
             </div>
-            
+
             <div className="confirmation-body">
               <p className="confirmation-message">{confirmationConfig.message}</p>
-              
               {confirmationConfig.matricule && (
                 <div className="matricule-preview" style={{ display: 'flex', alignItems: 'center' }}>
-                  <div className="matricule-avatar-preview">
-                    {confirmationConfig.matricule.matricule_code.substring(0, 2)}
-                  </div>
+                  <div className="matricule-avatar-preview">{confirmationConfig.matricule.matricule_code.substring(0, 2)}</div>
                   <div className="matricule-info-preview">
                     <h4>{confirmationConfig.matricule.matricule_code}</h4>
                     <div className="matricule-meta-preview">
@@ -2134,2235 +1581,876 @@ const MatriculesManagement = ({ onBack, filter }) => {
             </div>
 
             <div className="confirmation-actions">
-              <button 
-                className="btn-confirm-cancel"
-                onClick={() => setShowConfirmation(false)}
-                disabled={submitting}
-              >
-                Annuler
-              </button>
-              <button 
-                className={`btn-confirm-${confirmationConfig.type}`}
-                onClick={confirmationConfig.onConfirm}
-                disabled={submitting}
-              >
+              <button className="btn-confirm-cancel" onClick={() => setShowConfirmation(false)} disabled={submitting}>Annuler</button>
+              <button className={`btn-confirm-${confirmationConfig.type}`} onClick={confirmationConfig.onConfirm} disabled={submitting}>
                 {submitting ? <FaSpinner className="spinning" /> : 'Supprimer le Matricule'}
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      <style jsx>{`
-  .matricules-management {
-    padding: 2rem;
-    min-height: 100vh;
-    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
-    overflow-x: hidden;
-    width: 100%;
-  }
-
-  .spinning {
-    animation: spin 1s linear infinite;
-  }
-
-  @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-  }
-
-  /* Loading Spinner */
-  .loading-spinner {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 400px;
-  }
-
-  .spinner {
-    width: 48px;
-    height: 48px;
-    border: 3px solid #e9ecef;
-    border-top: 3px solid #007bff;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    margin-bottom: 1rem;
-  }
-
-  /* Section Header */
-  .section-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 2rem;
-    background: white;
-    padding: 2rem;
-    border-radius: 20px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255,255,255,0.2);
-    max-width: 100%;
-    box-sizing: border-box;
-  }
-
-  .header-content {
-    flex: 1;
-  }
-
-  .back-button {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    background: #6c757d;
-    color: white;
-    border: none;
-    padding: 10px 15px;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: background 0.3s ease;
-    margin-bottom: 1rem;
-  }
-
-  .back-button:hover {
-    background: #5a6268;
-  }
-
-  .section-title {
-    display: flex;
-    align-items: center;
-    font-size: 2rem;
-    font-weight: 700;
-    color: #1a1a1a;
-    margin: 0 0 0.5rem 0;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    flex-wrap: wrap;
-    gap: 10px;
-  }
-
-  .filter-indicator {
-    font-size: 1.2rem;
-    color: #6c757d;
-    font-weight: 500;
-    background: rgba(108, 117, 125, 0.1);
-    padding: 4px 12px;
-    border-radius: 20px;
-    border: 1px solid rgba(108, 117, 125, 0.2);
-  }
-
-  .title-icon {
-    margin-right: 0.75rem;
-    font-size: 2rem;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-  }
-
-  .section-subtitle {
-    color: #6c757d;
-    font-size: 1.1rem;
-    margin: 0;
-    font-weight: 400;
-  }
-
-  .section-actions {
-    display: flex;
-    gap: 1rem;
-    align-items: center;
-  }
-
-  /* Buttons */
-  .btn {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.75rem 1.5rem;
-    border: none;
-    border-radius: 12px;
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    text-decoration: none;
-    font-family: inherit;
-  }
-
-  .btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    transform: none;
-  }
-
-  .btn-primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-  }
-
-  .btn-primary:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
-  }
-
-  .btn-secondary {
-    background: #6c757d;
-    color: white;
-    box-shadow: 0 4px 15px rgba(108, 117, 125, 0.3);
-  }
-
-  .btn-secondary:hover:not(:disabled) {
-    background: #545b62;
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(108, 117, 125, 0.4);
-  }
-
-  .btn-clear {
-    background: #dc3545;
-    color: white;
-    box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
-    white-space: nowrap;
-    min-width: auto;
-    padding: 0.75rem 1.25rem;
-    font-size: 0.8rem;
-  }
-
-  .btn-clear:hover:not(:disabled) {
-    background: #c82333;
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(220, 53, 69, 0.4);
-  }
-
-  .btn-icon {
-    font-size: 0.875rem;
-  }
-
-  /* Stats Grid */
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1.5rem;
-    margin-bottom: 2rem;
-    max-width: 100%;
-    box-sizing: border-box;
-  }
-
-  .stat-card {
-    background: white;
-    padding: 1.5rem;
-    border-radius: 16px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-    position: relative;
-    overflow: hidden;
-    transition: all 0.3s ease;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border: 1px solid rgba(255,255,255,0.2);
-  }
-
-  .stat-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 12px 40px rgba(0,0,0,0.15);
-  }
-
-  .stat-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 4px;
-  }
-
-  .stat-total::before { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-  .stat-active::before { background: linear-gradient(135deg, #4CAF50, #45a049); }
-  .stat-inactive::before { background: linear-gradient(135deg, #dc3545, #c82333); }
-  .stat-vidange::before { background: linear-gradient(135deg, #2196F3, #0b7dda); }
-
-  .stat-content {
-    flex: 1;
-  }
-
-  .stat-number {
-    font-size: 2rem;
-    font-weight: 800;
-    color: #1a1a1a;
-    margin-bottom: 0.25rem;
-    line-height: 1;
-  }
-
-  .stat-label {
-    font-size: 0.875rem;
-    color: #6c757d;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .stat-icon {
-    font-size: 2rem;
-    opacity: 0.1;
-    color: #1a1a1a;
-  }
-
-  /* Search and Filter Styles - FIXED */
-  .search-filter-section {
-    background: white;
-    padding: 1.5rem;
-    border-radius: 20px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-    margin-bottom: 1.5rem;
-    width: 100%;
-    overflow: hidden;
-    max-width: 100%;
-    box-sizing: border-box;
-  }
-
-  .search-container {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-    width: 100%;
-  }
-
-  .search-box {
-    position: relative;
-    width: 100%;
-    flex-shrink: 0;
-  }
-
-  .search-icon {
-    position: absolute;
-    left: 1rem;
-    top: 50%;
-    transform: translateY(-50%);
-    color: #6c757d;
-    font-size: 1rem;
-  }
-
-  .search-input {
-    width: 100%;
-    padding: 0.75rem 1rem 0.75rem 3rem;
-    border: 2px solid #e9ecef;
-    border-radius: 12px;
-    font-size: 0.875rem;
-    transition: all 0.3s ease;
-    font-family: inherit;
-    box-sizing: border-box;
-  }
-
-  .search-input:focus {
-    outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-  }
-
-  .filters-row {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    width: 100%;
-  }
-
-  .filter-group {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 1rem;
-    width: 100%;
-  }
-
-  .filter-item {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    min-width: 0;
-  }
-
-  .filter-item label {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #6c757d;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .filter-icon {
-    font-size: 0.875rem;
-    flex-shrink: 0;
-  }
-
-  .filter-select {
-    width: 100%;
-    padding: 0.75rem 1rem;
-    border: 2px solid #e9ecef;
-    border-radius: 12px;
-    font-size: 0.875rem;
-    background: white;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    font-family: inherit;
-    min-width: 0;
-    box-sizing: border-box;
-  }
-
-  .filter-select:focus {
-    outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-  }
-
-  .filter-actions {
-    display: flex;
-    justify-content: flex-end;
-    width: 100%;
-    margin-top: 0.5rem;
-  }
-
-  /* Results Summary */
-  .results-summary {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    flex-wrap: wrap;
-    gap: 1rem;
-    margin-bottom: 1rem;
-    padding: 0 0.5rem;
-    font-size: 0.875rem;
-    color: #6c757d;
-    width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
-  }
-
-  .summary-left {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .results-count {
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .sort-indicator {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.375rem 0.75rem;
-    background: rgba(102, 126, 234, 0.1);
-    border: 1px solid rgba(102, 126, 234, 0.2);
-    border-radius: 20px;
-    font-size: 0.75rem;
-    color: #667eea;
-    font-weight: 500;
-    width: fit-content;
-    max-width: 100%;
-    flex-wrap: wrap;
-  }
-
-  .sort-indicator-icon {
-    font-size: 0.7rem;
-    flex-shrink: 0;
-  }
-
-  .btn-clear-sort {
-    background: none;
-    border: none;
-    color: #667eea;
-    cursor: pointer;
-    padding: 0.125rem;
-    border-radius: 4px;
-    font-size: 0.7rem;
-    margin-left: 0.25rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background-color 0.2s ease;
-    flex-shrink: 0;
-  }
-
-  .btn-clear-sort:hover {
-    background: rgba(102, 126, 234, 0.2);
-  }
-
-  .page-info {
-    font-weight: 600;
-    color: #495057;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  /* Content Container */
-  .content-container {
-    background: white;
-    border-radius: 20px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-    border: 1px solid rgba(255,255,255,0.2);
-    width: 100%;
-    overflow: hidden;
-    max-width: 100%;
-    box-sizing: border-box;
-  }
-
-  /* Table Styles */
-  .data-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.875rem;
-    table-layout: auto;
-  }
-
-  .data-table th {
-    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-    padding: 1rem 1.25rem;
-    text-align: left;
-    font-weight: 600;
-    color: #2c3e50;
-    border-bottom: 2px solid #e9ecef;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    white-space: nowrap;
-  }
-
-  .data-table td {
-    padding: 1rem 1.25rem;
-    border-bottom: 1px solid #f8f9fa;
-    color: #495057;
-    height: 90px;
-    vertical-align: middle;
-  }
-
-  .data-table tr:hover {
-    background: #f8f9fa;
-  }
-
-  /* Sortable Headers */
-  .sortable-header {
-    cursor: pointer;
-    user-select: none;
-    transition: background-color 0.3s ease;
-    position: relative;
-  }
-
-  .sortable-header:hover {
-    background-color: #f8f9fa;
-  }
-
-  .header-content {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    justify-content: space-between;
-  }
-
-  .sort-icon {
-    font-size: 0.75rem;
-    color: #adb5bd;
-    opacity: 0.5;
-    transition: all 0.3s ease;
-  }
-
-  .sort-icon.active {
-    color: #667eea;
-    opacity: 1;
-  }
-
-  .sortable-header:hover .sort-icon:not(.active) {
-    opacity: 0.8;
-  }
-
-  /* Indicateur visuel du tri actif */
-  .sortable-header::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    transform: scaleX(0);
-    transition: transform 0.3s ease;
-  }
-
-  .sortable-header:has(.sort-icon.active)::after {
-    transform: scaleX(1);
-  }
-
-  .matricule-id {
-    font-weight: 600;
-    color: #6c757d;
-    font-family: 'Monaco', 'Consolas', monospace;
-    white-space: nowrap;
-  }
-
-  .matricule-code {
-    font-weight: 700;
-    color: #2c3e50;
-    font-size: 1rem;
-    white-space: nowrap;
-  }
-
-  .car-info {
-    color: #495057;
-  }
-
-  .car-name {
-    font-weight: 600;
-    color: #2c3e50;
-    white-space: nowrap;
-  }
-
-  .car-details {
-    display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 12px;
-  background: linear-gradient(135deg, #ffcc00 0%, #ff9900 100%); /* Orange vif */
-  border-radius: 10px;
-  border: 2px solid #ff6600; /* Bordure orange foncé */
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: #ffffff; /* Blanc */
-  white-space: nowrap;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
-  box-shadow: 0 3px 6px rgba(255, 102, 0, 0.3);
+      <style>{`
+        /* ================= Layout ================= */
+        .matricules-management {
+          padding: 2rem; min-height: 100vh;
+          font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+          background: #f8fafc; color: #334155;
+          overflow-x: hidden; width: 100%;
+        }
+        .spinning { animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* ================= Loading ================= */
+        .loading-spinner {
+          display: flex; flex-direction: column; align-items: center;
+          justify-content: center; height: 400px; color: #64748b;
+        }
+        .spinner {
+          width: 48px; height: 48px; border: 3px solid #e2e8f0;
+          border-top: 3px solid #667eea; border-radius: 50%;
+          animation: spin 1s linear infinite; margin-bottom: 1rem;
+        }
+
+        /* ================= Header ================= */
+        .section-header {
+          display: flex; justify-content: space-between; align-items: flex-start;
+          gap: 1rem; margin-bottom: 2rem; background: #fff; padding: 2rem;
+          border-radius: 1.25rem; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+          border: 1px solid #e2e8f0; flex-wrap: wrap;
+          max-width: 100%; box-sizing: border-box;
+        }
+        .header-content { flex: 1; }
+        .section-title {
+          display: flex; align-items: center; gap: 10px;
+          font-size: 2rem; font-weight: 700; margin: 0 0 0.5rem 0;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+          background-clip: text; flex-wrap: wrap;
+        }
+        .filter-indicator {
+          font-size: 1.2rem; color: #64748b; font-weight: 500;
+          background: rgba(108, 117, 125, 0.1); padding: 4px 12px;
+          border-radius: 20px; border: 1px solid rgba(108, 117, 125, 0.2);
+        }
+        .title-icon { color: #667eea; }
+        .section-subtitle { color: #64748b; font-size: 1rem; margin: 0; font-weight: 400; }
+        .section-actions { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+
+        /* ================= Buttons ================= */
+        .btn {
+          display: inline-flex; align-items: center; gap: 0.5rem;
+          height: 2.5rem; padding: 0 1rem; border-radius: 9999px;
+          border: none; cursor: pointer; font-size: 0.875rem; font-weight: 500;
+          transition: all 0.2s; font-family: inherit;
+        }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+        .btn-primary {
+          background: linear-gradient(135deg, #667eea, #764ba2); color: white;
+          box-shadow: 0 4px 15px rgba(102,126,234,0.3);
+        }
+        .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 25px rgba(102,126,234,0.4); }
+        .btn-secondary { background: #f1f5f9; color: #1e293b; }
+        .btn-secondary:hover:not(:disabled) { background: #e2e8f0; transform: translateY(-1px); }
+        .btn-clear { background: #ef4444; color: #fff; padding: 0 1.25rem; font-size: 0.8rem; }
+        .btn-clear:hover:not(:disabled) { background: #dc2626; transform: translateY(-1px); }
+        .btn-icon { font-size: 0.875rem; }
+
+        /* ================= Stats ================= */
+        .stats-grid {
+          display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          gap: 1rem; margin-bottom: 1.5rem;
+          max-width: 100%; box-sizing: border-box;
+        }
+        .stat-card {
+          background: white; border: 1px solid #e2e8f0; border-radius: 1rem;
+          padding: 1rem; transition: all 0.2s;
+          display: flex; justify-content: space-between; align-items: center;
+          position: relative; overflow: hidden;
+        }
+        .stat-card::before {
+          content: ''; position: absolute; top: 0; left: 0; right: 0;
+          height: 4px; border-radius: 1rem 1rem 0 0;
+        }
+        .stat-total::before { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .stat-active::before { background: linear-gradient(135deg, #10b981, #059669); }
+        .stat-inactive::before { background: linear-gradient(135deg, #ef4444, #dc2626); }
+        .stat-vidange::before { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); }
+        .stat-number { font-size: 1.875rem; font-weight: 700; color: #0f172a; line-height: 1; }
+        .stat-label { font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 0.35rem; }
+        .stat-icon { opacity: 0.5; font-size: 2rem; }
+
+        /* ================= Search + filters ================= */
+        .search-filter-section {
+          background: white; padding: 1.5rem; border-radius: 1rem;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 1.5rem;
+          width: 100%; overflow: hidden; max-width: 100%; box-sizing: border-box;
+          border: 1px solid #e2e8f0;
+        }
+        .search-container { display: flex; flex-direction: column; gap: 1.5rem; width: 100%; }
+        .search-box { position: relative; width: 100%; flex-shrink: 0; }
+        .search-icon {
+          position: absolute; left: 1rem; top: 50%;
+          transform: translateY(-50%); color: #64748b; font-size: 1rem;
+        }
+        .search-input {
+          width: 100%; padding: 0.5rem 1rem 0.5rem 2.5rem;
+          border: 1px solid #e2e8f0; border-radius: 0.5rem;
+          font-size: 0.875rem; transition: all 0.2s;
+          font-family: inherit; box-sizing: border-box; background: #fff;
+        }
+        .search-input:focus {
+          outline: none; border-color: #667eea;
+          box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15);
+        }
+        .filters-row {
+          display: flex; flex-direction: column; gap: 1rem; width: 100%;
+        }
+        .filter-group {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          gap: 1rem; width: 100%;
+        }
+        .filter-item { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+        .filter-item label {
+          display: flex; align-items: center; gap: 0.5rem;
+          font-size: 0.7rem; font-weight: 600; color: #64748b;
+          text-transform: uppercase; letter-spacing: 0.5px;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .filter-icon { font-size: 0.875rem; flex-shrink: 0; }
+        .filter-select {
+          width: 100%; padding: 0.5rem 0.75rem;
+          border: 1px solid #e2e8f0; border-radius: 0.5rem;
+          font-size: 0.875rem; background: white;
+          cursor: pointer; transition: all 0.2s;
+          font-family: inherit; min-width: 0; box-sizing: border-box;
+        }
+        .filter-select:focus {
+          outline: none; border-color: #667eea;
+          box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15);
+        }
+        .filter-actions {
+          display: flex; justify-content: flex-end;
+          width: 100%; margin-top: 0.5rem;
+        }
+
+        /* ================= Results summary ================= */
+        .results-summary {
+          display: flex; justify-content: space-between; align-items: flex-start;
+          flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;
+          padding: 0 0.25rem; font-size: 0.875rem; color: #64748b;
+          width: 100%; max-width: 100%; box-sizing: border-box;
+        }
+        .summary-left { display: flex; flex-direction: column; gap: 0.5rem; flex: 1; min-width: 0; }
+        .results-count {
+          font-weight: 500; white-space: nowrap;
+          overflow: hidden; text-overflow: ellipsis;
+        }
+        .sort-indicator {
+          display: inline-flex; align-items: center; gap: 0.5rem;
+          padding: 0.375rem 0.75rem;
+          background: rgba(102, 126, 234, 0.1);
+          border: 1px solid rgba(102, 126, 234, 0.2);
+          border-radius: 9999px; font-size: 0.75rem;
+          color: #667eea; font-weight: 500;
+          width: fit-content; max-width: 100%; flex-wrap: wrap;
+        }
+        .sort-indicator-icon { font-size: 0.7rem; flex-shrink: 0; }
+        .btn-clear-sort {
+          background: none; border: none; color: #667eea;
+          cursor: pointer; padding: 0.125rem; border-radius: 4px;
+          font-size: 0.7rem; margin-left: 0.25rem;
+          display: flex; align-items: center; justify-content: center;
+          transition: background-color 0.2s ease; flex-shrink: 0;
+        }
+        .btn-clear-sort:hover { background: rgba(102, 126, 234, 0.2); }
+        .page-info { font-weight: 600; color: #334155; white-space: nowrap; flex-shrink: 0; }
+
+        /* ================= Content container ================= */
+        .content-container {
+          background: white; border: 1px solid #e2e8f0; border-radius: 1rem;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+          width: 100%; overflow: hidden; max-width: 100%; box-sizing: border-box;
+        }
+
+        /* ================= Table ================= */
+        .data-table { width: 100%; font-size: 0.875rem; border-collapse: collapse; }
+        .data-table th {
+          text-align: left; padding: 0.75rem 1rem;
+          background: #f8fafc; color: #64748b; font-weight: 500;
+          white-space: nowrap; border-bottom: 1px solid #e2e8f0;
+          font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .data-table td {
+          padding: 0.75rem 1rem; border-top: 1px solid #e2e8f0;
+          color: #334155; vertical-align: middle;
+        }
+        .data-table tr:hover { background: #f8fafc; }
+
+        .sortable-header { cursor: pointer; user-select: none; transition: background-color 0.3s ease; position: relative; }
+        .sortable-header:hover { background-color: #f8fafc; }
+        .header-content { display: flex; align-items: center; gap: 0.5rem; justify-content: space-between; }
+        .sort-icon { font-size: 0.75rem; color: #94a3b8; opacity: 0.5; transition: all 0.3s ease; }
+        .sort-icon.active { color: #667eea; opacity: 1; }
+        .sortable-header:hover .sort-icon:not(.active) { opacity: 0.8; }
+
+        /* ================= Table cells ================= */
+        .matricule-code { font-weight: 700; color: #667eea; font-size: 1rem; white-space: nowrap; font-family: 'Courier New', monospace; }
+        .car-info { color: #334155; }
+        .car-name { font-weight: 600; color: #0f172a; white-space: nowrap; }
+        .car-details { font-size: 0.75rem; color: #64748b; margin-top: 2px; }
+        .no-car { color: #94a3b8; font-style: italic; font-size: 0.8rem; }
+        .kilometrage-cell { display: flex; align-items: center; gap: 0.5rem; font-weight: 500; color: #334155; white-space: nowrap; }
+        .kilometrage-icon { color: #667eea; font-size: 0.875rem; }
+        .last-return { font-size: 0.7rem; color: #94a3b8; margin-top: 2px; }
+
+        /* ================= Action buttons ================= */
+        .action-buttons { display: flex; gap: 0.5rem; position: relative; flex-wrap: nowrap; }
+        .action-btn {
+          display: flex; align-items: center; justify-content: center;
+          padding: 0.5rem; background: none; border: none; cursor: pointer;
+          border-radius: 0.5rem; transition: all 0.2s;
+          width: 32px; height: 32px; font-size: 0.875rem;
+          position: relative; flex-shrink: 0;
+        }
+        .action-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .action-btn.view     { color: #3b82f6; }  .action-btn.view:hover:not(:disabled)     { background: #eff6ff; }
+        .action-btn.accident { color: #f97316; }  .action-btn.accident:hover:not(:disabled) { background: #fff7ed; }
+        .action-btn.edit     { color: #10b981; }  .action-btn.edit:hover:not(:disabled)     { background: #ecfdf5; }
+        .action-btn.delete   { color: #ef4444; }  .action-btn.delete:hover:not(:disabled)   { background: #fef2f2; }
+
+        .action-alert-indicator {
+          position: absolute; top: -5px; right: -5px;
+          display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        .alert-dot {
+          width: 8px; height: 8px; background: #dc3545; border-radius: 50%;
+          border: 2px solid white; box-shadow: 0 0 0 1px #dc3545;
+          animation: pulse 2s infinite; flex-shrink: 0;
+        }
+        .alert-count {
+          position: absolute; top: -8px; right: -8px;
+          background: #dc3545; color: white; border-radius: 50%;
+          width: 16px; height: 16px; font-size: 0.6rem;
+          display: flex; align-items: center; justify-content: center;
+          font-weight: bold; border: 2px solid white;
+          box-shadow: 0 0 0 1px #dc3545; flex-shrink: 0;
+        }
+        @keyframes pulse {
+          0% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(1.2); opacity: 0.8; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+
+        /* ================= Badges ================= */
+        .status-badge {
+          display: inline-flex; align-items: center; gap: 0.25rem;
+          padding: 0.25rem 0.625rem; border-radius: 9999px;
+          font-size: 0.7rem; font-weight: 500; white-space: nowrap;
+        }
+        .status-active, .status-completed, .status-confirmed { background: #dcfce7; color: #166534; }
+        .status-inactive, .status-cancelled { background: #fee2e2; color: #991b1b; }
+        .status-pending, .status-not-done { background: #fef3c7; color: #92400e; }
+        .status-reserved { background: #fef3c7; color: #92400e; }
+        .status-late { background: #ffedd5; color: #9a3412; }
+        .status-icon { font-size: 0.7rem; }
+
+        .maintenance-badge {
+          display: inline-flex; align-items: center; gap: 0.375rem;
+          padding: 0.25rem 0.625rem; border-radius: 9999px;
+          font-size: 0.7rem; font-weight: 500; white-space: nowrap;
+        }
+        .maintenance-badge.done { background: #dcfce7; color: #166534; }
+        .maintenance-badge.not-done { background: #fee2e2; color: #991b1b; }
+
+        .alert-badge {
+          display: inline-flex; align-items: center; gap: 0.375rem;
+          padding: 0.25rem 0.625rem; border-radius: 9999px;
+          font-size: 0.7rem; font-weight: 500; white-space: nowrap;
+        }
+        .alert-badge.high { background: #fee2e2; color: #991b1b; }
+        .alert-badge.medium { background: #fef3c7; color: #92400e; }
+        .badge-icon { font-size: 0.75rem; }
+
+        /* ================= Status badge container / tooltip ================= */
+        .status-badge-container { display: flex; align-items: center; gap: 4px; position: relative; }
+        .inactive-reason-wrapper { position: relative; display: inline-flex; }
+        .reason-icon-hover {
+          color: #94a3b8; font-size: 12px; cursor: pointer;
+          opacity: 0.7; transition: opacity 0.2s ease;
+        }
+        .reason-icon-hover:hover { opacity: 1; color: #dc3545; }
+        .inactive-reason-tooltip {
+          position: absolute; top: 100%; left: 50%;
+          transform: translateX(-50%); background: white;
+          border: 1px solid #e2e8f0; border-radius: 0.5rem;
+          padding: 0.75rem 1rem;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+          min-width: 250px; max-width: 300px; z-index: 1000;
+          opacity: 0; visibility: hidden; transition: all 0.3s ease;
+          margin-top: 8px;
+        }
+        .inactive-reason-wrapper:hover .inactive-reason-tooltip {
+          opacity: 1; visibility: visible; margin-top: 4px;
+        }
+        .inactive-reason-tooltip::before {
+          content: ''; position: absolute; top: -6px; left: 50%;
+          transform: translateX(-50%) rotate(45deg);
+          width: 12px; height: 12px; background: white;
+          border-left: 1px solid #e2e8f0; border-top: 1px solid #e2e8f0;
+        }
+        .tooltip-content { font-size: 0.8rem; line-height: 1.4; color: #334155; }
+        .tooltip-content strong { color: #0f172a; display: block; margin-bottom: 4px; }
+        .reason-details {
+          margin-top: 8px; padding-top: 8px;
+          border-top: 1px dashed #e2e8f0;
+          font-size: 0.75rem; color: #64748b;
+        }
+        .inactive-reason-display {
+          display: flex; align-items: center; gap: 0.5rem;
+          padding: 0.75rem;
+          background: rgba(220, 53, 69, 0.1);
+          border: 1px solid rgba(220, 53, 69, 0.2);
+          border-radius: 0.5rem; margin-top: 1rem;
+          font-size: 0.875rem; color: #dc3545;
+        }
+        .inactive-reason-display .reason-icon { color: #dc3545; font-size: 0.875rem; flex-shrink: 0; }
+        .reason-content { flex: 1; }
+
+        /* ================= Empty state ================= */
+        .no-data { text-align: center; padding: 4rem 2rem; color: #64748b; width: 100%; }
+        .no-data svg { margin-bottom: 1.5rem; opacity: 0.3; color: #667eea; }
+        .no-data p { font-size: 1.05rem; color: #495057; margin: 0 0 2rem 0; }
+
+        /* ================= Pagination ================= */
+        .pagination-container {
+          padding: 2rem; border-top: 1px solid #f1f3f4;
+          display: flex; justify-content: center;
+          width: 100%; max-width: 100%; box-sizing: border-box;
+        }
+
+        /* ====================================================================
+           Shared keyframes
+           ==================================================================== */
+        @keyframes amSlideIn {
+          from { opacity: 0; transform: translateY(20px) scale(0.98); }
+          to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes modalSlideIn {
+          from { opacity: 0; transform: translateY(-50px) scale(0.9); }
+          to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        /* ====================================================================
+           Details modal — SAME shell as AdminModal
+           ==================================================================== */
+        .details-modal-overlay {
+          position: fixed;
+          top: 0; right: 0; bottom: 0; left: 0;
+          background: #f8fafc;
+          overflow-y: auto; overflow-x: hidden;
+          z-index: 9999;
+        }
+        @media (min-width: 768px) {
+          .details-modal-overlay { left: 18rem; }
+        }
+        .details-modal {
+          background: #fff;
+          border-radius: 32px;
+          margin: 1.5rem;
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+          overflow: hidden;
+          animation: amSlideIn 0.3s ease-out;
+        }
+        .details-header {
+          display: flex; justify-content: space-between; align-items: flex-start;
+          padding: 2rem; border-bottom: 1px solid #f1f3f4;
+          background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        }
+        .matricule-header-info { display: flex; align-items: center; gap: 1.5rem; }
+        .matricule-avatar-large {
+          width: 80px; height: 80px; border-radius: 50%;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          display: flex; align-items: center; justify-content: center;
+          color: white; font-weight: 700; font-size: 1.5rem; flex-shrink: 0;
+        }
+        .matricule-info h2 { margin: 0 0 0.5rem 0; color: #0f172a; font-size: 1.5rem; }
+        .matricule-contact { display: flex; flex-direction: column; gap: 0.5rem; color: #64748b; font-size: 0.9rem; }
+        .matricule-contact div { display: flex; align-items: center; gap: 0.5rem; }
+        .close-details-btn {
+          background: none; border: none; font-size: 1.5rem;
+          color: #64748b; cursor: pointer; padding: 0.5rem;
+          border-radius: 0.5rem; transition: all 0.3s ease;
+        }
+        .close-details-btn:hover { background: #f8f9fa; color: #dc3545; }
+        .details-content { padding: 2rem; }
+        .details-section { margin-bottom: 2rem; }
+        .details-section .section-title {
+          display: flex; align-items: center; gap: 0.75rem;
+          font-size: 1.25rem; font-weight: 600; color: #0f172a;
+          margin-bottom: 1.5rem; background: none;
+          -webkit-text-fill-color: #0f172a;
+        }
+        .info-grid {
+          display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+          gap: 1rem; margin-bottom: 1.5rem;
+        }
+        .info-item {
+          display: flex; flex-direction: column; gap: 0.5rem;
+          padding: 1rem; background: #f8fafc;
+          border-radius: 0.5rem; border: 1px solid #e2e8f0;
+        }
+        .info-item label {
+          font-size: 0.75rem; font-weight: 600; color: #64748b;
+          text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .info-item div { font-size: 0.9rem; color: #334155; font-weight: 500; }
+
+        /* ================= Maintenance sections ================= */
+        .maintenance-alerts-section { margin-bottom: 2rem; }
+        .alerts-title {
+          display: flex; align-items: center; gap: 0.5rem;
+          font-size: 1.1rem; font-weight: 600;
+          color: #0f172a; margin-bottom: 1rem;
+        }
+        .alerts-icon { color: #dc3545; }
+        .alerts-list { display: flex; flex-direction: column; gap: 0.75rem; }
+        .alert-item { padding: 1rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; }
+        .alert-item.high { background: rgba(220, 53, 69, 0.05); border-left: 4px solid #dc3545; }
+        .alert-item.medium { background: rgba(255, 193, 7, 0.05); border-left: 4px solid #f59e0b; }
+        .alert-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; }
+        .alert-message { font-weight: 500; color: #334155; flex: 1; }
+        .alert-details {
+          display: flex; flex-wrap: wrap; gap: 1rem;
+          font-size: 0.8rem; color: #64748b;
+        }
+
+        .maintenance-section { margin-bottom: 2rem; }
+        .maintenance-title {
+          display: flex; align-items: center; gap: 0.5rem;
+          font-size: 1.1rem; font-weight: 600;
+          color: #0f172a; margin-bottom: 1rem;
+        }
+        .maintenance-icon { color: #f59e0b; }
+        .maintenance-grid {
+          display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          gap: 1rem;
+        }
+        .maintenance-item {
+          display: flex; justify-content: space-between; align-items: center;
+          padding: 1rem; background: white;
+          border: 1px solid #e2e8f0; border-radius: 0.5rem;
+          transition: all 0.3s ease;
+        }
+        .maintenance-item:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); transform: translateY(-1px); }
+        .maintenance-label {
+          display: flex; align-items: center; gap: 0.5rem;
+          font-size: 0.875rem; color: #334155; font-weight: 500;
+        }
+        .maintenance-item-icon { color: #667eea; font-size: 0.875rem; }
+
+        /* ================= Item cards ================= */
+        .items-grid {
+          display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+          gap: 1.5rem; margin-bottom: 1.5rem;
+        }
+        .item-card {
+          background: white; border: 1px solid #e2e8f0; border-radius: 0.75rem;
+          padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+          transition: all 0.3s ease;
+        }
+        .item-card:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .accident-card { border-left: 4px solid #ef4444; }
+        .item-header {
+          display: flex; justify-content: space-between;
+          align-items: flex-start; margin-bottom: 1rem;
+        }
+        .item-title {
+          display: flex; align-items: center; gap: 0.5rem;
+          font-weight: 600; color: #0f172a; font-size: 1rem;
+        }
+        .item-icon { font-size: 1rem; }
+        .item-icon.accident { color: #ef4444; }
+        .accident-date { font-size: 0.8rem; color: #64748b; font-weight: 500; }
+        .item-details { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem; }
+        .item-detail {
+          display: flex; align-items: center; gap: 0.5rem;
+          font-size: 0.875rem; color: #64748b;
+        }
+        .detail-icon { font-size: 0.875rem; color: #667eea; width: 16px; }
+        .item-id {
+          font-size: 0.7rem; color: #94a3b8; text-align: right;
+          font-family: 'Monaco', 'Consolas', monospace;
+        }
+        .no-items { text-align: center; padding: 3rem 2rem; color: #64748b; }
+        .no-items svg { margin-bottom: 1rem; opacity: 0.3; }
+        .no-items p { margin: 0; font-size: 1rem; }
+        .details-pagination { display: flex; justify-content: center; margin-top: 1rem; }
+
+        /* ====================================================================
+           ACCIDENT MODAL — exact AdminModal shell
+           (gradient header, white icon circle, subtitle, absolute close,
+            padded body, bordered footer with pill buttons)
+           ==================================================================== */
+        .acc-overlay {
+          position: fixed;
+          top: 0; right: 0; bottom: 0; left: 0;
+          background: #f8fafc;
+          overflow-y: auto; overflow-x: hidden;
+          z-index: 9999;
+        }
+        @media (min-width: 768px) {
+          .acc-overlay { left: 18rem; }
+        }
+
+        .acc-modal {
+          background: #fff;
+          border-radius: 32px;
+          margin: 1.5rem;
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+          overflow: hidden;
+          animation: amSlideIn 0.3s ease-out;
+        }
+
+        .acc-header {
+          position: relative;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          padding: 24px 32px;
+          display: flex;
+          align-items: center;
+          gap: 20px;
+        }
+        .acc-header-icon {
+          width: 56px;
+          height: 56px;
+          background: #ffffff;
+          border-radius: 28px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #667eea;
+          flex-shrink: 0;
+        }
+        .acc-header-title { flex: 1; min-width: 0; padding-right: 48px; }
+        .acc-header-title h2 {
+          color: #fff;
+          font-size: 1.75rem;
+          font-weight: 700;
+          margin: 0;
+          line-height: 1.2;
+        }
+        .acc-header-title p {
+          color: rgba(255, 255, 255, 0.85);
+          font-size: 0.875rem;
+          margin: 4px 0 0;
+        }
+        .acc-header-close {
+          position: absolute;
+          top: 24px;
+          right: 28px;
+          background: rgba(255, 255, 255, 0.15);
+          border: none;
+          border-radius: 40px;
+          width: 40px;
+          height: 40px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          color: #fff;
+          transition: all 0.2s;
+        }
+        .acc-header-close:hover:not(:disabled) {
+          background: rgba(255, 255, 255, 0.25);
+          transform: scale(1.05);
+        }
+        .acc-header-close:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .acc-form { padding: 28px 32px; }
+
+        .acc-body {
+          display: flex;
+          flex-direction: column;
+          gap: 18px;
+        }
+
+        .acc-grid-2 {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 16px;
+        }
+
+        .acc-field {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          min-width: 0;
+        }
+        .acc-label {
+          font-size: 0.7rem;
+          font-weight: 600;
+          color: #475569;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        .acc-required::after { content: " *"; color: #dc2626; }
+        .acc-hint {
+          font-size: 0.7rem;
+          color: #b45309;
+          font-style: italic;
+          line-height: 1.4;
+        }
+
+        .acc-input {
+          width: 100%;
+          padding: 10px 14px;
+          border: 1.5px solid #e2e8f0;
+          border-radius: 12px;
+          font-size: 0.875rem;
+          font-family: inherit;
+          background: #fff;
+          color: #1e293b;
+          transition: all 0.2s;
+          box-sizing: border-box;
+        }
+        .acc-input:focus {
+          outline: none;
+          border-color: #667eea;
+          box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        .acc-input:disabled {
+          background: #f1f5f9;
+          color: #94a3b8;
+          cursor: not-allowed;
+        }
+
+        .acc-footer {
+          display: flex;
+          justify-content: flex-end;
+          gap: 16px;
+          padding-top: 24px;
+          border-top: 1px solid #e2e8f0;
+          margin-top: 24px;
+          flex-wrap: wrap;
+        }
+
+        .acc-btn-primary,
+        .acc-btn-secondary {
+          font-family: inherit;
+          font-size: 0.875rem;
+          font-weight: 600;
+          border-radius: 40px;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          transition: all 0.2s;
+          white-space: nowrap;
+        }
+        .acc-btn-primary {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          border: none;
+          padding: 12px 28px;
+          color: #fff;
+          box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+        .acc-btn-primary:hover:not(:disabled) {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        }
+        .acc-btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+        .acc-btn-secondary {
+          background: #fff;
+          border: 1.5px solid #e2e8f0;
+          padding: 10px 24px;
+          color: #475569;
+        }
+        .acc-btn-secondary:hover:not(:disabled) {
+          border-color: #667eea;
+          color: #667eea;
+          background: #f8fafc;
+        }
+        .acc-btn-secondary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        /* ================= Confirmation modal — full-screen overlay ================= */
+        .confirmation-modal-overlay {
+          position: fixed;
+          top: 0; right: 0; bottom: 0; left: 0;
+          background: rgba(0, 0, 0, 0.6);
+          backdrop-filter: blur(6px);
+          -webkit-backdrop-filter: blur(6px);
+          display: flex; align-items: center; justify-content: center;
+          z-index: 9999; padding: 1rem;
+          overflow-y: auto; overflow-x: hidden;
+        }
+        .confirmation-modal {
+          background: white; border-radius: 1.25rem;
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+          max-width: 480px; width: 100%; overflow: hidden;
+          animation: modalSlideIn 0.3s ease-out;
+          margin: auto;
+        }
+        .confirmation-header { padding: 2rem 2rem 1rem; text-align: center; border-bottom: 1px solid #f1f3f4; }
+        .confirmation-icon {
+          width: 80px; height: 80px; border-radius: 50%;
+          display: flex; align-items: center; justify-content: center;
+          margin: 0 auto 1rem; font-size: 2rem;
+        }
+        .confirmation-icon.delete {
+          background: rgba(220, 53, 69, 0.1); color: #dc3545;
+          border: 2px solid rgba(220, 53, 69, 0.2);
+        }
+        .confirmation-title { font-size: 1.5rem; font-weight: 700; color: #0f172a; margin: 0; }
+        .confirmation-body { padding: 1.5rem 2rem; }
+        .confirmation-message {
+          color: #64748b; font-size: 1rem;
+          line-height: 1.6; margin-bottom: 1.5rem; text-align: center;
+        }
+        .matricule-preview {
+          padding: 1.5rem; background: #f8fafc;
+          border-radius: 0.75rem; border: 1px solid #e2e8f0; margin-top: 1rem;
+        }
+        .matricule-avatar-preview {
+          width: 60px; height: 60px; border-radius: 50%;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          display: flex; align-items: center; justify-content: center;
+          color: white; font-weight: 700; font-size: 1.2rem; margin-right: 1rem;
+        }
+        .matricule-info-preview { flex: 1; }
+        .matricule-info-preview h4 { margin: 0 0 0.5rem 0; color: #0f172a; font-size: 1.1rem; font-weight: 600; }
+        .matricule-meta-preview {
+          display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem;
+        }
+        .matricule-meta-preview > div {
+          color: #64748b; display: flex; align-items: center; gap: 0.5rem;
+        }
+        .confirmation-actions {
+          padding: 1.5rem 2rem 2rem;
+          display: flex; gap: 1rem; justify-content: flex-end;
+        }
+        .btn-confirm-cancel {
+          padding: 0.75rem 1.5rem; border: 1px solid #6c757d;
+          background: transparent; color: #6c757d; border-radius: 0.75rem;
+          font-size: 0.875rem; font-weight: 600; cursor: pointer;
+          transition: all 0.3s ease; font-family: inherit;
+        }
+        .btn-confirm-cancel:hover:not(:disabled) { background: #6c757d; color: white; }
+        .btn-confirm-cancel:disabled { opacity: 0.6; cursor: not-allowed; }
+        .btn-confirm-delete {
+          padding: 0.75rem 1.5rem; border: none; background: #ef4444;
+          color: white; border-radius: 0.75rem; font-size: 0.875rem;
+          font-weight: 600; cursor: pointer; transition: all 0.3s ease;
+          box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
+          display: flex; align-items: center; gap: 0.5rem; font-family: inherit;
+        }
+        .btn-confirm-delete:hover:not(:disabled) {
+          background: #dc2626; transform: translateY(-2px);
+          box-shadow: 0 6px 20px rgba(220, 53, 69, 0.4);
+        }
+        .btn-confirm-delete:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+        /* ================= Notifications ================= */
+        .success-notification, .error-notification {
+          position: fixed; top: 2rem; right: 2rem; z-index: 10500;
+          animation: slideInRight 0.3s ease-out;
+        }
+        @keyframes slideInRight {
+          from { opacity: 0; transform: translateX(100%); }
+          to   { opacity: 1; transform: translateX(0); }
+        }
+        .success-notification .notification-content {
+          background: #dcfce7; color: #166534;
+          padding: 1rem 1.5rem; border-radius: 0.75rem;
+          display: flex; align-items: center; gap: 0.75rem;
+          box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
+        }
+        .error-notification .notification-content {
+          background: #fee2e2; color: #991b1b;
+          padding: 1rem 1.5rem; border-radius: 0.75rem;
+          display: flex; align-items: center; gap: 0.75rem;
+          box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
+        }
+        .notification-icon { font-size: 1.1rem; }
+
+        /* ================= Responsive ================= */
+        @media (max-width: 1400px) { .filter-group { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); } }
+        @media (max-width: 1200px) { .filter-group { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); } }
+        @media (max-width: 1024px) {
+          .section-header { flex-direction: column; gap: 1.5rem; }
+          .section-actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+          .search-filter-section { padding: 1.25rem; }
+          .filter-group { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.75rem; }
+          .filter-select { font-size: 0.8rem; padding: 0.5rem 0.75rem; }
+        }
+        @media (max-width: 768px) {
+          .matricules-management { padding: 1rem; }
+          .section-header { padding: 1.5rem; }
+          .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+          .stat-card { padding: 1.25rem; }
+          .stat-number { font-size: 1.75rem; }
+          .search-filter-section { padding: 1rem; }
+          .filter-group { grid-template-columns: 1fr; gap: 0.75rem; }
+          .filter-item { width: 100%; }
+          .filter-select { width: 100%; min-width: 100%; }
+          .filter-actions { justify-content: center; }
+          .results-summary { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
+          .page-info { align-self: flex-end; }
+          .action-buttons { flex-direction: row; flex-wrap: nowrap; }
+          .action-btn { width: 32px; height: 32px; font-size: 0.75rem; }
+          .pagination { flex-wrap: wrap; justify-content: center; }
+          .pagination-btn { min-width: 36px; height: 36px; padding: 0.5rem 0.75rem; font-size: 0.8rem; }
+
+          /* Details & Accident modals shrink on mobile */
+          .details-modal,
+          .acc-modal {
+            margin: 1rem;
+            border-radius: 24px;
+          }
+          .acc-header { padding: 16px 20px; gap: 14px; }
+          .acc-header-title h2 { font-size: 1.25rem; }
+          .acc-header-title { padding-right: 40px; }
+          .acc-header-icon { width: 44px; height: 44px; border-radius: 22px; }
+          .acc-header-close { top: 16px; right: 16px; width: 36px; height: 36px; }
+          .acc-form { padding: 20px; }
+          .acc-grid-2 { grid-template-columns: 1fr; }
+
+          .details-header { flex-direction: column; gap: 1rem; align-items: flex-start; }
+          .matricule-header-info { flex-direction: column; text-align: center; gap: 1rem; }
+          .info-grid { grid-template-columns: 1fr; }
+          .maintenance-grid { grid-template-columns: 1fr; }
+          .items-grid { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 480px) {
+          .stats-grid { grid-template-columns: 1fr; }
+          .section-actions { flex-direction: column; align-items: stretch; }
+          .btn { width: 100%; justify-content: center; }
+          .search-input { font-size: 0.8rem; padding: 0.5rem 1rem 0.5rem 2.5rem; }
+          .search-icon { left: 0.75rem; }
+        }
+          .filter-indicator {
+  display: flex; align-items: center; justify-content: space-between;
+  background: #fef3c7; border: 1px solid #f59e0b;
+  border-radius: 0.75rem; padding: 0.75rem 1rem;
+  margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;
 }
-
-  .no-car {
-    color: #dc3545;
-    font-style: italic;
-  }
-
-  .kilometrage-cell {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-weight: 600;
-    color: #495057;
-    white-space: nowrap;
-  }
-
-  .kilometrage-icon {
-    color: #667eea;
-    font-size: 0.875rem;
-  }
-
-  .last-return {
-    font-size: 0.75rem;
-    color: #6c757d;
-    margin-top: 0.25rem;
-  }
-
-  /* Action Buttons with Alert Indicators */
-  .action-buttons {
-    display: flex;
-    gap: 0.5rem;
-    position: relative;
-    flex-wrap: nowrap;
-  }
-
-  .action-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.5rem;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    width: 36px;
-    height: 36px;
-    font-size: 0.875rem;
-    position: relative;
-    flex-shrink: 0;
-  }
-
-  .action-alert-indicator {
-    position: absolute;
-    top: -5px;
-    right: -5px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-
-  .alert-dot {
-    width: 8px;
-    height: 8px;
-    background: #dc3545;
-    border-radius: 50%;
-    border: 2px solid white;
-    box-shadow: 0 0 0 1px #dc3545;
-    animation: pulse 2s infinite;
-    flex-shrink: 0;
-  }
-
-  .alert-count {
-    position: absolute;
-    top: -8px;
-    right: -8px;
-    background: #dc3545;
-    color: white;
-    border-radius: 50%;
-    width: 16px;
-    height: 16px;
-    font-size: 0.6rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: bold;
-    border: 2px solid white;
-    box-shadow: 0 0 0 1px #dc3545;
-    flex-shrink: 0;
-  }
-
-  @keyframes pulse {
-    0% { transform: scale(1); opacity: 1; }
-    50% { transform: scale(1.2); opacity: 0.8; }
-    100% { transform: scale(1); opacity: 1; }
-  }
-
-  .action-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-    transform: none;
-  }
-
-  .action-btn.view {
-    background: rgba(23, 162, 184, 0.1);
-    color: #17a2b8;
-    border: 1px solid rgba(23, 162, 184, 0.2);
-  }
-
-  .action-btn.view:hover:not(:disabled) {
-    background: #17a2b8;
-    color: white;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 15px rgba(23, 162, 184, 0.3);
-  }
-
-  .action-btn.accident {
-    background: rgba(255, 152, 0, 0.1);
-    color: #ff9800;
-    border: 1px solid rgba(255, 152, 0, 0.2);
-  }
-
-  .action-btn.accident:hover:not(:disabled) {
-    background: #ff9800;
-    color: white;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 15px rgba(255, 152, 0, 0.3);
-  }
-
-  .action-btn.edit {
-    background: rgba(255, 193, 7, 0.1);
-    color: #ffc107;
-    border: 1px solid rgba(255, 193, 7, 0.2);
-  }
-
-  .action-btn.edit:hover:not(:disabled) {
-    background: #ffc107;
-    color: white;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 15px rgba(255, 193, 7, 0.3);
-  }
-
-  .action-btn.delete {
-    background: rgba(220, 53, 69, 0.1);
-    color: #dc3545;
-    border: 1px solid rgba(220, 53, 69, 0.2);
-  }
-
-  .action-btn.delete:hover:not(:disabled) {
-    background: #dc3545;
-    color: white;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
-  }
-
-  /* Status Badges */
-  .status-badge {
-    padding: 0.375rem 0.75rem;
-    border-radius: 20px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    white-space: nowrap;
-  }
-
-  .status-active, .status-completed, .status-confirmed {
-    background: rgba(76, 175, 80, 0.1);
-    color: #2e7d32;
-    border: 1px solid rgba(76, 175, 80, 0.2);
-  }
-
-  .status-inactive, .status-cancelled {
-    background: rgba(244, 67, 54, 0.1);
-    color: #c62828;
-    border: 1px solid rgba(244, 67, 54, 0.2);
-  }
-
-  .status-pending, .status-not-done {
-    background: rgba(255, 152, 0, 0.1);
-    color: #ef6c00;
-    border: 1px solid rgba(255, 152, 0, 0.2);
-  }
-
-  .status-reserved {
-    background: rgba(255, 193, 7, 0.1);
-    color: #ffc107;
-    border: 1px solid rgba(255, 193, 7, 0.2);
-  }
-
-  .status-late {
-    background: rgba(220, 53, 69, 0.1);
-    color: #dc3545;
-    border: 1px solid rgba(220, 53, 69, 0.2);
-  }
-
-  .status-icon {
-    font-size: 0.7rem;
-  }
-
-  .maintenance-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.375rem 0.75rem;
-    border-radius: 20px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    white-space: nowrap;
-  }
-
-  .maintenance-badge.done {
-    background: rgba(76, 175, 80, 0.1);
-    color: #2e7d32;
-    border: 1px solid rgba(76, 175, 80, 0.2);
-  }
-
-  .maintenance-badge.not-done {
-    background: rgba(244, 67, 54, 0.1);
-    color: #c62828;
-    border: 1px solid rgba(244, 67, 54, 0.2);
-  }
-
-  .badge-icon {
-    font-size: 0.75rem;
-  }
-
-  /* Alert Badges */
-  .alert-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.375rem 0.75rem;
-    border-radius: 20px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    white-space: nowrap;
-  }
-
-  .alert-badge.high {
-    background: rgba(220, 53, 69, 0.1);
-    color: #dc3545;
-    border: 1px solid rgba(220, 53, 69, 0.2);
-  }
-
-  .alert-badge.medium {
-    background: rgba(255, 193, 7, 0.1);
-    color: #ffc107;
-    border: 1px solid rgba(255, 193, 7, 0.2);
-  }
-
-  /* Empty State */
-  .no-data {
-    text-align: center;
-    padding: 4rem 2rem;
-    color: #6c757d;
-    width: 100%;
-  }
-
-  .no-data svg {
-    margin-bottom: 1.5rem;
-    opacity: 0.3;
-    color: #667eea;
-  }
-
-  .no-data p {
-    font-size: 1.1rem;
-    color: #495057;
-    margin: 0 0 2rem 0;
-  }
-
-  /* Pagination Styles */
-  .pagination-container {
-    padding: 2rem;
-    border-top: 1px solid #f1f3f4;
-    display: flex;
-    justify-content: center;
-    width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
-  }
-
-  .pagination {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-
-  .pagination-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.75rem 1rem;
-    border: 2px solid #e9ecef;
-    background: white;
-    color: #6c757d;
-    border-radius: 10px;
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    min-width: 44px;
-    height: 44px;
-    flex-shrink: 0;
-  }
-
-  .pagination-btn.main {
-    min-width: 44px;
-    height: 44px;
-  }
-
-  .pagination-btn.details {
-    min-width: 36px;
-    height: 36px;
-    padding: 0.5rem 0.75rem;
-    font-size: 0.75rem;
-  }
-
-  .pagination-btn:hover:not(.disabled):not(.active) {
-    border-color: #667eea;
-    color: #667eea;
-    transform: translateY(-2px);
-  }
-
-  .pagination-btn.active {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border-color: transparent;
-    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-  }
-
-  .pagination-btn.disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-    transform: none;
-  }
-
-  .pagination-ellipsis {
-    padding: 0.75rem 0.5rem;
-    color: #6c757d;
-    font-weight: 600;
-    flex-shrink: 0;
-  }
-
-  .pagination-ellipsis.details {
-    padding: 0.5rem 0.25rem;
-    font-size: 0.75rem;
-  }
-
-  /* Matricule Details Modal - Updated Styles */
-  .details-modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.8);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    padding: 2rem;
-    backdrop-filter: blur(5px);
-  }
-
-  .details-modal {
-    background: white;
-    border-radius: 20px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    max-width: 1200px;
-    width: 100%;
-    max-height: 90vh;
-    overflow-y: auto;
-    animation: modalSlideIn 0.3s ease-out;
-  }
-
-  @keyframes modalSlideIn {
-    from {
-      opacity: 0;
-      transform: translateY(-50px) scale(0.9);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
-  }
-
-  .details-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    padding: 2rem;
-    border-bottom: 1px solid #f1f3f4;
-    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  }
-
-  .matricule-header-info {
-    display: flex;
-    align-items: center;
-    gap: 1.5rem;
-  }
-
-  .matricule-avatar-large {
-    width: 80px;
-    height: 80px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    font-weight: 700;
-    font-size: 1.5rem;
-    flex-shrink: 0;
-  }
-
-  .matricule-info h2 {
-    margin: 0 0 0.5rem 0;
-    color: #1a1a1a;
-    font-size: 1.5rem;
-  }
-
-  .matricule-contact {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    color: #6c757d;
-    font-size: 0.9rem;
-  }
-
-  .matricule-contact div {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .close-details-btn {
-    background: none;
-    border: none;
-    font-size: 1.5rem;
-    color: #6c757d;
-    cursor: pointer;
-    padding: 0.5rem;
-    border-radius: 8px;
-    transition: all 0.3s ease;
-  }
-
-  .close-details-btn:hover {
-    background: #f8f9fa;
-    color: #dc3545;
-  }
-
-  .details-content {
-    padding: 2rem;
-  }
-
-  .details-section {
-    margin-bottom: 2rem;
-  }
-
-  .details-section .section-title {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    font-size: 1.25rem;
-    font-weight: 600;
-    color: #2c3e50;
-    margin-bottom: 1.5rem;
-    background: none;
-    -webkit-text-fill-color: #2c3e50;
-  }
-
-  /* Information Grid */
-  .info-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 1rem;
-    margin-bottom: 1.5rem;
-  }
-
-  .info-item {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    padding: 1rem;
-    background: #f8f9fa;
-    border-radius: 8px;
-    border: 1px solid #e9ecef;
-  }
-
-  .info-item label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #6c757d;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .info-item div {
-    font-size: 0.9rem;
-    color: #495057;
-    font-weight: 500;
-  }
-
-  /* Maintenance Alerts Section */
-  .maintenance-alerts-section {
-    margin-bottom: 2rem;
-  }
-
-  .alerts-title {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #2c3e50;
-    margin-bottom: 1rem;
-  }
-
-  .alerts-icon {
-    color: #dc3545;
-  }
-
-  .alerts-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
-  .alert-item {
-    padding: 1rem;
-    border-radius: 8px;
-    border: 1px solid #e9ecef;
-  }
-
-  .alert-item.high {
-    background: rgba(220, 53, 69, 0.05);
-    border-left: 4px solid #dc3545;
-  }
-
-  .alert-item.medium {
-    background: rgba(255, 193, 7, 0.05);
-    border-left: 4px solid #ffc107;
-  }
-
-  .alert-header {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 0.5rem;
-  }
-
-  .alert-message {
-    font-weight: 500;
-    color: #495057;
-    flex: 1;
-  }
-
-  .alert-details {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1rem;
-    font-size: 0.8rem;
-    color: #6c757d;
-  }
-
-  .alert-details span {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-  }
-
-  /* Maintenance Section */
-  .maintenance-section {
-    margin-bottom: 2rem;
-  }
-
-  .maintenance-title {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #2c3e50;
-    margin-bottom: 1rem;
-  }
-
-  .maintenance-icon {
-    color: #ff9800;
-  }
-
-  .maintenance-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1rem;
-  }
-
-  .maintenance-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1rem;
-    background: white;
-    border: 1px solid #e9ecef;
-    border-radius: 8px;
-    transition: all 0.3s ease;
-  }
-
-  .maintenance-item:hover {
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    transform: translateY(-1px);
-  }
-
-  .maintenance-label {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.875rem;
-    color: #495057;
-    font-weight: 500;
-  }
-
-  .maintenance-item-icon {
-    color: #667eea;
-    font-size: 0.875rem;
-  }
-
-  /* Additional Maintenance Section */
-  .additional-maintenance-section,
-  .periodic-maintenance-section {
-    margin-bottom: 2rem;
-  }
-
-  .maintenance-details-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 1rem;
-  }
-
-  .maintenance-detail-item {
-    padding: 1.25rem;
-    border-radius: 10px;
-    border: 1px solid #e9ecef;
-    background: white;
-    transition: all 0.3s ease;
-  }
-
-  .maintenance-detail-item.overdue {
-    border-left: 4px solid #dc3545;
-    background: rgba(220, 53, 69, 0.03);
-  }
-
-  .maintenance-detail-item.attention {
-    border-left: 4px solid #ffc107;
-    background: rgba(255, 193, 7, 0.03);
-  }
-
-  .maintenance-detail-item.normal {
-    border-left: 4px solid #28a745;
-    background: rgba(40, 167, 69, 0.03);
-  }
-
-  .maintenance-detail-item:hover {
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    transform: translateY(-2px);
-  }
-
-  .maintenance-detail-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1rem;
-  }
-
-  .maintenance-detail-name {
-    font-weight: 600;
-    color: #2c3e50;
-    font-size: 1rem;
-  }
-
-  .maintenance-detail-status {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.375rem 0.75rem;
-    border-radius: 20px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .maintenance-detail-status.overdue {
-    background: rgba(220, 53, 69, 0.1);
-    color: #dc3545;
-    border: 1px solid rgba(220, 53, 69, 0.2);
-  }
-
-  .maintenance-detail-status.attention {
-    background: rgba(255, 193, 7, 0.1);
-    color: #ffc107;
-    border: 1px solid rgba(255, 193, 7, 0.2);
-  }
-
-  .maintenance-detail-status.normal {
-    background: rgba(40, 167, 69, 0.1);
-    color: #28a745;
-    border: 1px solid rgba(40, 167, 69, 0.2);
-  }
-
-  .maintenance-detail-info {
-    margin-bottom: 0.75rem;
-  }
-
-  .km-info {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    font-size: 0.875rem;
-    color: #6c757d;
-    margin-bottom: 0.75rem;
-  }
-
-  .km-info span {
-    display: flex;
-    justify-content: space-between;
-  }
-
-  .km-info strong {
-    color: #2c3e50;
-  }
-
-  .maintenance-alert,
-  .maintenance-warning {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    border-radius: 6px;
-    font-size: 0.8rem;
-    font-weight: 500;
-  }
-
-  .maintenance-alert {
-    background: rgba(220, 53, 69, 0.1);
-    color: #dc3545;
-    border: 1px solid rgba(220, 53, 69, 0.2);
-  }
-
-  .maintenance-warning {
-    background: rgba(255, 193, 7, 0.1);
-    color: #ffc107;
-    border: 1px solid rgba(255, 193, 7, 0.2);
-  }
-
-  .maintenance-detail-description {
-    padding-top: 0.75rem;
-    border-top: 1px dashed #e9ecef;
-    font-size: 0.8rem;
-    color: #6c757d;
-  }
-
-  .no-maintenance-data {
-    text-align: center;
-    padding: 2rem;
-    color: #6c757d;
-    background: #f8f9fa;
-    border-radius: 8px;
-    border: 1px dashed #e9ecef;
-  }
-
-  .no-maintenance-data svg {
-    margin-bottom: 1rem;
-    opacity: 0.3;
-  }
-
-  .no-maintenance-data p {
-    margin: 0;
-    font-size: 0.9rem;
-  }
-
-  /* Inactive Reason Display in Details */
-  .inactive-reason-display {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.75rem;
-    background: rgba(220, 53, 69, 0.1);
-    border: 1px solid rgba(220, 53, 69, 0.2);
-    border-radius: 8px;
-    margin-top: 1rem;
-    font-size: 0.875rem;
-    color: #dc3545;
-  }
-
-  .inactive-reason-display .reason-icon {
-    color: #dc3545;
-    font-size: 0.875rem;
-    flex-shrink: 0;
-  }
-
-  .reason-content {
-    flex: 1;
-  }
-
-  /* Items Grid for Reservations and Accidents */
-  .items-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-    gap: 1.5rem;
-    margin-bottom: 1.5rem;
-  }
-
-  .item-card {
-    background: white;
-    border: 1px solid #e9ecef;
-    border-radius: 12px;
-    padding: 1.5rem;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    transition: all 0.3s ease;
-  }
-
-  .item-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
-  }
-
-  .accident-card {
-    border-left: 4px solid #dc3545;
-  }
-
-  .item-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 1rem;
-  }
-
-  .item-title {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-weight: 600;
-    color: #2c3e50;
-    font-size: 1rem;
-  }
-
-  .item-icon {
-    font-size: 1rem;
-  }
-
-  .item-icon.accident {
-    color: #dc3545;
-  }
-
-  .accident-date {
-    font-size: 0.875rem;
-    color: #6c757d;
-    font-weight: 500;
-  }
-
-  .item-details {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    margin-bottom: 1rem;
-  }
-
-  .item-detail {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.875rem;
-    color: #6c757d;
-  }
-
-  .detail-icon {
-    font-size: 0.875rem;
-    color: #667eea;
-    width: 16px;
-  }
-
-  .item-id {
-    font-size: 0.75rem;
-    color: #6c757d;
-    text-align: right;
-    font-family: 'Monaco', 'Consolas', monospace;
-  }
-
-  .no-items {
-    text-align: center;
-    padding: 3rem 2rem;
-    color: #6c757d;
-  }
-
-  .no-items svg {
-    margin-bottom: 1rem;
-    opacity: 0.3;
-  }
-
-  .no-items p {
-    margin: 0;
-    font-size: 1rem;
-  }
-
-  .details-pagination {
-    display: flex;
-    justify-content: center;
-    margin-top: 1rem;
-  }
-
-  /* Inactive Reason Tooltip - Hide by default, show on hover */
-  .status-badge-container {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    position: relative;
-  }
-
-  .inactive-reason-wrapper {
-    position: relative;
-    display: inline-flex;
-  }
-
-  .reason-icon-hover {
-    color: #6c757d;
-    font-size: 12px;
-    cursor: pointer;
-    opacity: 0.7;
-    transition: opacity 0.2s ease;
-  }
-
-  .reason-icon-hover:hover {
-    opacity: 1;
-    color: #dc3545;
-  }
-
-  .inactive-reason-tooltip {
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    background: white;
-    border: 1px solid #e9ecef;
-    border-radius: 8px;
-    padding: 1rem;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-    min-width: 250px;
-    max-width: 300px;
-    z-index: 1000;
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.3s ease;
-    margin-top: 8px;
-  }
-
-  .inactive-reason-wrapper:hover .inactive-reason-tooltip {
-    opacity: 1;
-    visibility: visible;
-    margin-top: 4px;
-  }
-
-  .inactive-reason-tooltip::before {
-    content: '';
-    position: absolute;
-    top: -6px;
-    left: 50%;
-    transform: translateX(-50%) rotate(45deg);
-    width: 12px;
-    height: 12px;
-    background: white;
-    border-left: 1px solid #e9ecef;
-    border-top: 1px solid #e9ecef;
-  }
-
-  .tooltip-content {
-    font-size: 0.875rem;
-    line-height: 1.4;
-    color: #495057;
-  }
-
-  .tooltip-content strong {
-    color: #2c3e50;
-    display: block;
-    margin-bottom: 4px;
-  }
-
-  .reason-details {
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px dashed #e9ecef;
-    font-size: 0.8rem;
-    color: #6c757d;
-  }
-
-  /* For the details modal, keep the inline display */
-  .inactive-reason-display {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.75rem;
-    background: rgba(220, 53, 69, 0.1);
-    border: 1px solid rgba(220, 53, 69, 0.2);
-    border-radius: 8px;
-    margin-top: 1rem;
-    font-size: 0.875rem;
-    color: #dc3545;
-  }
-
-  .inactive-reason-display .reason-icon {
-    color: #dc3545;
-    font-size: 0.875rem;
-    flex-shrink: 0;
-  }
-
-  .reason-content {
-    flex: 1;
-  }
-
-  /* Modal Accident Styles */
-  .modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.8);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 2000;
-    padding: 1rem;
-    backdrop-filter: blur(5px);
-    animation: overlayFadeIn 0.3s ease-out;
-  }
-
-  @keyframes overlayFadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-
-  .modal-content {
-    background: white;
-    border-radius: 12px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    max-width: 800px;
-    width: 100%;
-    max-height: 90vh;
-    overflow-y: auto;
-    position: relative;
-    animation: modalSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-
-  @keyframes modalSlideIn {
-    from {
-      opacity: 0;
-      transform: translateY(-20px) scale(0.95);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
-  }
-
-  .modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1.5rem 2rem;
-    border-bottom: 1px solid #e5e7eb;
-    background: #f9fafb;
-    border-radius: 12px 12px 0 0;
-  }
-
-  .modal-title {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 1.3rem;
-    font-weight: 700;
-    color: #1f2937;
-    margin: 0;
-  }
-
-  .modal-icon {
-    color: #dc2626;
-    font-size: 1.3rem;
-  }
-
-  .modal-close {
-    background: none;
-    border: none;
-    font-size: 1.5rem;
-    color: #6b7280;
-    cursor: pointer;
-    padding: 0.25rem;
-    border-radius: 4px;
-    transition: all 0.3s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-  }
-
-  .modal-close:hover {
-    color: #dc2626;
-    background: #f9fafb;
-  }
-
-  .modal-body {
-    padding: 2rem;
-  }
-
-  /* Form Styles */
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    margin-bottom: 1.5rem;
-  }
-
-  .form-group label {
-    display: block;
-    font-weight: 600;
-    color: #374151;
-    margin-bottom: 0.5rem;
-    font-size: 0.9rem;
-  }
-
-  .form-group label::after {
-    content: ' *';
-    color: #dc2626;
-    font-weight: bold;
-  }
-
-  .form-input {
-    width: 100%;
-    padding: 0.75rem 1rem;
-    border: 2px solid #e5e7eb;
-    border-radius: 8px;
-    font-size: 1rem;
-    transition: all 0.3s ease;
-    background: white;
-    font-family: inherit;
-    color: #495057;
-  }
-
-  .form-input:focus {
-    outline: none;
-    border-color: #dc2626;
-    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
-  }
-
-  .form-input:disabled {
-    background: #f9fafb;
-    color: #6b7280;
-    cursor: not-allowed;
-    border-color: #e5e7eb;
-  }
-
-  .form-select {
-    width: 100%;
-    padding: 0.75rem 1rem;
-    border: 2px solid #e5e7eb;
-    border-radius: 8px;
-    font-size: 1rem;
-    transition: all 0.3s ease;
-    background: white;
-    font-family: inherit;
-    color: #495057;
-    cursor: pointer;
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%236b7280' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 1rem center;
-    background-size: 12px 12px;
-    padding-right: 2.5rem;
-  }
-
-  .form-select:focus {
-    outline: none;
-    border-color: #dc2626;
-    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23dc2626' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E");
-  }
-
-  .form-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1.5rem;
-    margin-bottom: 1.5rem;
-  }
-
-  @media (max-width: 768px) {
-    .form-row {
-      grid-template-columns: 1fr;
-      gap: 1rem;
-    }
-  }
-
-  .form-help-text {
-    font-size: 0.75rem;
-    color: #6b7280;
-    margin-top: 0.5rem;
-    line-height: 1.4;
-    font-style: italic;
-  }
-
-  .form-help-text strong {
-    color: #374151;
-  }
-
-  /* Notification Styles */
-  .form-notification {
-    margin: 1.5rem 0;
-    padding: 1rem;
-    background: #fff7ed;
-    border: 1px solid #fed7aa;
-    border-radius: 8px;
-    border-left: 4px solid #f97316;
-  }
-
-  .notification-warning {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
-    color: #ea580c;
-    font-size: 0.875rem;
-    line-height: 1.5;
-  }
-
-  .notification-icon {
-    font-size: 1.25rem;
-    flex-shrink: 0;
-    margin-top: 0.125rem;
-    color: #f97316;
-  }
-
-  .notification-warning strong {
-    color: #c2410c;
-  }
-
-  .notification-warning span {
-    flex: 1;
-  }
-
-  /* Modal Actions */
-  .modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 1rem;
-    padding: 1.5rem 2rem 2rem;
-    border-top: 1px solid #e5e7eb;
-    background: #f9fafb;
-    border-radius: 0 0 12px 12px;
-  }
-
-  /* Confirmation Modal Styles */
-  .confirmation-modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.6);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    padding: 1rem;
-    backdrop-filter: blur(5px);
-  }
-
-  .confirmation-modal {
-    background: white;
-    border-radius: 20px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    max-width: 480px;
-    width: 100%;
-    overflow: hidden;
-    animation: modalSlideIn 0.3s ease-out;
-  }
-
-  .confirmation-header {
-    padding: 2rem 2rem 1rem;
-    text-align: center;
-    border-bottom: 1px solid #f1f3f4;
-  }
-
-  .confirmation-icon {
-    width: 80px;
-    height: 80px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0 auto 1rem;
-    font-size: 2rem;
-  }
-
-  .confirmation-icon.delete {
-    background: rgba(220, 53, 69, 0.1);
-    color: #dc3545;
-    border: 2px solid rgba(220, 53, 69, 0.2);
-  }
-
-  .confirmation-title {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: #1a1a1a;
-    margin: 0;
-  }
-
-  .confirmation-body {
-    padding: 1.5rem 2rem;
-  }
-
-  .confirmation-message {
-    color: #6c757d;
-    font-size: 1rem;
-    line-height: 1.6;
-    margin-bottom: 1.5rem;
-    text-align: center;
-  }
-
-  /* Matricule Preview in Confirmation Modal */
-  .matricule-preview {
-    padding: 1.5rem;
-    background: #f8f9fa;
-    border-radius: 12px;
-    border: 1px solid #e9ecef;
-    margin-top: 1rem;
-  }
-
-  .matricule-avatar-preview {
-    width: 60px;
-    height: 60px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    font-weight: 700;
-    font-size: 1.2rem;
-    margin-right: 1rem;
-  }
-
-  .matricule-info-preview {
-    flex: 1;
-  }
-
-  .matricule-info-preview h4 {
-    margin: 0 0 0.5rem 0;
-    color: #1a1a1a;
-    font-size: 1.1rem;
-    font-weight: 600;
-  }
-
-  .matricule-meta-preview {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    font-size: 0.9rem;
-  }
-
-  .matricule-meta-preview > div {
-    color: #6c757d;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .confirmation-actions {
-    padding: 1.5rem 2rem 2rem;
-    display: flex;
-    gap: 1rem;
-    justify-content: flex-end;
-  }
-
-  .btn-confirm-cancel {
-    padding: 0.75rem 1.5rem;
-    border: 1px solid #6c757d;
-    background: transparent;
-    color: #6c757d;
-    border-radius: 10px;
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.3s ease;
-  }
-
-  .btn-confirm-cancel:hover:not(:disabled) {
-    background: #6c757d;
-    color: white;
-  }
-
-  .btn-confirm-cancel:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .btn-confirm-delete {
-    padding: 0.75rem 1.5rem;
-    border: none;
-    background: #dc3545;
-    color: white;
-    border-radius: 10px;
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .btn-confirm-delete:hover:not(:disabled) {
-    background: #c82333;
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(220, 53, 69, 0.4);
-  }
-
-  .btn-confirm-delete:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    transform: none;
-  }
-
-  /* Responsive Design */
-  @media (max-width: 1400px) {
-    .filter-group {
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    }
-  }
-
-  @media (max-width: 1200px) {
-    .filter-group {
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    }
-  }
-
-  @media (max-width: 1024px) {
-    .section-header {
-      flex-direction: column;
-      gap: 1.5rem;
-    }
-    
-    .section-actions {
-      width: 100%;
-      justify-content: flex-start;
-      flex-wrap: wrap;
-    }
-    
-    .search-filter-section {
-      padding: 1.25rem;
-    }
-    
-    .filter-group {
-      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-      gap: 0.75rem;
-    }
-    
-    .filter-select {
-      font-size: 0.8rem;
-      padding: 0.625rem 0.75rem;
-    }
-  }
-
-  @media (max-width: 768px) {
-    .matricules-management {
-      padding: 1rem;
-    }
-
-    .section-header {
-      padding: 1.5rem;
-    }
-
-    .stats-grid {
-      grid-template-columns: repeat(2, 1fr);
-      gap: 1rem;
-    }
-
-    .stat-card {
-      padding: 1.25rem;
-    }
-
-    .stat-number {
-      font-size: 1.75rem;
-    }
-
-    .search-filter-section {
-      padding: 1rem;
-    }
-
-    .filter-group {
-      grid-template-columns: 1fr;
-      gap: 0.75rem;
-    }
-
-    .filter-item {
-      width: 100%;
-    }
-
-    .filter-select {
-      width: 100%;
-      min-width: 100%;
-    }
-
-    .filter-actions {
-      justify-content: center;
-    }
-
-    .results-summary {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 0.5rem;
-    }
-
-    .page-info {
-      align-self: flex-end;
-    }
-
-    .content-container {
-      overflow-x: auto;
-    }
-
-    .data-table {
-      min-width: 1000px;
-    }
-
-    .action-buttons {
-      flex-direction: row;
-      flex-wrap: nowrap;
-    }
-
-    .action-btn {
-      width: 32px;
-      height: 32px;
-      font-size: 0.75rem;
-    }
-
-    .pagination {
-      flex-wrap: wrap;
-      justify-content: center;
-    }
-
-    .pagination-btn {
-      min-width: 36px;
-      height: 36px;
-      padding: 0.5rem 0.75rem;
-      font-size: 0.8rem;
-    }
-
-    .details-modal {
-      margin: 1rem;
-      max-height: 95vh;
-    }
-
-    .details-header {
-      flex-direction: column;
-      gap: 1rem;
-      align-items: flex-start;
-    }
-
-    .matricule-header-info {
-      flex-direction: column;
-      text-align: center;
-      gap: 1rem;
-    }
-
-    .info-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .maintenance-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .maintenance-details-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .items-grid {
-      grid-template-columns: 1fr;
-    }
-  }
-
-  @media (max-width: 480px) {
-    .stats-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .section-actions {
-      flex-direction: column;
-      align-items: stretch;
-    }
-
-    .btn {
-      width: 100%;
-      justify-content: center;
-    }
-
-    .search-input {
-      font-size: 0.8rem;
-      padding: 0.625rem 1rem 0.625rem 2.5rem;
-    }
-
-    .search-icon {
-      left: 0.75rem;
-    }
-  }
-`}</style>
+.filter-indicator-text {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-size: 0.875rem; font-weight: 500; color: #92400e;
+}
+.clear-filter-btn {
+  display: inline-flex; align-items: center; gap: 0.25rem;
+  background: none; border: 1px solid #92400e;
+  padding: 0.25rem 0.75rem; border-radius: 2rem;
+  font-size: 0.75rem; font-weight: 500;
+  color: #92400e; cursor: pointer;
+}
+.clear-filter-btn:hover { background: #92400e; color: #fff; }
+      `}</style>
     </div>
   );
 };
