@@ -1673,7 +1673,8 @@ const ReservationsManagement = ({ onBack, filter }) => {
           .print-options-preview { grid-template-columns: 1fr; }
           .display-options-grid { grid-template-columns: 1fr; }
         }
-        .filter-indicator { display: flex; align-items: center; justify-content: space-between; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 0.75rem; padding: 0.75rem 1rem; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem; }
+div.filter-indicator { display: flex; align-items: center; justify-content: space-between; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 0.75rem; padding: 0.75rem 1rem; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem; }
+span.filter-indicator { -webkit-text-fill-color: #64748b; }
         .filter-indicator-text { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; font-weight: 500; color: #92400e; }
         .clear-filter-btn { display: inline-flex; align-items: center; gap: 0.25rem; background: none; border: 1px solid #92400e; padding: 0.25rem 0.75rem; border-radius: 2rem; font-size: 0.75rem; font-weight: 500; color: #92400e; cursor: pointer; }
         .clear-filter-btn:hover { background: #92400e; color: #fff; }

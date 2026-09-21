@@ -1257,8 +1257,8 @@ const ReservationStatusManagement = () => {
           .print-options-preview { grid-template-columns: 1fr; }
           .display-options-grid { grid-template-columns: 1fr; }
         }
-        .filter-indicator { display: flex; align-items: center; justify-content: space-between; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 0.75rem; padding: 0.75rem 1rem; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem; }
-        .filter-indicator-text { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; font-weight: 500; color: #92400e; }
+.filter-indicator { font-size: 1.2rem; color: #64748b; font-weight: 500; background: rgba(108, 117, 125, 0.1); padding: 4px 12px; border-radius: 20px; border: 1px solid rgba(108, 117, 125, 0.2); }
+span.filter-indicator { -webkit-text-fill-color: #64748b; }        .filter-indicator-text { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; font-weight: 500; color: #92400e; }
         .clear-filter-btn { display: inline-flex; align-items: center; gap: 0.25rem; background: none; border: 1px solid #92400e; padding: 0.25rem 0.75rem; border-radius: 2rem; font-size: 0.75rem; font-weight: 500; color: #92400e; cursor: pointer; }
         .clear-filter-btn:hover { background: #92400e; color: #fff; }
       `}</style>
