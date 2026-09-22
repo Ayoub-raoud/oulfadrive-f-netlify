@@ -288,6 +288,18 @@ const ReservationFields = ({
     return end.toISOString().split("T")[0];
   };
 
+  // ✅ Compute number of days between two dates (difference-based, min 1)
+  const daysBetween = (startDate, endDate) => {
+    if (!startDate || !endDate) return 0;
+    const s = new Date(startDate);
+    const e = new Date(endDate);
+    s.setHours(0, 0, 0, 0);
+    e.setHours(0, 0, 0, 0);
+    const diff = Math.abs(e - s);
+    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    return days === 0 ? 1 : days;
+  };
+
   const applyManualDailyPrice = () => {
     const price = parseFloat(manualDailyPrice);
     if (isNaN(price) || price <= 0 || totalDays <= 0) return;
@@ -514,7 +526,17 @@ const ReservationFields = ({
             </Field>
             <Field label="Date de fin" required>
               <input type="date" className="am-input" value={formData.end_date || ""}
-                onChange={(e) => handleChange("end_date", e.target.value)} required />
+                onChange={(e) => {
+                  const newEnd = e.target.value;
+                  handleChange("end_date", newEnd);
+                  if (formData.start_date && newEnd) {
+                    const computed = daysBetween(formData.start_date, newEnd);
+                    const prolongation = formData.can_extend_days
+                      ? (parseInt(formData.prolongation_days, 10) || 0)
+                      : 0;
+                    handleChange("rental_days", Math.max(computed - prolongation, 1));
+                  }
+                }} required />
             </Field>
             <Field label="Heure de fin">
               <input type="time" className="am-input" value={formData.end_time || "18:00"}

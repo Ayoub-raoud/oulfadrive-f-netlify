@@ -674,42 +674,138 @@ const ReservationsManagement = ({ onBack, filter }) => {
     }
   };
 
+  /* ============================================================
+     ✅ generateContractPDF — TRUE A4 PDF, smart-fit + 5px top/bottom margin
+     - Renders at 794px (A4 width @ 96dpi), captured at 3x for high DPI
+     - Adds 5px (≈1.32 mm) margin at the top and bottom of each page
+     - If content ≤ available height → fits directly
+     - If content is slightly taller → shrinks to fit on ONE page
+     - If content is much taller → paginates cleanly
+     ============================================================ */
   const generateContractPDF = async (reservation) => {
     try {
-      const doc = new jsPDF('p', 'mm', 'a4');
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
+      const A4_WIDTH_PX = 794; // 210mm @ 96dpi
+
+      const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
+      const pageWidth  = doc.internal.pageSize.getWidth();   // 210 mm
+      const pageHeight = doc.internal.pageSize.getHeight();  // 297 mm
+
+      // ✅ 5px top/bottom padding converted to mm (5px / 96dpi * 25.4 ≈ 1.3229mm)
+      const PADDING_PX = 5;
+      const PADDING_MM = (PADDING_PX / 96) * 25.4; // ≈ 1.3229 mm
+      const contentTop    = PADDING_MM;
+      const contentHeight = pageHeight - PADDING_MM * 2; // available height per page
+
       const contractElement =
         document.querySelector('#contract-pdf-root .contract-container-print') ||
         document.querySelector('.contract-modal-content .contract-container-print');
+
       if (!contractElement) { showErrorMessage('Contract element not found'); return; }
+
       if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (_) {} }
+
       const images = contractElement.querySelectorAll('img');
       await Promise.all(Array.from(images).map(img =>
-        img.complete && img.naturalWidth > 0 ? Promise.resolve() :
-        new Promise(res => { const done = () => res(); img.addEventListener('load', done, { once: true }); img.addEventListener('error', done, { once: true }); setTimeout(done, 4000); })
+        img.complete && img.naturalWidth > 0
+          ? Promise.resolve()
+          : new Promise(res => {
+              const done = () => res();
+              img.addEventListener('load', done, { once: true });
+              img.addEventListener('error', done, { once: true });
+              setTimeout(done, 4000);
+            })
       ));
+
       const contractClone = contractElement.cloneNode(true);
-      contractClone.style.margin = '0'; contractClone.style.boxShadow = 'none';
+      contractClone.style.margin = '0';
+      contractClone.style.boxShadow = 'none';
+      contractClone.style.width = `${A4_WIDTH_PX}px`;
+      contractClone.style.maxWidth = 'none';
+
       const tempContainer = document.createElement('div');
-      Object.assign(tempContainer.style, { position: 'fixed', left: '-10000px', top: '0', width: '900px', background: '#ffffff', zIndex: '-1', pointerEvents: 'none', opacity: '0' });
-      tempContainer.appendChild(contractClone); document.body.appendChild(tempContainer);
+      Object.assign(tempContainer.style, {
+        position: 'fixed',
+        left: '-10000px',
+        top: '0',
+        width: `${A4_WIDTH_PX}px`,
+        background: '#ffffff',
+        zIndex: '-1',
+        pointerEvents: 'none',
+        opacity: '0',
+      });
+      tempContainer.appendChild(contractClone);
+      document.body.appendChild(tempContainer);
+
       await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
       const html2canvas = (await import('html2canvas')).default;
-      const width = contractClone.scrollWidth; const height = contractClone.scrollHeight;
-      const canvas = await html2canvas(contractClone, { scale: 2, useCORS: true, allowTaint: true, backgroundColor: '#ffffff', logging: false, width, height, windowWidth: width, windowHeight: height, scrollX: 0, scrollY: 0 });
+      const width  = contractClone.scrollWidth;
+      const height = contractClone.scrollHeight;
+
+      const canvas = await html2canvas(contractClone, {
+        scale: 3,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        width,
+        height,
+        windowWidth: width,
+        windowHeight: height,
+        scrollX: 0,
+        scrollY: 0,
+      });
+
       document.body.removeChild(tempContainer);
-      const imgData = canvas.toDataURL('image/png');
-      const imgWidth = pageWidth; const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let heightLeft = imgHeight; let position = 0;
-      doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-      while (heightLeft > 0) { position = heightLeft - imgHeight; doc.addPage(); doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight); heightLeft -= pageHeight; }
-      const pdfBlob = doc.output('blob'); const pdfUrl = URL.createObjectURL(pdfBlob);
-      window.open(pdfUrl, '_blank'); doc.save(`contrat-location-${reservation.id}.pdf`);
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+
+      // ── Fit to full content width (page width, no left/right padding) ─
+      let imgWidth  = pageWidth;
+      let imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      if (imgHeight <= contentHeight) {
+        // ── Case 1: fits on ONE page as-is → place with top padding ────
+        const x = (pageWidth - imgWidth) / 2; // center horizontally
+        doc.addImage(imgData, 'JPEG', x, contentTop, imgWidth, imgHeight);
+      } else {
+        // Content is taller than 1 page → try shrinking to fit on ONE page
+        const scaleToFit = contentHeight / imgHeight;
+
+        if (scaleToFit >= 0.7) {
+          // ── Case 2: slightly too tall → shrink to fit on ONE page ────
+          imgWidth  = imgWidth * scaleToFit;
+          imgHeight = contentHeight;
+          const x = (pageWidth - imgWidth) / 2; // center horizontally
+          doc.addImage(imgData, 'JPEG', x, contentTop, imgWidth, imgHeight);
+        } else {
+          // ── Case 3: really long → paginate cleanly with 5px top/bottom ─
+          let heightLeft = imgHeight;
+          let position = contentTop;
+
+          doc.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+          heightLeft -= contentHeight;
+
+          while (heightLeft > 0) {
+            position = contentTop + (heightLeft - imgHeight);
+            doc.addPage();
+            doc.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+            heightLeft -= contentHeight;
+          }
+        }
+      }
+
+      const pdfBlob = doc.output('blob');
+      const pdfUrl  = URL.createObjectURL(pdfBlob);
+      window.open(pdfUrl, '_blank');
+      doc.save(`contrat-location-${reservation.id}.pdf`);
       setTimeout(() => URL.revokeObjectURL(pdfUrl), 1000);
+
       showSuccessMessage('Contrat généré et ouvert !');
-    } catch (error) { console.error('Error generating contract:', error); showErrorMessage('Erreur lors de la génération du contrat.'); }
+    } catch (error) {
+      console.error('Error generating contract:', error);
+      showErrorMessage('Erreur lors de la génération du contrat.');
+    }
   };
 
   const handlePrintContract = async (reservation) => {
@@ -1082,7 +1178,19 @@ const ReservationsManagement = ({ onBack, filter }) => {
   return (
     <div className="reservations-management">
       {selectedContractReservation && (
-        <div id="contract-pdf-root" aria-hidden="true" style={{ position: 'fixed', left: '-10000px', top: 0, width: '900px', background: '#ffffff', zIndex: -1, pointerEvents: 'none' }}>
+        <div
+          id="contract-pdf-root"
+          aria-hidden="true"
+          style={{
+            position: 'fixed',
+            left: '-10000px',
+            top: 0,
+            width: '794px',
+            background: '#ffffff',
+            zIndex: -1,
+            pointerEvents: 'none',
+          }}
+        >
           <ContractLocation reservation={{ ...selectedContractReservation, paperwork: contractPaperwork }} showSignatures={true} currentUser={currentUser} displayOptions={displayOptions} includeCache={includeCacheForPrint} containerId="contract-print-hidden" />
         </div>
       )}
@@ -1590,7 +1698,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
         .notification-icon { font-size: 1.1rem; }
 
         /* CONTRACT (print) */
-        .contract-container-print { max-width: 1100px; margin: 0 auto; background: white; font-family: 'Inter', 'Segoe UI', sans-serif; font-size: 11px; color: #0c4a6e; line-height: 1.5; padding: 0 6px; }
+        .contract-container-print { width: 794px; max-width: 100%; margin: 0 auto; background: white; font-family: 'Inter', 'Segoe UI', sans-serif; font-size: 11px; color: #0c4a6e; line-height: 1.5; padding: 0 6px; }
         .contract-header-table { width: 100%; border-bottom: 2px solid #d4af37; margin-bottom: 10px; padding-bottom: 6px; }
         .header-left { width: 30%; vertical-align: top; }
         .header-center { width: 40%; text-align: center; vertical-align: middle; }
@@ -1599,7 +1707,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
         .company-slogan { font-size: 10px; font-weight: 600; margin-top: 2px; color: #b8860b; }
         .company-phone { font-size: 9px; margin-top: 4px; color: #0369a1; }
         .contract-logo-print { height: 75px; width: auto; object-fit: contain; }
-        .contract-number-box { border: 1px solid #7dd3fc; padding: 6px 12px; text-align: center; font-size: 10px; display: inline-block; background: #f0f9ff; border-radius: 8px; }
+        .contract-number-box { border: 1px solid #7dd3fc; padding: 6px 12px; text-align: center; font-size: 10px;background: #f0f9ff; border-radius: 8px; }
         .arabic-text { margin-top: 6px; font-size: 12px; font-weight: 500; color: #0369a1; }
         .contract-title-print { text-align: center; font-size: 17px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px; border-bottom: 1px solid #7dd3fc; padding-bottom: 6px; color: #075985; }
         .contract-content-table { width: 100%; }
