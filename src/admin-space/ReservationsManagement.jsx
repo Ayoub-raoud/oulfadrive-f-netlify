@@ -20,7 +20,7 @@ import {
   selectMatricules, selectUser, updateMatricule, refreshMatricules,
   checkLateReservations,
 } from '../Redux/store';
-import { syncReportForReservation } from '../utils/reportSync';
+import { syncReportForReservation } from '../utils/reportSync'; // ✅ NEW
 import AdminModal from './AdminModal';
 import PaginationControls from '../components/PaginationControls';
 
@@ -40,45 +40,6 @@ const DEFAULT_DISPLAY_OPTIONS = {
   deliveryReception: 'show', rentalDates: 'show', kilometrage: 'show',
   rentalDays: 'dash', observations: 'show', insurance: 'show',
   depositGuarantee: 'show', signatures: 'show',
-};
-
-// ============================================================
-// Date helpers — TIMEZONE SAFE (fixes the "-4 jours" bug on Netlify)
-// ============================================================
-const parseDateOnly = (input) => {
-  if (!input) return null;
-  if (input instanceof Date) {
-    if (isNaN(input.getTime())) return null;
-    return new Date(input.getFullYear(), input.getMonth(), input.getDate());
-  }
-  const s = String(input).trim();
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
-  const d = new Date(s);
-  if (isNaN(d.getTime())) return null;
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-};
-
-const diffInDays = (start, end) => {
-  const s = parseDateOnly(start);
-  const e = parseDateOnly(end);
-  if (!s || !e) return 0;
-  const sUTC = Date.UTC(s.getFullYear(), s.getMonth(), s.getDate());
-  const eUTC = Date.UTC(e.getFullYear(), e.getMonth(), e.getDate());
-  return Math.round((eUTC - sUTC) / 86400000);
-};
-
-const calculateRentalDays = (s, e) => {
-  const d = Math.abs(diffInDays(s, e));
-  return d === 0 ? 1 : d;
-};
-
-const formatLocalYMD = (date) => {
-  if (!date) return "";
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
 };
 
 /* -------------------- Contract sub-components -------------------- */
@@ -263,12 +224,17 @@ const ContractLocation = ({
     } catch { return ''; }
   };
 
-  const calculateRentalDaysLocal = () => {
+  const calculateRentalDays = () => {
     if (!reservation?.start_date || !reservation?.end_date) return 1;
-    return calculateRentalDays(reservation.start_date, reservation.end_date);
+    const start = new Date(reservation.start_date);
+    const end = new Date(reservation.end_date);
+    start.setHours(0, 0, 0, 0); end.setHours(0, 0, 0, 0);
+    const diffTime = Math.abs(end - start);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays === 0 ? 1 : diffDays;
   };
 
-  const rentalDays = reservation?.rental_days || calculateRentalDaysLocal();
+  const rentalDays = reservation?.rental_days || calculateRentalDays();
   const dailyPrice = (reservation?.total_price && rentalDays)
     ? (reservation.total_price / rentalDays).toFixed(2)
     : reservation?.car?.price_per_day || '—';
@@ -433,7 +399,7 @@ const ContractLocation = ({
                     <span className="field-label">Durée :</span>
                     <span className="field-value">
                       {getDisplayValue(opt('rentalDays'),
-                        `${calculateRentalDaysLocal()} jours` +
+                        `${calculateRentalDays()} jours` +
                         (reservation?.prolongation_days > 0 ? ` (dont prolongation: ${reservation.prolongation_days} jours)` : ''))}
                     </span>
                   </div>
@@ -633,33 +599,17 @@ const ReservationsManagement = ({ onBack, filter }) => {
     return () => clearInterval(interval);
   }, [dispatch]);
 
-  const isToday = (d) => { if (!d) return false; const dt = parseDateOnly(d), t = parseDateOnly(new Date()); return dt && t && dt.getTime() === t.getTime(); };
-  const isUpcoming = (d) => { if (!d) return false; const dt = parseDateOnly(d), t = parseDateOnly(new Date()); return dt && t && dt > t; };
-  const isPast = (d) => { if (!d) return false; const dt = parseDateOnly(d), t = parseDateOnly(new Date()); return dt && t && dt < t; };
-  const isThisWeek = (d) => {
-    if (!d) return false;
-    const date = parseDateOnly(d); if (!date) return false;
-    const today = parseDateOnly(new Date());
-    const sw = new Date(today); sw.setDate(today.getDate() - today.getDay()); sw.setHours(0,0,0,0);
-    const ew = new Date(sw); ew.setDate(sw.getDate() + 6); ew.setHours(23,59,59,999);
-    return date >= sw && date <= ew;
-  };
-  const isThisMonth = (d) => {
-    if (!d) return false;
-    const date = parseDateOnly(d), today = parseDateOnly(new Date());
-    return date && today && date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
-  };
-  const isActiveNow = (r) => {
-    if (!r.start_date || !r.end_date) return false;
-    const t = parseDateOnly(new Date()), s = parseDateOnly(r.start_date), e = parseDateOnly(r.end_date);
-    if (!t || !s || !e) return false;
-    return t >= s && t <= e;
-  };
-
+  const isToday = (d) => { if (!d) return false; const dt = new Date(d), t = new Date(); return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime() === new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime(); };
+  const isUpcoming = (d) => { if (!d) return false; const dt = new Date(d), t = new Date(); return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()) > new Date(t.getFullYear(), t.getMonth(), t.getDate()); };
+  const isPast = (d) => { if (!d) return false; const dt = new Date(d), t = new Date(); return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()) < new Date(t.getFullYear(), t.getMonth(), t.getDate()); };
+  const isThisWeek = (d) => { if (!d) return false; const date = new Date(d), today = new Date(); const sw = new Date(today); sw.setDate(today.getDate() - today.getDay()); sw.setHours(0,0,0,0); const ew = new Date(sw); ew.setDate(sw.getDate() + 6); ew.setHours(23,59,59,999); return date >= sw && date <= ew; };
+  const isThisMonth = (d) => { if (!d) return false; const date = new Date(d), today = new Date(); return date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear(); };
+  const isActiveNow = (r) => { if (!r.start_date || !r.end_date) return false; const t = new Date(), s = new Date(r.start_date), e = new Date(r.end_date); return t >= s && t <= e; };
+  const calculateRentalDays = (s, e) => { if (!s || !e) return 0; const sd = new Date(s), ed = new Date(e); sd.setHours(0,0,0,0); ed.setHours(0,0,0,0); const diff = Math.abs(ed - sd); const days = Math.ceil(diff / (1000 * 60 * 60 * 24)); return days === 0 ? 1 : days; };
   const calculateDaysRemaining = (r) => {
     if (!r.end_date) return '';
-    const t = parseDateOnly(new Date()), e = parseDateOnly(r.end_date);
-    if (!t || !e) return '';
+    const t = new Date(), e = new Date(r.end_date);
+    t.setHours(0,0,0,0); e.setHours(0,0,0,0);
     const diff = Math.ceil((e - t) / (1000 * 60 * 60 * 24));
     if ((r.status === 'retard' || r.status === 'confirmed') && diff < 0) { const late = Math.abs(diff); return late === 1 ? '+1 jour de retard' : `+${late} jours de retard`; }
     if (diff < 0) return 'Terminé';
@@ -725,20 +675,26 @@ const ReservationsManagement = ({ onBack, filter }) => {
   };
 
   /* ============================================================
-     ✅ generateContractPDF — unchanged from original
+     ✅ generateContractPDF — TRUE A4 PDF, smart-fit + 5px top/bottom margin
+     - Renders at 794px (A4 width @ 96dpi), captured at 3x for high DPI
+     - Adds 5px (≈1.32 mm) margin at the top and bottom of each page
+     - If content ≤ available height → fits directly
+     - If content is slightly taller → shrinks to fit on ONE page
+     - If content is much taller → paginates cleanly
      ============================================================ */
   const generateContractPDF = async (reservation) => {
     try {
-      const A4_WIDTH_PX = 794;
+      const A4_WIDTH_PX = 794; // 210mm @ 96dpi
 
       const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
-      const pageWidth  = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
+      const pageWidth  = doc.internal.pageSize.getWidth();   // 210 mm
+      const pageHeight = doc.internal.pageSize.getHeight();  // 297 mm
 
+      // ✅ 5px top/bottom padding converted to mm (5px / 96dpi * 25.4 ≈ 1.3229mm)
       const PADDING_PX = 5;
-      const PADDING_MM = (PADDING_PX / 96) * 25.4;
+      const PADDING_MM = (PADDING_PX / 96) * 25.4; // ≈ 1.3229 mm
       const contentTop    = PADDING_MM;
-      const contentHeight = pageHeight - PADDING_MM * 2;
+      const contentHeight = pageHeight - PADDING_MM * 2; // available height per page
 
       const contractElement =
         document.querySelector('#contract-pdf-root .contract-container-print') ||
@@ -804,21 +760,26 @@ const ReservationsManagement = ({ onBack, filter }) => {
 
       const imgData = canvas.toDataURL('image/jpeg', 0.95);
 
+      // ── Fit to full content width (page width, no left/right padding) ─
       let imgWidth  = pageWidth;
       let imgHeight = (canvas.height * imgWidth) / canvas.width;
 
       if (imgHeight <= contentHeight) {
-        const x = (pageWidth - imgWidth) / 2;
+        // ── Case 1: fits on ONE page as-is → place with top padding ────
+        const x = (pageWidth - imgWidth) / 2; // center horizontally
         doc.addImage(imgData, 'JPEG', x, contentTop, imgWidth, imgHeight);
       } else {
+        // Content is taller than 1 page → try shrinking to fit on ONE page
         const scaleToFit = contentHeight / imgHeight;
 
         if (scaleToFit >= 0.7) {
+          // ── Case 2: slightly too tall → shrink to fit on ONE page ────
           imgWidth  = imgWidth * scaleToFit;
           imgHeight = contentHeight;
-          const x = (pageWidth - imgWidth) / 2;
+          const x = (pageWidth - imgWidth) / 2; // center horizontally
           doc.addImage(imgData, 'JPEG', x, contentTop, imgWidth, imgHeight);
         } else {
+          // ── Case 3: really long → paginate cleanly with 5px top/bottom ─
           let heightLeft = imgHeight;
           let position = contentTop;
 
@@ -917,8 +878,9 @@ const ReservationsManagement = ({ onBack, filter }) => {
     }
     let matchesNotification = true;
     if (filterParam === 'notifications') {
-      const today = parseDateOnly(new Date());
-      const end = reservation.end_date ? parseDateOnly(reservation.end_date) : null;
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const end = reservation.end_date ? new Date(reservation.end_date) : null;
+      if (end) end.setHours(0, 0, 0, 0);
       const isLate = reservation.status === 'retard' || (end && end < today && reservation.status !== 'completed' && reservation.status !== 'cancelled');
       const diffDays = end ? Math.ceil((end - today) / (1000 * 60 * 60 * 24)) : null;
       const isExpiringSoon = diffDays !== null && diffDays >= 0 && diffDays <= 7;
@@ -939,60 +901,18 @@ const ReservationsManagement = ({ onBack, filter }) => {
 
   const handleCreate = () => {
     setModalType('create'); setEditingItem(null);
-    setFormData({ start_date: formatLocalYMD(new Date()), end_date: '', start_time: '08:00', end_time: '18:00', rental_days: 1, total_price: 0, amount_paid: 0, remaining_amount: 0, status: 'pending', car_id: '', client_id: '', matricule_id: '', has_second_driver: false, second_driver_client_id: '', cin_number: '', driver_license_number: '', cin_image: '', driver_license_image: '', notes: '', can_extend_days: false, prolongation_days: 0, sous_location_id: '' });
+    setFormData({ start_date: new Date().toISOString().split('T')[0], end_date: '', start_time: '08:00', end_time: '18:00', rental_days: 1, total_price: 0, amount_paid: 0, remaining_amount: 0, status: 'pending', car_id: '', client_id: '', matricule_id: '', has_second_driver: false, second_driver_client_id: '', cin_number: '', driver_license_number: '', cin_image: '', driver_license_image: '', notes: '', can_extend_days: false, prolongation_days: 0, sous_location_id: '' });
     setShowModal(true);
   };
 
-  /* ============================================================
-     ✅ handleEdit — TIMEZONE SAFE + never trust bad rental_days
-     ============================================================ */
   const handleEdit = (reservation) => {
     setModalType('edit'); setEditingItem(reservation);
     let displayNotes = reservation.notes || '';
     try { if (displayNotes && displayNotes.trim().startsWith('{')) { const n = JSON.parse(displayNotes); if (n.original_text !== undefined) displayNotes = n.original_text || ''; } } catch {}
-
-    // 1) Compute from the dates (source of truth)
-    const computedDays = calculateRentalDays(reservation.start_date, reservation.end_date);
-
-    // 2) Only trust stored rental_days if it is a positive number
-    const storedDays = parseInt(reservation.rental_days, 10);
-    const hasValidStored = Number.isFinite(storedDays) && storedDays > 0;
-
-    // 3) Reconcile: if stored is present and differs by more than 1 day from computed, prefer computed
-    //    (this is what kills the "-4 days" case coming from a bad backend row)
-    let totalDays;
-    if (hasValidStored && Math.abs(storedDays - computedDays) <= 1) {
-      totalDays = storedDays;
-    } else {
-      totalDays = computedDays;
-    }
-
-    const prolongation = Math.max(parseInt(reservation.prolongation_days, 10) || 0, 0);
-    const baseDays = reservation.can_extend_days
-      ? Math.max(totalDays - prolongation, 1)
-      : Math.max(totalDays, 1);
-
-    setFormData({
-      ...reservation,
-      start_date: reservation.start_date ? String(reservation.start_date).split('T')[0] : '',
-      end_date:   reservation.end_date   ? String(reservation.end_date).split('T')[0]   : '',
-      rental_days: baseDays,
-      nom: reservation.client?.nom || '',
-      prenom: reservation.client?.prenom || '',
-      telephone: reservation.client?.telephone || '',
-      email: reservation.client?.email || '',
-      city: reservation.client?.city || '',
-      cin_number: reservation.client?.cin_number || '',
-      driver_license_number: reservation.client?.driver_license_number || '',
-      cin_image: reservation.client?.cin_image || '',
-      driver_license_image: reservation.client?.driver_license_image || '',
-      has_second_driver: reservation.has_second_driver || false,
-      second_driver_client_id: reservation.second_driver_client_id || '',
-      notes: displayNotes,
-      can_extend_days: reservation.can_extend_days || false,
-      prolongation_days: reservation.prolongation_days || 0,
-      sous_location_id: reservation.sous_location_id || '',
-    });
+    const totalDaysFromDates = calculateRentalDays(reservation.start_date, reservation.end_date);
+    const prolongation = reservation.prolongation_days || 0;
+    const baseDays = reservation.can_extend_days ? Math.max((reservation.rental_days || totalDaysFromDates) - prolongation, 1) : (reservation.rental_days || totalDaysFromDates);
+    setFormData({ ...reservation, start_date: reservation.start_date.split('T')[0], end_date: reservation.end_date.split('T')[0], rental_days: baseDays, nom: reservation.client?.nom || '', prenom: reservation.client?.prenom || '', telephone: reservation.client?.telephone || '', email: reservation.client?.email || '', city: reservation.client?.city || '', cin_number: reservation.client?.cin_number || '', driver_license_number: reservation.client?.driver_license_number || '', cin_image: reservation.client?.cin_image || '', driver_license_image: reservation.client?.driver_license_image || '', has_second_driver: reservation.has_second_driver || false, second_driver_client_id: reservation.second_driver_client_id || '', notes: displayNotes, can_extend_days: reservation.can_extend_days || false, prolongation_days: reservation.prolongation_days || 0, sous_location_id: reservation.sous_location_id || '' });
     setShowModal(true);
   };
 
@@ -1007,7 +927,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
   };
 
   /* ============================================================
-     ✅ handleSubmit — clamps rental_days to >= 1, syncs report
+     ✅ handleSubmit — now syncs the report after create/update
      ============================================================ */
   const handleSubmit = async (e) => {
     e.preventDefault(); setSubmitting(true);
@@ -1052,17 +972,9 @@ const ReservationsManagement = ({ onBack, filter }) => {
         }
         if (secondDriverClientId && secondDriverClientId === clientId) throw new Error('Le deuxième conducteur ne peut pas être le même que le locataire');
       }
-
-      // ✅ Clamp baseDays so a negative value can never be sent
-      const parsedBase = parseInt(formData.rental_days, 10);
-      const derivedBase = calculateRentalDays(formData.start_date, formData.end_date);
-      const baseDays = Math.max(
-        Number.isFinite(parsedBase) && parsedBase > 0 ? parsedBase : derivedBase,
-        1
-      );
-      const prolongationDays = formData.can_extend_days ? Math.max(parseInt(formData.prolongation_days, 10) || 0, 0) : 0;
+      const baseDays = parseInt(formData.rental_days, 10) || calculateRentalDays(formData.start_date, formData.end_date) || 1;
+      const prolongationDays = formData.can_extend_days ? (parseInt(formData.prolongation_days, 10) || 0) : 0;
       const totalRentalDays = baseDays + prolongationDays;
-
       const reservationData = { start_date: formData.start_date, end_date: formData.end_date, start_time: formData.start_time || '08:00', end_time: formData.end_time || '18:00', rental_days: totalRentalDays, total_days: totalRentalDays, total_price: formData.total_price || 0, amount_paid: formData.amount_paid || 0, remaining_amount: formData.remaining_amount || ((formData.total_price || 0) - (formData.amount_paid || 0)), payment_history: formData.payment_history || [], status: formData.status || 'pending', car_id: formData.car_id, client_id: clientId, matricule_id: formData.matricule_id || null, has_second_driver: formData.has_second_driver || false, second_driver_client_id: formData.has_second_driver ? secondDriverClientId : null, notes: formData.notes || '', kilometrage_sortie: formData.kilometrage_sortie || null, kilometrage_entree: formData.kilometrage_entree || null, can_extend_days: !!formData.can_extend_days, prolongation_days: prolongationDays, sous_location_id: formData.sous_location_id || null };
 
       let savedReservation = null;
@@ -1077,6 +989,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
         showSuccessMessage('Réservation mise à jour avec succès!');
       }
 
+      // ✅ FIX: sync the report — defensive payload
       try {
         const savedId = savedReservation?.id || editingItem?.id;
         let toSync = savedReservation && savedReservation.id
@@ -1178,6 +1091,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
     setSelectedMatriculeId(reservation.matricule_id || (available[0]?.id ?? '')); setShowConfirmModal(true);
   };
 
+  /* ✅ confirmConfirm — syncs report after confirming */
   const confirmConfirm = async () => {
     if (!selectedMatriculeId) { showErrorMessage('Veuillez sélectionner un matricule.'); return; }
     try {
@@ -1192,10 +1106,11 @@ const ReservationsManagement = ({ onBack, filter }) => {
   const openCompleteModal = (reservation) => {
     setCompleteReservationId(reservation.id);
     setKilometrageRetour(reservation.kilometrage_entree || reservation.matricule_kilometrage_at_start || '');
-    const now = new Date(); setReturnDate(formatLocalYMD(now)); setReturnTime(now.toTimeString().slice(0, 5));
+    const now = new Date(); setReturnDate(now.toISOString().split('T')[0]); setReturnTime(now.toTimeString().slice(0, 5));
     setShowCompleteModal(true);
   };
 
+  /* ✅ confirmComplete — syncs report after completing */
   const confirmComplete = async () => {
     if (!kilometrageRetour || isNaN(kilometrageRetour) || parseFloat(kilometrageRetour) < 0) { showErrorMessage('Veuillez entrer un kilométrage retour valide.'); return; }
     try {
@@ -1641,6 +1556,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
         </div>, document.body
       )}
 
+      {/* ===== STYLES (identiques à ton fichier original) ===== */}
       <style>{`
         .reservations-management { padding: 2rem; min-height: 100vh; font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; background: #f8fafc; color: #334155; }
         .spinning { animation: spin 1s linear infinite; }
@@ -1749,7 +1665,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
         .status-confirmed { background: #dcfce7; color: #166534; }
         .status-retard { background: #ffedd5; color: #9a3412; }
         .status-contacted { background: #e0e7ff; color: #3730a3; }
-        .status-completed { background: #e5e7eb; color: #4b5563; }
+.status-completed { background: #e5e7eb; color: #4b5563; }
         .status-cancelled { background: #fee2e2; color: #991b1b; }
         .status-icon { font-size: 0.7rem; }
         .no-data { text-align: center; padding: 4rem 2rem; color: #64748b; }
