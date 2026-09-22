@@ -81,6 +81,20 @@ const formatLocalYMD = (date) => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
+/* ---------- Helper: quick check if a reservation already carries signatures ---------- */
+const reservationHasAnySignature = (r) => {
+  if (!r) return false;
+  if (r.signatures && typeof r.signatures === 'object') {
+    const ok = Object.values(r.signatures).some(v => typeof v === 'string' && v.length > 20);
+    if (ok) return true;
+  }
+  return Object.keys(r).some(k => {
+    if (!k.toLowerCase().includes('sign')) return false;
+    const v = r[k];
+    return typeof v === 'string' && v.length > 20;
+  });
+};
+
 /* -------------------- Contract sub-components -------------------- */
 const Checkbox = ({ checked = false }) => (
   <span className={`checkbox-square ${checked ? 'checked' : ''}`}>{checked && '✓'}</span>
@@ -679,68 +693,79 @@ const ReservationsManagement = ({ onBack, filter }) => {
     throw lastError;
   };
 
+  /* ============================================================
+     ✅ enrichReservationWithSignatures — FAST version
+     - No more full list re-fetch (that was slowing down modal open)
+     - No more broken `/signature` (singular) fallback → no 404
+     - Short-circuits immediately if the reservation already has signatures
+     ============================================================ */
   const enrichReservationWithSignatures = async (reservation) => {
-    let fresh = reservation;
-    try {
-      const result = await dispatch(fetchReservations()).unwrap();
-      const list = Array.isArray(result) ? result : Array.isArray(result?.reservations) ? result.reservations : Array.isArray(result?.data) ? result.data : null;
-      if (list) { const found = list.find(r => r.id === reservation.id); if (found) fresh = found; }
-    } catch (_) {}
-    const hasAnySignature = (r) => {
-      if (!r) return false;
-      if (r.signatures && typeof r.signatures === 'object') {
-        const ok = Object.values(r.signatures).some(v => typeof v === 'string' && v.length > 20);
-        if (ok) return true;
-      }
-      return Object.keys(r).some(k => { if (!k.toLowerCase().includes('sign')) return false; const v = r[k]; return typeof v === 'string' && v.length > 20; });
-    };
-    if (hasAnySignature(fresh)) return fresh;
-    const mergeSignatureResponse = (base, data) => {
-      if (!data || typeof data !== 'object') return base;
-      if (data.data && typeof data.data === 'object' && !data.signatures) data = data.data;
-      if (data.signatures && typeof data.signatures === 'object') {
-        return { ...base, signatures: { ...(base.signatures || {}), ...data.signatures }, ...Object.fromEntries(Object.entries(data).filter(([k]) => k !== 'signatures')) };
-      }
-      const sigKeys = ['agent','locataire','client','secondConducteur','second_driver','secondDriver','second_conducteur','signature','signature_agent','signature_locataire','signature_client','signature_second_conducteur','signature_second_driver','agent_signature','client_signature','locataire_signature','second_driver_signature','second_conducteur_signature','locataire_image','secondConducteur_image','agent_image'];
-      const hasSig = sigKeys.some(k => data[k]);
-      if (hasSig) {
-        const lifted = { ...(base.signatures || {}) };
-        sigKeys.forEach(k => { if (data[k]) lifted[k] = data[k]; });
-        const rest = { ...data }; sigKeys.forEach(k => delete rest[k]);
-        return { ...base, ...rest, signatures: lifted };
-      }
-      return { ...base, ...data };
-    };
+    // 1) Already has signatures → no network call at all
+    if (reservationHasAnySignature(reservation)) return reservation;
+
+    // 2) Look for a fresher copy already in the Redux store (no network)
+    const fromStore = reservations.find(r => r.id === reservation.id);
+    if (fromStore && reservationHasAnySignature(fromStore)) return fromStore;
+
+    // 3) Only one endpoint to try: `/signatures` (plural). No 404 fallback.
     try {
       const { api } = await import('../Redux/store');
       const res = await api.get(`/reservations/${reservation.id}/signatures`);
-      return mergeSignatureResponse(fresh, res.data);
+      const data = res.data;
+
+      const base = fromStore || reservation;
+      if (data && typeof data === 'object') {
+        // Normalise response shape
+        let payload = data;
+        if (payload.data && typeof payload.data === 'object' && !payload.signatures) {
+          payload = payload.data;
+        }
+        if (payload.signatures && typeof payload.signatures === 'object') {
+          return {
+            ...base,
+            signatures: { ...(base.signatures || {}), ...payload.signatures },
+            ...Object.fromEntries(Object.entries(payload).filter(([k]) => k !== 'signatures')),
+          };
+        }
+        const sigKeys = [
+          'agent','locataire','client','secondConducteur','second_driver','secondDriver',
+          'second_conducteur','signature','signature_agent','signature_locataire',
+          'signature_client','signature_second_conducteur','signature_second_driver',
+          'agent_signature','client_signature','locataire_signature',
+          'second_driver_signature','second_conducteur_signature',
+          'locataire_image','secondConducteur_image','agent_image',
+        ];
+        const lifted = { ...(base.signatures || {}) };
+        let hasLifted = false;
+        sigKeys.forEach(k => { if (payload[k]) { lifted[k] = payload[k]; hasLifted = true; } });
+        if (hasLifted) {
+          const rest = { ...payload };
+          sigKeys.forEach(k => delete rest[k]);
+          return { ...base, ...rest, signatures: lifted };
+        }
+        return { ...base, ...payload };
+      }
+      return base;
     } catch (_) {
-      try {
-        const { api } = await import('../Redux/store');
-        const res = await api.get(`/reservations/${reservation.id}/signature`);
-        return mergeSignatureResponse(fresh, res.data);
-      } catch (_2) { return fresh; }
+      // 404 or any other error → silently return the row we already have
+      return fromStore || reservation;
     }
   };
 
   /* ============================================================
-     ✅ generateContractPDF — unchanged from original
+     ✅ generateContractPDF — same sizing as AdminReservations.jsx
+     - 210mm clone width, padding 15px, boxSizing border-box
+     - scale: 2
+     - fit-to-single-A4-page with 10mm margin, centered
      ============================================================ */
   const generateContractPDF = async (reservation) => {
     try {
-      const A4_WIDTH_PX = 794;
-
       const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
       const pageWidth  = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
 
-      const PADDING_PX = 5;
-      const PADDING_MM = (PADDING_PX / 96) * 25.4;
-      const contentTop    = PADDING_MM;
-      const contentHeight = pageHeight - PADDING_MM * 2;
-
       const contractElement =
+        document.getElementById('contract-print-hidden') ||
         document.querySelector('#contract-pdf-root .contract-container-print') ||
         document.querySelector('.contract-modal-content .contract-container-print');
 
@@ -748,7 +773,21 @@ const ReservationsManagement = ({ onBack, filter }) => {
 
       if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (_) {} }
 
-      const images = contractElement.querySelectorAll('img');
+      const contractClone = contractElement.cloneNode(true);
+
+      contractClone.style.width = "210mm";
+      contractClone.style.height = "auto";
+      contractClone.style.padding = "15px";
+      contractClone.style.margin = "0";
+      contractClone.style.boxSizing = "border-box";
+      contractClone.style.backgroundColor = "white";
+      contractClone.style.position = "absolute";
+      contractClone.style.top = "-9999px";
+      contractClone.style.left = "0";
+
+      document.body.appendChild(contractClone);
+
+      const images = contractClone.querySelectorAll('img');
       await Promise.all(Array.from(images).map(img =>
         img.complete && img.naturalWidth > 0
           ? Promise.resolve()
@@ -760,79 +799,37 @@ const ReservationsManagement = ({ onBack, filter }) => {
             })
       ));
 
-      const contractClone = contractElement.cloneNode(true);
-      contractClone.style.margin = '0';
-      contractClone.style.boxShadow = 'none';
-      contractClone.style.width = `${A4_WIDTH_PX}px`;
-      contractClone.style.maxWidth = 'none';
-
-      const tempContainer = document.createElement('div');
-      Object.assign(tempContainer.style, {
-        position: 'fixed',
-        left: '-10000px',
-        top: '0',
-        width: `${A4_WIDTH_PX}px`,
-        background: '#ffffff',
-        zIndex: '-1',
-        pointerEvents: 'none',
-        opacity: '0',
-      });
-      tempContainer.appendChild(contractClone);
-      document.body.appendChild(tempContainer);
-
-      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await new Promise(r => setTimeout(r, 100));
 
       const html2canvas = (await import('html2canvas')).default;
-      const width  = contractClone.scrollWidth;
-      const height = contractClone.scrollHeight;
-
       const canvas = await html2canvas(contractClone, {
-        scale: 3,
+        scale: 2,
         useCORS: true,
         allowTaint: true,
         backgroundColor: '#ffffff',
         logging: false,
-        width,
-        height,
-        windowWidth: width,
-        windowHeight: height,
-        scrollX: 0,
-        scrollY: 0,
       });
 
-      document.body.removeChild(tempContainer);
+      document.body.removeChild(contractClone);
 
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      const imgData = canvas.toDataURL('image/png', 1.0);
 
-      let imgWidth  = pageWidth;
+      const margin = 10;
+      const availableWidth = pageWidth - margin * 2;
+      const availableHeight = pageHeight - margin * 2;
+
+      let imgWidth = availableWidth;
       let imgHeight = (canvas.height * imgWidth) / canvas.width;
 
-      if (imgHeight <= contentHeight) {
-        const x = (pageWidth - imgWidth) / 2;
-        doc.addImage(imgData, 'JPEG', x, contentTop, imgWidth, imgHeight);
-      } else {
-        const scaleToFit = contentHeight / imgHeight;
-
-        if (scaleToFit >= 0.7) {
-          imgWidth  = imgWidth * scaleToFit;
-          imgHeight = contentHeight;
-          const x = (pageWidth - imgWidth) / 2;
-          doc.addImage(imgData, 'JPEG', x, contentTop, imgWidth, imgHeight);
-        } else {
-          let heightLeft = imgHeight;
-          let position = contentTop;
-
-          doc.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
-          heightLeft -= contentHeight;
-
-          while (heightLeft > 0) {
-            position = contentTop + (heightLeft - imgHeight);
-            doc.addPage();
-            doc.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
-            heightLeft -= contentHeight;
-          }
-        }
+      if (imgHeight > availableHeight) {
+        imgHeight = availableHeight;
+        imgWidth = (canvas.width * imgHeight) / canvas.height;
       }
+
+      const xOffset = margin + (availableWidth - imgWidth) / 2;
+      const yOffset = margin + (availableHeight - imgHeight) / 2;
+
+      doc.addImage(imgData, 'PNG', xOffset, yOffset, imgWidth, imgHeight);
 
       const pdfBlob = doc.output('blob');
       const pdfUrl  = URL.createObjectURL(pdfBlob);
@@ -863,11 +860,35 @@ const ReservationsManagement = ({ onBack, filter }) => {
 
   const handlePrintFromModal = () => { if (!selectedContractReservation) return; setPrintTargetReservation(selectedContractReservation); setShowPrintOptions(true); };
 
-  const handleViewContract = async (reservation) => {
-    const enriched = await enrichReservationWithSignatures(reservation);
-    setSelectedContractReservation(enriched);
-    if (enriched.paperwork) setContractPaperwork({ ...DEFAULT_PAPERWORK, ...enriched.paperwork });
+  /* ============================================================
+     ✅ handleViewContract — INSTANT open, enrich in background
+     The modal opens immediately with what we already have,
+     then signatures are fetched in the background and merged in.
+     ============================================================ */
+  const handleViewContract = (reservation) => {
+    // 1) Use the freshest copy already in the store (no network)
+    const fromStore = reservations.find(r => r.id === reservation.id) || reservation;
+
+    // 2) Open the modal immediately
+    setSelectedContractReservation(fromStore);
+    if (fromStore.paperwork) {
+      setContractPaperwork({ ...DEFAULT_PAPERWORK, ...fromStore.paperwork });
+    }
     setShowContract(true);
+
+    // 3) If signatures are missing, fetch them in the background (non-blocking)
+    if (!reservationHasAnySignature(fromStore)) {
+      enrichReservationWithSignatures(fromStore)
+        .then(enriched => {
+          if (enriched && enriched !== fromStore) {
+            setSelectedContractReservation(prev =>
+              // Only update if the same modal is still open on the same reservation
+              prev && prev.id === enriched.id ? enriched : prev
+            );
+          }
+        })
+        .catch(() => { /* silent */ });
+    }
   };
 
   useEffect(() => {
@@ -879,7 +900,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
       await new Promise((r) => setTimeout(r, 250));
       const fromStore = reservations.find((r) => r.id === incoming.id);
       const target = fromStore || incoming;
-      try { await handleViewContract(target); }
+      try { handleViewContract(target); }
       catch (err) { console.error('Failed to auto-open contract after navigation:', err); setSelectedContractReservation(target); setShowContract(true); }
       navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
     })();
@@ -943,23 +964,15 @@ const ReservationsManagement = ({ onBack, filter }) => {
     setShowModal(true);
   };
 
-  /* ============================================================
-     ✅ handleEdit — TIMEZONE SAFE + never trust bad rental_days
-     ============================================================ */
   const handleEdit = (reservation) => {
     setModalType('edit'); setEditingItem(reservation);
     let displayNotes = reservation.notes || '';
     try { if (displayNotes && displayNotes.trim().startsWith('{')) { const n = JSON.parse(displayNotes); if (n.original_text !== undefined) displayNotes = n.original_text || ''; } } catch {}
 
-    // 1) Compute from the dates (source of truth)
     const computedDays = calculateRentalDays(reservation.start_date, reservation.end_date);
-
-    // 2) Only trust stored rental_days if it is a positive number
     const storedDays = parseInt(reservation.rental_days, 10);
     const hasValidStored = Number.isFinite(storedDays) && storedDays > 0;
 
-    // 3) Reconcile: if stored is present and differs by more than 1 day from computed, prefer computed
-    //    (this is what kills the "-4 days" case coming from a bad backend row)
     let totalDays;
     if (hasValidStored && Math.abs(storedDays - computedDays) <= 1) {
       totalDays = storedDays;
@@ -1006,9 +1019,6 @@ const ReservationsManagement = ({ onBack, filter }) => {
     catch (error) { showErrorMessage('Error deleting reservation: ' + error); }
   };
 
-  /* ============================================================
-     ✅ handleSubmit — clamps rental_days to >= 1, syncs report
-     ============================================================ */
   const handleSubmit = async (e) => {
     e.preventDefault(); setSubmitting(true);
     try {
@@ -1053,7 +1063,6 @@ const ReservationsManagement = ({ onBack, filter }) => {
         if (secondDriverClientId && secondDriverClientId === clientId) throw new Error('Le deuxième conducteur ne peut pas être le même que le locataire');
       }
 
-      // ✅ Clamp baseDays so a negative value can never be sent
       const parsedBase = parseInt(formData.rental_days, 10);
       const derivedBase = calculateRentalDays(formData.start_date, formData.end_date);
       const baseDays = Math.max(

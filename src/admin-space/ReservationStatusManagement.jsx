@@ -540,107 +540,85 @@ const ReservationStatusManagement = () => {
   };
 
   /* ============================================================
-     ✅ generateContractPDF — unchanged
+     ✅ generateContractPDF — now matches AdminReservations.jsx sizing
+     - 210mm clone width, padding 15px, boxSizing border-box
+     - scale: 2
+     - fit-to-single-A4-page with 10mm margin, centered
      ============================================================ */
   const generateContractPDF = async (reservation) => {
     try {
-      const A4_WIDTH_PX = 794;
-
       const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
       const pageWidth  = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
 
-      const PADDING_PX = 5;
-      const PADDING_MM = (PADDING_PX / 96) * 25.4;
-      const contentTop    = PADDING_MM;
-      const contentHeight = pageHeight - PADDING_MM * 2;
-
       const contractElement =
+        document.getElementById('contract-print-hidden') ||
         document.querySelector('#contract-pdf-root .contract-container-print') ||
         document.querySelector('.contract-modal-content .contract-container-print');
+
       if (!contractElement) { showErrorMessage('Contract element not found'); return; }
 
       if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (_) {} }
 
-      const images = contractElement.querySelectorAll('img');
+      const contractClone = contractElement.cloneNode(true);
+
+      // ✅ Sizing exactly like AdminReservations.jsx
+      contractClone.style.width = "210mm";
+      contractClone.style.height = "auto";
+      contractClone.style.padding = "15px";
+      contractClone.style.margin = "0";
+      contractClone.style.boxSizing = "border-box";
+      contractClone.style.backgroundColor = "white";
+      contractClone.style.position = "absolute";
+      contractClone.style.top = "-9999px";
+      contractClone.style.left = "0";
+
+      document.body.appendChild(contractClone);
+
+      const images = contractClone.querySelectorAll('img');
       await Promise.all(Array.from(images).map(img =>
-        img.complete && img.naturalWidth > 0 ? Promise.resolve() :
-        new Promise(res => { const done = () => res(); img.addEventListener('load', done, { once: true }); img.addEventListener('error', done, { once: true }); setTimeout(done, 4000); })
+        img.complete && img.naturalWidth > 0
+          ? Promise.resolve()
+          : new Promise(res => {
+              const done = () => res();
+              img.addEventListener('load', done, { once: true });
+              img.addEventListener('error', done, { once: true });
+              setTimeout(done, 4000);
+            })
       ));
 
-      const contractClone = contractElement.cloneNode(true);
-      contractClone.style.margin = '0';
-      contractClone.style.boxShadow = 'none';
-      contractClone.style.width = `${A4_WIDTH_PX}px`;
-      contractClone.style.maxWidth = 'none';
-
-      const tempContainer = document.createElement('div');
-      Object.assign(tempContainer.style, {
-        position: 'fixed',
-        left: '-10000px',
-        top: '0',
-        width: `${A4_WIDTH_PX}px`,
-        background: '#ffffff',
-        zIndex: '-1',
-        pointerEvents: 'none',
-        opacity: '0',
-      });
-      tempContainer.appendChild(contractClone);
-      document.body.appendChild(tempContainer);
-
-      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await new Promise(r => setTimeout(r, 100));
 
       const html2canvas = (await import('html2canvas')).default;
-      const width  = contractClone.scrollWidth;
-      const height = contractClone.scrollHeight;
-
       const canvas = await html2canvas(contractClone, {
-        scale: 3,
+        scale: 2,
         useCORS: true,
         allowTaint: true,
         backgroundColor: '#ffffff',
         logging: false,
-        width,
-        height,
-        windowWidth: width,
-        windowHeight: height,
-        scrollX: 0,
-        scrollY: 0,
       });
 
-      document.body.removeChild(tempContainer);
+      document.body.removeChild(contractClone);
 
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      const imgData = canvas.toDataURL('image/png', 1.0);
 
-      let imgWidth  = pageWidth;
+      // ✅ Fit-to-page with 10mm margin, centered
+      const margin = 10;
+      const availableWidth = pageWidth - margin * 2;
+      const availableHeight = pageHeight - margin * 2;
+
+      let imgWidth = availableWidth;
       let imgHeight = (canvas.height * imgWidth) / canvas.width;
 
-      if (imgHeight <= contentHeight) {
-        const x = (pageWidth - imgWidth) / 2;
-        doc.addImage(imgData, 'JPEG', x, contentTop, imgWidth, imgHeight);
-      } else {
-        const scaleToFit = contentHeight / imgHeight;
-
-        if (scaleToFit >= 0.7) {
-          imgWidth  = imgWidth * scaleToFit;
-          imgHeight = contentHeight;
-          const x = (pageWidth - imgWidth) / 2;
-          doc.addImage(imgData, 'JPEG', x, contentTop, imgWidth, imgHeight);
-        } else {
-          let heightLeft = imgHeight;
-          let position = contentTop;
-
-          doc.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
-          heightLeft -= contentHeight;
-
-          while (heightLeft > 0) {
-            position = contentTop + (heightLeft - imgHeight);
-            doc.addPage();
-            doc.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
-            heightLeft -= contentHeight;
-          }
-        }
+      if (imgHeight > availableHeight) {
+        imgHeight = availableHeight;
+        imgWidth = (canvas.width * imgHeight) / canvas.height;
       }
+
+      const xOffset = margin + (availableWidth - imgWidth) / 2;
+      const yOffset = margin + (availableHeight - imgHeight) / 2;
+
+      doc.addImage(imgData, 'PNG', xOffset, yOffset, imgWidth, imgHeight);
 
       const pdfBlob = doc.output('blob'); const pdfUrl = URL.createObjectURL(pdfBlob);
       window.open(pdfUrl, '_blank'); doc.save(`contrat-location-${reservation.id}.pdf`);
