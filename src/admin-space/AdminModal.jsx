@@ -1,1600 +1,1661 @@
-// src/components/admin/AdminModal.jsx
-import { useState, useEffect, useMemo, useRef } from "react";
+// src/pages/admin/AdminPayments.jsx
+import { useEffect, useState, useMemo } from "react";
 import { createPortal } from "react-dom";
+import { useDispatch, useSelector } from "react-redux";
+import { useSearchParams } from "react-router-dom";
+import { fetchCars, selectCars, fetchMatricules, selectMatricules } from "../Redux/store";
+import PaginationControls from '../components/PaginationControls';
+import axios from "axios";
+import { toast } from "sonner";
 import {
-  X, Search, Plus, Trash2, UserPlus, CheckCircle, Car, User, Users,
-  Calendar, DollarSign, Tag, Info, RefreshCw, Check, AlertTriangle,
-  Wrench, Gauge, History, ChevronDown, ChevronUp, ShieldCheck, IdCard,
-  Phone, Mail, MapPin, Key, Fuel, Settings2, MessageSquare, Lock,
-  Save, Sparkles,
+  Plus, Edit2, Trash2, X, RefreshCw, Car, DollarSign, Calendar,
+  TrendingUp, Check, AlertCircle, CreditCard, FileText, Download,
+  Save, TrashIcon, Search, ChevronLeft, ChevronRight, User,
+  Building2, FileCheck, Clock, Wallet, Banknote, Receipt,
+  CalendarDays, Percent, Info, Tag, CreditCard as CreditCardIcon,
+  AlertTriangle, CheckCircle, XCircle, Eye, Printer, Phone, Mail,
+  MapPin, IdCard, Users, Gauge, Shield, Settings, EyeOff, Minus,
+  Calculator, PieChart, TrendingDown, Sparkles, Star, Gem, Award,
+  ArrowUpDown, ArrowUp, ArrowDown, Activity, Key, Lock, Unlock, ArrowLeft,
 } from "lucide-react";
 
-// ============================================================
-// Shared building blocks
-// ============================================================
-const Field = ({ label, required, hint, children }) => (
-  <div className="am-field">
-    <label className={`am-label ${required ? "am-required" : ""}`}>{label}</label>
-    {children}
-    {hint && <span className="am-hint">{hint}</span>}
-  </div>
-);
+export default function AdminPayments() {
+  const dispatch = useDispatch();
+  const cars = useSelector(selectCars);
+  const matricules = useSelector(selectMatricules);
 
-const Section = ({ icon: Icon, title, action, children }) => (
-  <section className="am-section">
-    <div className="am-section-head">
-      <span className="am-section-title">
-        {Icon && <Icon size={16} />} {title}
-      </span>
-      {action}
-    </div>
-    <div className="am-section-body">{children}</div>
-  </section>
-);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const filterParam = searchParams.get('filter');
 
-const SearchPicker = ({
-  placeholder, items, filterFn, renderResult, onSelect,
-  selectedText, onCreateNew, createLabel,
-}) => {
-  const [term, setTerm] = useState("");
-  const results = useMemo(() => {
-    if (!term.trim() || !Array.isArray(items)) return [];
-    const t = term.toLowerCase().trim();
-    return items.filter((i) => i && filterFn(i, t)).slice(0, 8);
-  }, [term, items, filterFn]);
+  const [financings, setFinancings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [showPaymentDetails, setShowPaymentDetails] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [financingToDelete, setFinancingToDelete] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [selectedFinancing, setSelectedFinancing] = useState(null);
+  const [paymentsModalOpen, setPaymentsModalOpen] = useState(false);
+  const [recordPaymentModalOpen, setRecordPaymentModalOpen] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  return (
-    <div className="am-picker">
-      <div className="am-search">
-        <Search size={16} />
-        <input
-          className="am-input am-input-search"
-          value={term}
-          onChange={(e) => setTerm(e.target.value)}
-          placeholder={placeholder}
-        />
-      </div>
-      {results.length > 0 && (
-        <div className="am-results">
-          {results.map((r) => (
-            <div
-              key={r.id}
-              className="am-result"
-              onClick={() => { onSelect(r); setTerm(""); }}
-            >
-              {renderResult(r)}
-            </div>
-          ))}
-        </div>
-      )}
-      {onCreateNew && (
-        <button type="button" className="am-btn-ghost am-btn-block" onClick={onCreateNew}>
-          <UserPlus size={14} /> {createLabel}
-        </button>
-      )}
-      {selectedText && (
-        <div className="am-selected">
-          <CheckCircle size={16} />
-          <span>{selectedText}</span>
-        </div>
-      )}
-    </div>
-  );
-};
+  const [sortField, setSortField] = useState("id");
+  const [sortDirection, setSortDirection] = useState("desc");
 
-const InlineClientForm = ({ data, setData, onSave, onCancel, saving }) => (
-  <div className="am-inline-create">
-    <div className="am-grid-2">
-      <Field label="Prénom" required>
-        <input className="am-input" value={data.prenom}
-          onChange={(e) => setData((p) => ({ ...p, prenom: e.target.value }))} />
-      </Field>
-      <Field label="Nom" required>
-        <input className="am-input" value={data.nom}
-          onChange={(e) => setData((p) => ({ ...p, nom: e.target.value }))} />
-      </Field>
-      <Field label="Téléphone" required>
-        <input className="am-input" value={data.telephone}
-          onChange={(e) => setData((p) => ({ ...p, telephone: e.target.value }))} />
-      </Field>
-      <Field label="Email">
-        <input className="am-input" value={data.email}
-          onChange={(e) => setData((p) => ({ ...p, email: e.target.value }))} />
-      </Field>
-      <Field label="Ville">
-        <input className="am-input" value={data.city}
-          onChange={(e) => setData((p) => ({ ...p, city: e.target.value }))} />
-      </Field>
-      <Field label="CIN">
-        <input className="am-input" value={data.cin_number}
-          onChange={(e) => setData((p) => ({ ...p, cin_number: e.target.value }))} />
-      </Field>
-      <Field label="CIN délivré le">
-        <input type="date" className="am-input" value={data.cin_delivre_le}
-          onChange={(e) => setData((p) => ({ ...p, cin_delivre_le: e.target.value }))} />
-      </Field>
-      <Field label="Permis N°">
-        <input className="am-input" value={data.driver_license_number}
-          onChange={(e) => setData((p) => ({ ...p, driver_license_number: e.target.value }))} />
-      </Field>
-      <Field label="Permis délivré le">
-        <input type="date" className="am-input" value={data.permis_delivre_le}
-          onChange={(e) => setData((p) => ({ ...p, permis_delivre_le: e.target.value }))} />
-      </Field>
-      <Field label="Date de naissance">
-        <input type="date" className="am-input" value={data.date_naissance}
-          onChange={(e) => setData((p) => ({ ...p, date_naissance: e.target.value }))} />
-      </Field>
-      <Field label="Lieu de naissance">
-        <input className="am-input" value={data.lieu_naissance}
-          onChange={(e) => setData((p) => ({ ...p, lieu_naissance: e.target.value }))} />
-      </Field>
-    </div>
-    <div className="am-inline-actions">
-      <button type="button" className="am-btn-secondary" onClick={onCancel}>Annuler</button>
-      <button type="button" className="am-btn-primary" onClick={onSave} disabled={saving}>
-        {saving ? "Création…" : "Créer"}
-      </button>
-    </div>
-  </div>
-);
+  const [interestModalOpen, setInterestModalOpen] = useState(false);
+  const [currentFinancingForSchedule, setCurrentFinancingForSchedule] = useState(null);
+  const [interestRate, setInterestRate] = useState("5");
+  const [tvaRate, setTvaRate] = useState("20");
 
-const InlineSousLocationForm = ({ data, setData, onSave, onCancel, saving }) => (
-  <div className="am-inline-create">
-    <Field label="Nom" required>
-      <input className="am-input" value={data.name}
-        onChange={(e) => setData((p) => ({ ...p, name: e.target.value }))}
-        placeholder="Ex: Location groupe" />
-    </Field>
-    <Field label="Description">
-      <textarea className="am-input am-textarea" rows={2} value={data.description}
-        onChange={(e) => setData((p) => ({ ...p, description: e.target.value }))}
-        placeholder="Description facultative" />
-    </Field>
-    <div className="am-inline-actions">
-      <button type="button" className="am-btn-secondary" onClick={onCancel}>Annuler</button>
-      <button type="button" className="am-btn-primary" onClick={onSave}
-        disabled={saving || !data.name.trim()}>
-        {saving ? "Création…" : "Créer"}
-      </button>
-    </div>
-  </div>
-);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
-const emptyClient = {
-  prenom: "", nom: "", telephone: "", email: "", city: "",
-  cin_number: "", cin_delivre_le: "", driver_license_number: "",
-  permis_delivre_le: "", date_naissance: "", lieu_naissance: "",
-};
+  const [matriculeSearchTerm, setMatriculeSearchTerm] = useState("");
+  const [filteredMatriculesList, setFilteredMatriculesList] = useState([]);
+  const [selectedMatriculeObj, setSelectedMatriculeObj] = useState(null);
 
-const emptySousLocation = { name: "", description: "" };
-
-// Safe id comparison (handles string/number mismatch)
-const sameId = (a, b) => a != null && b != null && String(a) === String(b);
-
-// ============================================================
-// RESERVATIONS
-// ============================================================
-const ReservationFields = ({
-  formData, handleChange, clients, cars, matricules, createClient, submitting,
-  sousLocations = [], createSousLocation, canCreateSousLocation = true,
-}) => {
-  const [selectedClient, setSelectedClient] = useState(
-    () => clients.find((c) => sameId(c.id, formData.client_id)) || null
-  );
-  const [isNewClient, setIsNewClient] = useState(false);
-  const [newClientData, setNewClientData] = useState(emptyClient);
-  const [creatingClient, setCreatingClient] = useState(false);
-
-  const [selectedMatricule, setSelectedMatricule] = useState(
-    () => matricules.find((m) => sameId(m.id, formData.matricule_id)) || null
-  );
-  const [carMatricules, setCarMatricules] = useState(
-    () => matricules.filter((m) => sameId(m.car_id, formData.car_id))
-  );
-
-  const [showSecondDriver, setShowSecondDriver] = useState(!!formData.has_second_driver);
-  const [isNewSecondDriver, setIsNewSecondDriver] = useState(false);
-  const [newSecondDriverData, setNewSecondDriverData] = useState(emptyClient);
-  const [creatingSecondDriver, setCreatingSecondDriver] = useState(false);
-
-  const [isNewSousLocation, setIsNewSousLocation] = useState(false);
-  const [newSousLocationData, setNewSousLocationData] = useState(emptySousLocation);
-  const [creatingSousLocation, setCreatingSousLocation] = useState(false);
-
-  const [newPayment, setNewPayment] = useState({
-    amount: "", date: new Date().toISOString().split("T")[0], method: "cash", notes: "",
-  });
-  const [showAddPayment, setShowAddPayment] = useState(false);
-  const paymentHistory = Array.isArray(formData.payment_history) ? formData.payment_history : [];
-
-  const [manualDailyPrice, setManualDailyPrice] = useState("");
-
-  // 💰 Remember the current daily rate
-  const [dailyRate, setDailyRate] = useState(() => {
-    const base = parseInt(formData.rental_days, 10) || 0;
-    const prolong = formData.can_extend_days
-      ? parseInt(formData.prolongation_days, 10) || 0
-      : 0;
-    const days = base + prolong;
-    if (formData.total_price && days > 0) return Number(formData.total_price) / days;
-    const car = cars.find((c) => sameId(c.id, formData.car_id));
-    if (car?.price_per_day) return parseFloat(car.price_per_day);
-    return null;
+  const [formData, setFormData] = useState({
+    matricule_id: "",
+    dossier_number: "",
+    account_number: "",
+    credit_type: "vehicule_entreprise",
+    contract_date: new Date().toISOString().slice(0, 10),
+    credit_amount: 0,
+    preti_interet_ttc_differe: 0,
+    duration_months: 36,
+    differed_months: 0,
+    periodicity: "mensuel",
+    total_installments: 36,
+    first_installment_date: new Date().toISOString().slice(0, 10),
+    last_installment_date: "",
+    bank_name: "",
+    bank_account: "",
+    installment_amount: 0,
+    prestation_amount: 0,
+    status: "active",
+    notes: "",
   });
 
+  const [paymentForm, setPaymentForm] = useState({
+    installment_number: 1,
+    paid_amount: 0,
+    paid_date: new Date().toISOString().slice(0, 10),
+    payment_method: "bank_transfer",
+    transaction_reference: "",
+    payment_notes: "",
+  });
+
+  const api = axios.create({
+    baseURL: "http://localhost:8000/api",
+    headers: { "Accept": "application/json", "Content-Type": "application/json" },
+  });
+
+  api.interceptors.request.use((config) => {
+    const token = localStorage.getItem('authToken');
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+    return config;
+  });
+
+  const formatDateForInput = (dateString) => {
+    if (!dateString) return "";
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return "";
+      return date.toISOString().slice(0, 10);
+    } catch { return ""; }
+  };
+
+  const handleSort = (field) => {
+    if (sortField === field) setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+    else { setSortField(field); setSortDirection("asc"); }
+  };
+
+  const getSortIcon = (field) => {
+    if (sortField !== field) return <ArrowUpDown size={12} className="sort-icon" />;
+    return sortDirection === "asc"
+      ? <ArrowUp size={12} className="sort-icon active" />
+      : <ArrowDown size={12} className="sort-icon active" />;
+  };
+
+  const fetchFinancings = async () => {
+    try {
+      setLoading(true);
+      const response = await api.get("/payments");
+      setFinancings(response.data.financings || []);
+    } catch (error) {
+      console.error("Error fetching financings:", error);
+      toast.error("Erreur lors du chargement des données");
+      setFinancings([]);
+    } finally { setLoading(false); }
+  };
+
   useEffect(() => {
-    setCarMatricules(
-      formData.car_id ? matricules.filter((m) => sameId(m.car_id, formData.car_id)) : []
-    );
-  }, [formData.car_id, matricules]);
+    fetchFinancings();
+    dispatch(fetchCars());
+    dispatch(fetchMatricules());
+  }, [dispatch]);
 
-  // ===== Auto-fill Heure début / fin on status change =====
-  const prevStatusRef = useRef(formData.status);
-  useEffect(() => {
-    if (prevStatusRef.current === formData.status) return;
-    prevStatusRef.current = formData.status;
-
-    const now = new Date();
-    const currentDate = now.toISOString().split("T")[0];
-    const currentTime = now.toTimeString().slice(0, 5);
-
-    if (formData.status === "confirmed") {
-      handleChange("start_time", currentTime);
-    }
-    if (formData.status === "completed") {
-      handleChange("end_date", currentDate);
-      handleChange("end_time", currentTime);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.status]);
-
-  const totalDays = useMemo(() => {
-    const base = parseInt(formData.rental_days, 10) || 0;
-    const prolongation = formData.can_extend_days
-      ? parseInt(formData.prolongation_days, 10) || 0
-      : 0;
-    return base + prolongation;
-  }, [formData.rental_days, formData.prolongation_days, formData.can_extend_days]);
-
-  // 🔄 Auto-update total_price whenever the number of days changes
-  const prevTotalDaysRef = useRef(totalDays);
-  useEffect(() => {
-    if (prevTotalDaysRef.current === totalDays) return;
-    prevTotalDaysRef.current = totalDays;
-    if (totalDays <= 0) return;
-
-    let rate = dailyRate;
-    if (rate == null) {
-      const car = cars.find((c) => sameId(c.id, formData.car_id));
-      if (car?.price_per_day) {
-        rate = parseFloat(car.price_per_day);
-        setDailyRate(rate);
+  const saveFinancing = async (data) => {
+    try {
+      if (editing) {
+        const response = await api.put(`/payments/${editing.id}`, data);
+        toast.success("Financement modifié avec succès");
+        return response.data.financing;
+      } else {
+        const response = await api.post("/payments", data);
+        toast.success("Financement ajouté avec succès");
+        return response.data.financing;
       }
+    } catch (error) {
+      console.error("Error saving financing:", error);
+      toast.error(error.response?.data?.message || "Erreur lors de l'enregistrement");
+      throw error;
     }
-    if (rate == null) return;
-
-    const newTotal = Math.round(rate * totalDays * 100) / 100;
-    handleChange("total_price", newTotal);
-    handleChange("remaining_amount", newTotal - (Number(formData.amount_paid) || 0));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [totalDays, dailyRate, formData.car_id]);
-
-  const recalcEndDate = (startDate, days) => {
-    if (!startDate || days <= 0) return null;
-    const start = new Date(startDate);
-    const end = new Date(start);
-    end.setDate(start.getDate() + days);
-    return end.toISOString().split("T")[0];
   };
 
-  // ✅ Compute number of days between two dates (difference-based, min 1)
-  const daysBetween = (startDate, endDate) => {
-    if (!startDate || !endDate) return 0;
-    const s = new Date(startDate);
-    const e = new Date(endDate);
-    s.setHours(0, 0, 0, 0);
-    e.setHours(0, 0, 0, 0);
-    const diff = Math.abs(e - s);
-    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-    return days === 0 ? 1 : days;
+  const deleteFinancing = async (id) => {
+    try {
+      await api.delete(`/payments/${id}`);
+      toast.success("Financement supprimé avec succès");
+      return true;
+    } catch (error) {
+      console.error("Error deleting financing:", error);
+      toast.error("Erreur lors de la suppression");
+      return false;
+    }
   };
 
-  const applyManualDailyPrice = () => {
-    const price = parseFloat(manualDailyPrice);
-    if (isNaN(price) || price <= 0 || totalDays <= 0) return;
-    setDailyRate(price);
-    const newTotal = Math.round(price * totalDays * 100) / 100;
-    handleChange("total_price", newTotal);
-    handleChange("remaining_amount", newTotal - (Number(formData.amount_paid) || 0));
+  const generateSchedule = async (financingId, data) => {
+    try {
+      const response = await api.post(`/payments/${financingId}/generate-schedule`, data);
+      toast.success(response.data.message);
+      return response.data;
+    } catch (error) {
+      console.error("Error generating schedule:", error);
+      toast.error(error.response?.data?.message || "Erreur lors de la génération de l'échéancier");
+      throw error;
+    }
   };
 
-  const recalcFromCar = () => {
-    const car = cars.find((c) => sameId(c.id, formData.car_id));
-    if (!car || totalDays <= 0) return;
-    const rate = parseFloat(car.price_per_day);
-    setDailyRate(rate);
-    const newTotal = Math.round(rate * totalDays * 100) / 100;
-    handleChange("total_price", newTotal);
-    handleChange("remaining_amount", newTotal - (Number(formData.amount_paid) || 0));
+  const recordPayment = async (financingId, data) => {
+    try {
+      const response = await api.post(`/payments/${financingId}/record-payment`, data);
+      toast.success("Paiement enregistré avec succès");
+      return response.data;
+    } catch (error) {
+      console.error("Error recording payment:", error);
+      toast.error(error.response?.data?.message || "Erreur lors de l'enregistrement du paiement");
+      throw error;
+    }
   };
 
-  const applyMatriculePricing = (matricule, days) => {
-    if (!matricule || days <= 0) return;
-    const car = cars.find((c) => sameId(c.id, matricule.car_id));
-    if (!car) return;
-    const rate = parseFloat(car.price_per_day);
-    setDailyRate(rate);
-    const newTotal = Math.round(rate * days * 100) / 100;
-    handleChange("total_price", newTotal);
-    handleChange("remaining_amount", newTotal - (Number(formData.amount_paid) || 0));
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+
+    if (!formData.last_installment_date && formData.first_installment_date && formData.total_installments) {
+      const startDate = new Date(formData.first_installment_date);
+      const lastDate = new Date(startDate);
+      lastDate.setMonth(startDate.getMonth() + formData.total_installments - 1);
+      formData.last_installment_date = lastDate.toISOString().slice(0, 10);
+    }
+
+    try {
+      const saved = await saveFinancing(formData);
+      await fetchFinancings();
+      setShowPaymentForm(false);
+      setEditing(null);
+      resetForm();
+    } catch (error) {
+      // handled
+    } finally { setSubmitting(false); }
   };
 
-  // ✅ Payment shape matches AdminReservations (id prefix `payment_`, created_at, notes)
-  const addPayment = () => {
-    const amount = parseFloat(newPayment.amount);
-    if (!amount || amount <= 0) return;
-
-    const paid = paymentHistory.reduce((s, p) => s + (p.amount || 0), 0);
-    const remaining = (formData.total_price || 0) - paid;
-    const actual = Math.min(amount, Math.max(remaining, 0));
-
-    const entry = {
-      id: `payment_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      amount: actual,
-      date: newPayment.date,
-      method: newPayment.method,
-      notes: newPayment.notes || "",
-      created_at: new Date().toISOString(),
-    };
-
-    const updated = [...paymentHistory, entry];
-    const newPaid = updated.reduce((s, p) => s + (p.amount || 0), 0);
-
-    handleChange("payment_history", updated);
-    handleChange("amount_paid", newPaid);
-    handleChange("remaining_amount", (formData.total_price || 0) - newPaid);
-
-    setNewPayment({
-      amount: "",
-      date: new Date().toISOString().split("T")[0],
-      method: "cash",
+  const resetForm = () => {
+    setFormData({
+      matricule_id: "",
+      dossier_number: "",
+      account_number: "",
+      credit_type: "vehicule_entreprise",
+      contract_date: new Date().toISOString().slice(0, 10),
+      credit_amount: 0,
+      preti_interet_ttc_differe: 0,
+      duration_months: 36,
+      differed_months: 0,
+      periodicity: "mensuel",
+      total_installments: 36,
+      first_installment_date: new Date().toISOString().slice(0, 10),
+      last_installment_date: "",
+      bank_name: "",
+      bank_account: "",
+      installment_amount: 0,
+      prestation_amount: 0,
+      status: "active",
       notes: "",
     });
-    setShowAddPayment(false);
+    setSelectedMatriculeObj(null);
+    setMatriculeSearchTerm("");
+    setFilteredMatriculesList([]);
   };
 
-  const removePayment = (id) => {
-    const updated = paymentHistory.filter((p) => p.id !== id);
-    const newPaid = updated.reduce((s, p) => s + (p.amount || 0), 0);
-    handleChange("payment_history", updated);
-    handleChange("amount_paid", newPaid);
-    handleChange("remaining_amount", (formData.total_price || 0) - newPaid);
+  const closeForm = () => {
+    if (submitting) return;
+    setShowPaymentForm(false);
+    setEditing(null);
+    resetForm();
   };
 
-  const secondDriver = clients.find((c) => sameId(c.id, formData.second_driver_client_id));
-  const selectedSousLocation = sousLocations.find((sl) => sameId(sl.id, formData.sous_location_id));
+  const handleDeleteClick = (financing) => {
+    setFinancingToDelete(financing);
+    setDeleteModalOpen(true);
+  };
 
-  const saveNewSousLocation = async () => {
-    if (!newSousLocationData.name.trim() || !createSousLocation) return;
-    setCreatingSousLocation(true);
+  const confirmDelete = async () => {
+    if (!financingToDelete) return;
+    const success = await deleteFinancing(financingToDelete.id);
+    if (success) await fetchFinancings();
+    setDeleteModalOpen(false);
+    setFinancingToDelete(null);
+  };
+
+  const openSchedulePrompt = (financing) => {
+    setCurrentFinancingForSchedule(financing);
+    setInterestRate("5");
+    setTvaRate("20");
+    setInterestModalOpen(true);
+  };
+
+  const loadPayments = async (financingId) => {
     try {
-      const result = await createSousLocation(newSousLocationData);
-      const created = result?.sousLocation || result;
-      handleChange("sous_location_id", created.id);
-      setIsNewSousLocation(false);
-      setNewSousLocationData(emptySousLocation);
-    } finally {
-      setCreatingSousLocation(false);
+      const response = await api.get(`/payments/${financingId}/payments`);
+      setSelectedFinancing((prev) => ({ ...prev, payments: response.data.payments }));
+    } catch (error) {
+      console.error("Error fetching payments:", error);
+      toast.error("Erreur lors du chargement des paiements");
     }
   };
 
-  const handleProlongationToggle = (checked) => {
-    handleChange("can_extend_days", checked);
-    const nextProlong = checked ? (parseInt(formData.prolongation_days, 10) || 1) : 0;
-    if (checked && !formData.prolongation_days) {
-      handleChange("prolongation_days", 1);
-    } else if (!checked) {
-      handleChange("prolongation_days", 0);
-    }
-    const base = parseInt(formData.rental_days, 10) || 0;
-    const end = recalcEndDate(formData.start_date, base + nextProlong);
-    if (end) handleChange("end_date", end);
-  };
-
-  const handleProlongationDaysChange = (value) => {
-    const val = parseInt(value, 10) || 1;
-    handleChange("prolongation_days", val);
-    const base = parseInt(formData.rental_days, 10) || 0;
-    const end = recalcEndDate(formData.start_date, base + val);
-    if (end) handleChange("end_date", end);
-  };
-
-  return (
-    <div className="am-columns">
-      <div className="am-col">
-        <Section icon={User} title="Client">
-          {!isNewClient ? (
-            <SearchPicker
-              placeholder="Rechercher un client…"
-              items={clients}
-              filterFn={(c, t) =>
-                `${c.prenom} ${c.nom}`.toLowerCase().includes(t) ||
-                (c.email || "").toLowerCase().includes(t) ||
-                (c.telephone || "").includes(t)
-              }
-              renderResult={(c) => (
-                <>
-                  <strong>{c.prenom} {c.nom}</strong>
-                  <span className="am-result-meta">{c.telephone}</span>
-                </>
-              )}
-              onSelect={(c) => { setSelectedClient(c); handleChange("client_id", c.id); }}
-              onCreateNew={() => setIsNewClient(true)}
-              createLabel="Nouveau client"
-              selectedText={selectedClient ? `${selectedClient.prenom} ${selectedClient.nom} — ${selectedClient.telephone}` : null}
-            />
-          ) : (
-            <InlineClientForm
-              data={newClientData}
-              setData={setNewClientData}
-              saving={creatingClient}
-              onCancel={() => setIsNewClient(false)}
-              onSave={async () => {
-                if (!newClientData.prenom || !newClientData.nom || !newClientData.telephone) return;
-                setCreatingClient(true);
-                try {
-                  const result = await createClient(newClientData);
-                  setSelectedClient(result);
-                  handleChange("client_id", result.id);
-                  setIsNewClient(false);
-                } finally { setCreatingClient(false); }
-              }}
-            />
-          )}
-        </Section>
-
-        <Section
-          icon={Users}
-          title="Deuxième conducteur"
-          action={
-            <label className="am-toggle">
-              <input
-                type="checkbox"
-                checked={showSecondDriver}
-                onChange={(e) => {
-                  setShowSecondDriver(e.target.checked);
-                  handleChange("has_second_driver", e.target.checked);
-                  if (!e.target.checked) handleChange("second_driver_client_id", "");
-                }}
-              />
-              <span>Activer</span>
-            </label>
-          }
-        >
-          {showSecondDriver && (!isNewSecondDriver ? (
-            <SearchPicker
-              placeholder="Rechercher un conducteur…"
-              items={clients.filter((c) => !sameId(c.id, formData.client_id))}
-              filterFn={(c, t) =>
-                `${c.prenom} ${c.nom}`.toLowerCase().includes(t) ||
-                (c.telephone || "").includes(t)
-              }
-              renderResult={(c) => (
-                <>
-                  <strong>{c.prenom} {c.nom}</strong>
-                  <span className="am-result-meta">{c.telephone}</span>
-                </>
-              )}
-              onSelect={(c) => handleChange("second_driver_client_id", c.id)}
-              onCreateNew={() => setIsNewSecondDriver(true)}
-              createLabel="Nouveau conducteur"
-              selectedText={secondDriver ? `${secondDriver.prenom} ${secondDriver.nom} — ${secondDriver.telephone}` : null}
-            />
-          ) : (
-            <InlineClientForm
-              data={newSecondDriverData}
-              setData={setNewSecondDriverData}
-              saving={creatingSecondDriver}
-              onCancel={() => setIsNewSecondDriver(false)}
-              onSave={async () => {
-                if (!newSecondDriverData.prenom || !newSecondDriverData.nom || !newSecondDriverData.telephone) return;
-                setCreatingSecondDriver(true);
-                try {
-                  const result = await createClient(newSecondDriverData);
-                  handleChange("second_driver_client_id", result.id);
-                  setIsNewSecondDriver(false);
-                } finally { setCreatingSecondDriver(false); }
-              }}
-            />
-          ))}
-        </Section>
-
-        <Section icon={Calendar} title="Dates et durée">
-          <div className="am-grid-2">
-            <Field label="Date de début" required>
-              <input type="date" className="am-input" value={formData.start_date || ""}
-                onChange={(e) => {
-                  handleChange("start_date", e.target.value);
-                  const end = recalcEndDate(e.target.value, totalDays);
-                  if (end) handleChange("end_date", end);
-                }} required />
-            </Field>
-            <Field label="Heure de début">
-              <input type="time" className="am-input" value={formData.start_time || "08:00"}
-                onChange={(e) => handleChange("start_time", e.target.value)} />
-            </Field>
-            <Field label="Date de fin" required>
-              <input type="date" className="am-input" value={formData.end_date || ""}
-                onChange={(e) => {
-                  const newEnd = e.target.value;
-                  handleChange("end_date", newEnd);
-                  if (formData.start_date && newEnd) {
-                    const computed = daysBetween(formData.start_date, newEnd);
-                    const prolongation = formData.can_extend_days
-                      ? (parseInt(formData.prolongation_days, 10) || 0)
-                      : 0;
-                    handleChange("rental_days", Math.max(computed - prolongation, 1));
-                  }
-                }} required />
-            </Field>
-            <Field label="Heure de fin">
-              <input type="time" className="am-input" value={formData.end_time || "18:00"}
-                onChange={(e) => handleChange("end_time", e.target.value)} />
-            </Field>
-            <Field label="Nombre de jours (base)">
-              <input type="number" min="1" className="am-input"
-                value={formData.rental_days ?? ""}
-                onChange={(e) => {
-                  const d = parseInt(e.target.value, 10) || "";
-                  handleChange("rental_days", d);
-                  const end = recalcEndDate(
-                    formData.start_date,
-                    (d || 0) + (formData.can_extend_days ? (parseInt(formData.prolongation_days, 10) || 0) : 0)
-                  );
-                  if (end) handleChange("end_date", end);
-                }} />
-            </Field>
-            <Field label="Total jours (calculé)">
-              <input className="am-input am-input-readonly" readOnly value={totalDays} />
-            </Field>
-          </div>
-        </Section>
-
-        <Section icon={Tag} title="Sous-location & Prolongation">
-          <div className="am-grid-2">
-            <Field label="Sous-location" hint={formData.sous_location_id ? null : "Aucune — location propre"}>
-              {!isNewSousLocation ? (
-                <>
-                  <SearchPicker
-                    placeholder="Rechercher une sous-location…"
-                    items={sousLocations}
-                    filterFn={(sl, t) => (sl.name || "").toLowerCase().includes(t)}
-                    renderResult={(sl) => (
-                      <>
-                        <strong>{sl.name}</strong>
-                        {sl.description && <span className="am-result-meta">{sl.description}</span>}
-                      </>
-                    )}
-                    onSelect={(sl) => handleChange("sous_location_id", sl.id)}
-                    onCreateNew={canCreateSousLocation ? () => setIsNewSousLocation(true) : undefined}
-                    createLabel="Créer une sous-location"
-                    selectedText={selectedSousLocation ? selectedSousLocation.name : null}
-                  />
-                  {formData.sous_location_id && (
-                    <button type="button" className="am-btn-ghost"
-                      style={{ marginTop: 8 }}
-                      onClick={() => handleChange("sous_location_id", "")}>
-                      <X size={14} /> Retirer la sous-location
-                    </button>
-                  )}
-                </>
-              ) : (
-                <InlineSousLocationForm
-                  data={newSousLocationData}
-                  setData={setNewSousLocationData}
-                  saving={creatingSousLocation}
-                  onCancel={() => setIsNewSousLocation(false)}
-                  onSave={saveNewSousLocation}
-                />
-              )}
-            </Field>
-            <Field label="Prolongation autorisée">
-              <label className="am-toggle" style={{ marginBottom: formData.can_extend_days ? 8 : 0 }}>
-                <input
-                  type="checkbox"
-                  checked={formData.can_extend_days || false}
-                  onChange={(e) => handleProlongationToggle(e.target.checked)}
-                />
-                <span>Le client pourra prolonger la location</span>
-              </label>
-              {formData.can_extend_days && (
-                <input type="number" min="1" className="am-input" style={{ maxWidth: 140 }}
-                  value={formData.prolongation_days || 1}
-                  onChange={(e) => handleProlongationDaysChange(e.target.value)} />
-              )}
-            </Field>
-          </div>
-        </Section>
-      </div>
-
-      <div className="am-col">
-        <Section icon={Car} title="Véhicule">
-          <SearchPicker
-            placeholder="Rechercher par immatriculation…"
-            items={matricules.filter((m) => m.status !== "sold")}
-            filterFn={(m, t) => (m.matricule_code || "").toLowerCase().includes(t)}
-            renderResult={(m) => {
-              const car = cars.find((c) => sameId(c.id, m.car_id));
-              const isActive = m.status === "active";
-              return (
-                <>
-                  <strong>{m.matricule_code}</strong>
-                  <span
-                    className="am-result-meta"
-                    style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}
-                  >
-                    {car && (
-                      <span>
-                        {car.brand} {car.model} · {car.price_per_day} DH/j
-                      </span>
-                    )}
-                    <span className={`am-chip ${isActive ? "am-chip-success" : "am-chip-danger"}`}>
-                      {isActive ? "Actif" : "Inactif"}
-                    </span>
-                  </span>
-                </>
-              );
-            }}
-            onSelect={(m) => {
-              setSelectedMatricule(m);
-              handleChange("matricule_id", m.id);
-              handleChange("car_id", m.car_id);
-              handleChange("kilometrage_sortie", m.kilometrage || "");
-              applyMatriculePricing(m, totalDays);
-            }}
-            selectedText={selectedMatricule ? `${selectedMatricule.matricule_code} — ${selectedMatricule.kilometrage} km` : null}
-          />
-          <div className="am-grid-2" style={{ marginTop: 12 }}>
-            <Field label="Véhicule" required>
-              <select className="am-input" value={formData.car_id || ""} disabled={!!selectedMatricule}
-                onChange={(e) => {
-                  const cid = e.target.value;
-                  handleChange("car_id", cid);
-                  handleChange("matricule_id", "");
-                  const car = cars.find((c) => sameId(c.id, cid));
-                  if (car?.price_per_day && totalDays > 0) {
-                    const rate = parseFloat(car.price_per_day);
-                    setDailyRate(rate);
-                    const newTotal = Math.round(rate * totalDays * 100) / 100;
-                    handleChange("total_price", newTotal);
-                    handleChange("remaining_amount", newTotal - (Number(formData.amount_paid) || 0));
-                  }
-                }} required>
-                <option value="">Choisir…</option>
-                {cars.map((c) => (
-                  <option key={c.id} value={c.id}>{c.brand} {c.model} — {c.price_per_day} DH/j</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Matricule">
-              <select className="am-input" value={formData.matricule_id || ""} disabled={!!selectedMatricule}
-                onChange={(e) => {
-                  const id = e.target.value;
-                  handleChange("matricule_id", id);
-                  const m = matricules.find((x) => String(x.id) === String(id));
-                  if (m) {
-                    applyMatriculePricing(m, totalDays);
-                    if (!formData.kilometrage_sortie) {
-                      handleChange("kilometrage_sortie", m.kilometrage || "");
-                    }
-                  }
-                }}>
-                <option value="">Choisir…</option>
-                {carMatricules.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.matricule_code} {m.status === "active" ? "· Actif" : "· Inactif"}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Km départ">
-              <input type="number" className="am-input" value={formData.kilometrage_sortie || ""}
-                onChange={(e) => handleChange("kilometrage_sortie", e.target.value)} />
-            </Field>
-            <Field label="Km retour">
-              <input type="number" className="am-input" value={formData.kilometrage_entree || ""}
-                onChange={(e) => handleChange("kilometrage_entree", e.target.value)} />
-            </Field>
-          </div>
-        </Section>
-
-        <Section icon={DollarSign} title="Paiement et statut">
-          <div className="am-grid-2">
-            <Field label="Prix / jour personnalisé (DH)">
-              <div className="am-inline-input-btn">
-                <input type="number" step="0.01" className="am-input"
-                  value={manualDailyPrice}
-                  onChange={(e) => setManualDailyPrice(e.target.value)} />
-                <button type="button" className="am-btn-icon" onClick={applyManualDailyPrice}>
-                  <Check size={16} />
-                </button>
-              </div>
-            </Field>
-            <Field label="Prix total (DH)" required>
-              <div className="am-inline-input-btn">
-                <input type="number" step="0.01" className="am-input"
-                  value={formData.total_price || ""}
-                  onChange={(e) => handleChange("total_price", parseFloat(e.target.value) || 0)}
-                  required />
-                <button type="button" className="am-btn-icon" onClick={recalcFromCar}
-                  disabled={!formData.car_id}>
-                  <RefreshCw size={16} />
-                </button>
-              </div>
-            </Field>
-            <Field label="Montant payé (DH)">
-              <input className="am-input am-input-readonly" readOnly value={formData.amount_paid || 0} />
-            </Field>
-            <Field label="Reste à payer (DH)">
-              <input className="am-input am-input-readonly" readOnly
-                value={formData.remaining_amount ?? formData.total_price ?? 0} />
-            </Field>
-            <Field label="Statut">
-              <select className="am-input" value={formData.status || "pending"}
-                onChange={(e) => handleChange("status", e.target.value)}>
-                <option value="pending">En attente</option>
-                <option value="confirmed">Confirmée</option>
-                <option value="contacted">Contacté</option>
-                <option value="completed">Terminée</option>
-                <option value="retard">En retard</option>
-                <option value="cancelled">Annulée</option>
-              </select>
-            </Field>
-          </div>
-
-          <button type="button" className="am-btn-ghost am-btn-block"
-            style={{ marginTop: 12 }}
-            onClick={() => setShowAddPayment(!showAddPayment)}>
-            <Plus size={14} /> Ajouter un paiement
-          </button>
-
-          {showAddPayment && (
-            <div className="am-inline-create" style={{ marginTop: 12 }}>
-              <div className="am-grid-2">
-                <Field label="Montant">
-                  <input type="number" className="am-input" value={newPayment.amount}
-                    onChange={(e) => setNewPayment((p) => ({ ...p, amount: e.target.value }))} />
-                </Field>
-                <Field label="Date">
-                  <input type="date" className="am-input" value={newPayment.date}
-                    onChange={(e) => setNewPayment((p) => ({ ...p, date: e.target.value }))} />
-                </Field>
-                <Field label="Méthode">
-                  <select className="am-input" value={newPayment.method}
-                    onChange={(e) => setNewPayment((p) => ({ ...p, method: e.target.value }))}>
-                    <option value="cash">Espèces</option>
-                    <option value="card">Carte</option>
-                    <option value="check">Chèque</option>
-                    <option value="transfer">Virement</option>
-                    <option value="forgiven">Pardonné</option>
-                  </select>
-                </Field>
-                <Field label="Notes">
-                  <input className="am-input" value={newPayment.notes}
-                    onChange={(e) => setNewPayment((p) => ({ ...p, notes: e.target.value }))} />
-                </Field>
-              </div>
-              <div className="am-inline-actions">
-                <button type="button" className="am-btn-secondary" onClick={() => setShowAddPayment(false)}>Annuler</button>
-                <button type="button" className="am-btn-primary" onClick={addPayment}>Ajouter</button>
-              </div>
-            </div>
-          )}
-
-          {paymentHistory.length > 0 && (
-            <div className="am-history" style={{ marginTop: 12 }}>
-              <div className="am-history-head">
-                <History size={14} /> Historique ({paymentHistory.length})
-              </div>
-              {paymentHistory.map((p) => (
-                <div key={p.id} className="am-history-row">
-                  <span>{new Date(p.date).toLocaleDateString("fr-FR")}</span>
-                  <span className="am-chip">{p.method}</span>
-                  <span className="am-history-amount">{p.amount} DH</span>
-                  <button type="button" className="am-icon-btn" onClick={() => removePayment(p.id)}>
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </Section>
-
-        <Section icon={Info} title="Notes">
-          <textarea className="am-input am-textarea" rows={4}
-            value={formData.notes || ""}
-            onChange={(e) => handleChange("notes", e.target.value)}
-            placeholder="Notes supplémentaires…" />
-        </Section>
-      </div>
-    </div>
-  );
-};
-
-// ============================================================
-// MATRICULES
-// ============================================================
-const REQUIRED_MAINTENANCE = [
-  { key: "oil", label: "Huile", unit: "quantity", suffix: "L" },
-  { key: "filter_oil", label: "Filtre à huile", unit: "count", suffix: "×" },
-  { key: "filter_air", label: "Filtre à air", unit: "count", suffix: "×" },
-  { key: "paquets_de_frein", label: "Plaquettes de frein", unit: "count", suffix: "×" },
-  { key: "paquets_de_voiture", label: "Entretien général", unit: "count", suffix: "×" },
-];
-const OPTIONAL_MAINTENANCE = [
-  { key: "ad_blue", label: "AdBlue", unit: "quantity", suffix: "L" },
-];
-
-const MaintenanceRow = ({ item, formData, handleChange, required }) => {
-  const [logOpen, setLogOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [logDate, setLogDate] = useState(new Date().toISOString().split("T")[0]);
-  const [logQty, setLogQty] = useState("");
-
-  const status = formData[item.key] || "no";
-  const lastDate = formData[`${item.key}_date`] || "";
-  const countField = item.unit === "quantity" ? `${item.key}_quantity` : `${item.key}_count`;
-  const count = formData[countField] || 0;
-  const history = Array.isArray(formData[`${item.key}_history`]) ? formData[`${item.key}_history`] : [];
-
-  const logEntry = () => {
-    const entry = { date: logDate, ...(item.unit === "quantity" ? { quantity: parseFloat(logQty) || 0 } : {}) };
-    const updatedHistory = [...history, entry];
-    handleChange(`${item.key}_history`, updatedHistory);
-    handleChange(`${item.key}_date`, logDate);
-    handleChange(item.key, "yes");
-    if (item.unit === "quantity") handleChange(countField, (parseFloat(count) || 0) + (parseFloat(logQty) || 0));
-    else handleChange(countField, (parseInt(count, 10) || 0) + 1);
-    setLogQty("");
-    setLogOpen(false);
-  };
-
-  return (
-    <div className={`am-maint-row ${required ? "am-maint-required" : ""}`}>
-      <div className="am-maint-top">
-        <span className="am-maint-name">
-          {item.label}
-          {required && <span className="am-required-dot" />}
-        </span>
-        <span className={`am-status-badge ${status === "yes" ? "am-status-done" : "am-status-pending"}`}>
-          {status === "yes" ? "Effectué" : "Non effectué"}
-        </span>
-      </div>
-      <div className="am-maint-meta">
-        {lastDate && <span>Dernier : {new Date(lastDate).toLocaleDateString("fr-FR")}</span>}
-        <span>Total : {count} {item.suffix}</span>
-      </div>
-      <div className="am-maint-actions">
-        <button type="button" className="am-btn-ghost" onClick={() => setLogOpen(!logOpen)}>
-          <Plus size={13} /> Ajouter
-        </button>
-        {history.length > 0 && (
-          <button type="button" className="am-btn-ghost" onClick={() => setHistoryOpen(!historyOpen)}>
-            <History size={13} /> Historique {historyOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-          </button>
-        )}
-      </div>
-      {logOpen && (
-        <div className="am-maint-log">
-          <input type="date" className="am-input" value={logDate}
-            onChange={(e) => setLogDate(e.target.value)} />
-          {item.unit === "quantity" && (
-            <input type="number" step="0.1" className="am-input" placeholder="Litres"
-              value={logQty} onChange={(e) => setLogQty(e.target.value)} />
-          )}
-          <button type="button" className="am-btn-primary" onClick={logEntry}>Enregistrer</button>
-        </div>
-      )}
-      {historyOpen && (
-        <div className="am-maint-history">
-          {history.slice().reverse().map((h, i) => (
-            <div key={i} className="am-maint-history-row">
-              <span>{new Date(h.date).toLocaleDateString("fr-FR")}</span>
-              {h.quantity !== undefined && <span>{h.quantity} L</span>}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-const MatriculeFields = ({ formData, handleChange, cars }) => {
-  const [selectedCar, setSelectedCar] = useState(
-    () => cars.find((c) => sameId(c.id, formData.car_id)) || null
-  );
-  const initialKm = useRef(formData.kilometrage || 0);
-  const [kmAlert, setKmAlert] = useState("");
-
-  const additional = Array.isArray(formData.additional_maintenance) ? formData.additional_maintenance : [];
-  const periodic = Array.isArray(formData.periodic_km_maintenance) ? formData.periodic_km_maintenance : [];
-  const [newExtra, setNewExtra] = useState({ name: "", due_date: "", required_for_vidange: false });
-  const [newPeriodic, setNewPeriodic] = useState({ name: "", interval_km: "" });
-
-  useEffect(() => {
-    const coreDone = formData.oil === "yes" && formData.filter_oil === "yes";
-    const extrasDone = additional.filter((a) => a.required_for_vidange).every((a) => !a.needs_attention);
-    handleChange("vidange_status", coreDone && extrasDone ? "done" : "not done");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.oil, formData.filter_oil, JSON.stringify(additional)]);
-
-  const handleKilometrageChange = (value) => {
-    const km = parseInt(value, 10) || 0;
-    handleChange("kilometrage", km);
-    if (km - initialKm.current >= 10000) {
-      handleChange("oil", "no");
-      handleChange("filter_oil", "no");
-      setKmAlert("Augmentation de 10 000 km ou plus : Huile et Filtre à huile remis à « Non effectué ».");
+  const confirmGenerateSchedule = async () => {
+    if (!currentFinancingForSchedule) return;
+    const rate = parseFloat(interestRate);
+    const tva = parseFloat(tvaRate);
+    if (isNaN(rate) || rate < 0) { toast.error("Veuillez entrer un taux d'intérêt valide"); return; }
+    if (isNaN(tva) || tva < 0) { toast.error("Veuillez entrer un taux de TVA valide"); return; }
+    try {
+      await generateSchedule(currentFinancingForSchedule.id, { interest_rate: rate, tva_rate: tva });
+      await fetchFinancings();
+      if (selectedFinancing?.id === currentFinancingForSchedule.id) {
+        setSelectedFinancing((prev) => ({ ...prev, payments: null }));
+        loadPayments(currentFinancingForSchedule.id);
+      }
+      setInterestModalOpen(false);
+      setCurrentFinancingForSchedule(null);
+    } catch (error) {
+      // handled
     }
   };
 
-  return (
-    <div className="am-columns">
-      <div className="am-col">
-        <Section icon={Car} title="Véhicule associé">
-          <SearchPicker
-            placeholder="Rechercher un véhicule…"
-            items={cars}
-            filterFn={(c, t) => `${c.brand} ${c.model} ${c.color || ""} ${c.year || ""}`.toLowerCase().includes(t)}
-            renderResult={(c) => (
-              <>
-                <strong>{c.brand} {c.model}</strong>
-                <span className="am-result-meta">{c.year} · {c.color} · {c.price_per_day} DH/j</span>
-              </>
-            )}
-            onSelect={(c) => { setSelectedCar(c); handleChange("car_id", c.id); }}
-            selectedText={selectedCar ? `${selectedCar.brand} ${selectedCar.model} — ${selectedCar.year}` : null}
-          />
-        </Section>
-
-        <Section icon={Gauge} title="Identification & suivi">
-          <div className="am-grid-2">
-            <Field label="Matricule" required>
-              <input className="am-input" value={formData.matricule_code || ""}
-                onChange={(e) => handleChange("matricule_code", e.target.value)} required />
-            </Field>
-            <Field label="Statut">
-              <select className="am-input" value={formData.status || "active"}
-                onChange={(e) => handleChange("status", e.target.value)}>
-                <option value="active">Actif</option>
-                <option value="inactive">Inactif</option>
-              </select>
-            </Field>
-            <Field label="Kilométrage actuel" required hint={kmAlert}>
-              <input type="number" min="0" className="am-input"
-                value={formData.kilometrage || ""}
-                onChange={(e) => handleKilometrageChange(e.target.value)} required />
-            </Field>
-            <Field label="Vidange">
-              <span className={`am-status-badge ${formData.vidange_status === "done" ? "am-status-done" : "am-status-pending"}`}>
-                {formData.vidange_status === "done" ? "Effectuée" : "Non effectuée"}
-              </span>
-            </Field>
-            <Field label="Visite technique">
-              <input type="date" className="am-input" value={formData.visit_tech || ""}
-                onChange={(e) => handleChange("visit_tech", e.target.value)} />
-            </Field>
-            <Field label="Vignette">
-              <input type="date" className="am-input" value={formData.date_taxe_voiture || ""}
-                onChange={(e) => handleChange("date_taxe_voiture", e.target.value)} />
-            </Field>
-            <Field label="Assurance">
-              <input type="date" className="am-input" value={formData.date_assurance || ""}
-                onChange={(e) => handleChange("date_assurance", e.target.value)} />
-            </Field>
-          </div>
-        </Section>
-      </div>
-
-      <div className="am-col">
-        <Section icon={Wrench} title="Maintenance requise pour la vidange">
-          <div className="am-maint-grid">
-            {REQUIRED_MAINTENANCE.map((item) => (
-              <MaintenanceRow key={item.key} item={item} formData={formData}
-                handleChange={handleChange} required />
-            ))}
-          </div>
-        </Section>
-
-        <Section icon={Settings2} title="Maintenance optionnelle">
-          <div className="am-maint-grid">
-            {OPTIONAL_MAINTENANCE.map((item) => (
-              <MaintenanceRow key={item.key} item={item} formData={formData}
-                handleChange={handleChange} />
-            ))}
-          </div>
-        </Section>
-
-        <Section icon={Plus} title="Entretiens additionnels">
-          {additional.length > 0 && (
-            <div className="am-history" style={{ marginBottom: 12 }}>
-              {additional.map((a, i) => (
-                <div key={i} className="am-history-row">
-                  <span>{a.name}</span>
-                  {a.due_date && <span className="am-chip">{new Date(a.due_date).toLocaleDateString("fr-FR")}</span>}
-                  {a.required_for_vidange && <span className="am-chip am-chip-primary">requis</span>}
-                  <button type="button" className="am-icon-btn"
-                    onClick={() => handleChange("additional_maintenance", additional.filter((_, idx) => idx !== i))}>
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="am-inline-input-btn">
-            <input className="am-input" placeholder="Nom de l'entretien" value={newExtra.name}
-              onChange={(e) => setNewExtra((p) => ({ ...p, name: e.target.value }))} />
-            <input type="date" className="am-input" value={newExtra.due_date}
-              onChange={(e) => setNewExtra((p) => ({ ...p, due_date: e.target.value }))} />
-          </div>
-          <label className="am-toggle" style={{ marginTop: 8 }}>
-            <input type="checkbox" checked={newExtra.required_for_vidange}
-              onChange={(e) => setNewExtra((p) => ({ ...p, required_for_vidange: e.target.checked }))} />
-            <span>Requis pour la vidange</span>
-          </label>
-          <button type="button" className="am-btn-ghost" style={{ marginTop: 8 }}
-            onClick={() => {
-              if (!newExtra.name.trim()) return;
-              handleChange("additional_maintenance", [...additional, { ...newExtra, needs_attention: true }]);
-              setNewExtra({ name: "", due_date: "", required_for_vidange: false });
-            }}>
-            <Plus size={14} /> Ajouter
-          </button>
-        </Section>
-
-        <Section icon={Gauge} title="Maintenance périodique (par kilométrage)">
-          {periodic.length > 0 && (
-            <div className="am-history" style={{ marginBottom: 12 }}>
-              {periodic.map((p, i) => (
-                <div key={i} className="am-history-row">
-                  <span>{p.name}</span>
-                  <span className="am-chip">chaque {p.interval_km} km</span>
-                  <button type="button" className="am-icon-btn"
-                    onClick={() => handleChange("periodic_km_maintenance", periodic.filter((_, idx) => idx !== i))}>
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="am-inline-input-btn">
-            <input className="am-input" placeholder="Nom" value={newPeriodic.name}
-              onChange={(e) => setNewPeriodic((p) => ({ ...p, name: e.target.value }))} />
-            <input type="number" className="am-input" placeholder="Intervalle (km)" value={newPeriodic.interval_km}
-              onChange={(e) => setNewPeriodic((p) => ({ ...p, interval_km: e.target.value }))} />
-            <button type="button" className="am-btn-icon"
-              onClick={() => {
-                if (!newPeriodic.name.trim() || !newPeriodic.interval_km) return;
-                handleChange("periodic_km_maintenance", [...periodic, { ...newPeriodic, needs_attention: false }]);
-                setNewPeriodic({ name: "", interval_km: "" });
-              }}>
-              <Plus size={16} />
-            </button>
-          </div>
-        </Section>
-      </div>
-    </div>
-  );
-};
-
-// ============================================================
-// CLIENTS
-// ============================================================
-const ClientFields = ({ formData, handleChange }) => (
-  <div className="am-columns">
-    <div className="am-col">
-      <Section icon={User} title="Identité">
-        <div className="am-grid-2">
-          <Field label="Prénom" required>
-            <input className="am-input" value={formData.prenom || ""}
-              onChange={(e) => handleChange("prenom", e.target.value)} required />
-          </Field>
-          <Field label="Nom" required>
-            <input className="am-input" value={formData.nom || ""}
-              onChange={(e) => handleChange("nom", e.target.value)} required />
-          </Field>
-          <Field label="Date de naissance">
-            <input type="date" className="am-input" value={formData.date_naissance || ""}
-              onChange={(e) => handleChange("date_naissance", e.target.value)} />
-          </Field>
-          <Field label="Lieu de naissance">
-            <input className="am-input" value={formData.lieu_naissance || ""}
-              onChange={(e) => handleChange("lieu_naissance", e.target.value)} />
-          </Field>
-        </div>
-      </Section>
-      <Section icon={Phone} title="Coordonnées">
-        <div className="am-grid-2">
-          <Field label="Téléphone" required>
-            <input className="am-input" value={formData.telephone || ""}
-              onChange={(e) => handleChange("telephone", e.target.value)} required />
-          </Field>
-          <Field label="Email">
-            <input type="email" className="am-input" value={formData.email || ""}
-              onChange={(e) => handleChange("email", e.target.value)} />
-          </Field>
-          <Field label="Ville">
-            <input className="am-input" value={formData.city || ""}
-              onChange={(e) => handleChange("city", e.target.value)} />
-          </Field>
-        </div>
-      </Section>
-    </div>
-    <div className="am-col">
-      <Section icon={IdCard} title="Carte d'identité">
-        <div className="am-grid-2">
-          <Field label="Numéro CIN">
-            <input className="am-input" value={formData.cin_number || ""}
-              onChange={(e) => handleChange("cin_number", e.target.value)} />
-          </Field>
-          <Field label="Délivrée le">
-            <input type="date" className="am-input" value={formData.cin_delivre_le || ""}
-              onChange={(e) => handleChange("cin_delivre_le", e.target.value)} />
-          </Field>
-        </div>
-      </Section>
-      <Section icon={Key} title="Permis de conduire">
-        <div className="am-grid-2">
-          <Field label="Numéro de permis">
-            <input className="am-input" value={formData.driver_license_number || ""}
-              onChange={(e) => handleChange("driver_license_number", e.target.value)} />
-          </Field>
-          <Field label="Délivré le">
-            <input type="date" className="am-input" value={formData.permis_delivre_le || ""}
-              onChange={(e) => handleChange("permis_delivre_le", e.target.value)} />
-          </Field>
-        </div>
-      </Section>
-    </div>
-  </div>
-);
-
-// ============================================================
-// CARS
-// ============================================================
-const CarFields = ({ formData, handleChange }) => (
-  <div className="am-columns">
-    <div className="am-col">
-      <Section icon={Car} title="Identité du véhicule">
-        <div className="am-grid-2">
-          <Field label="Marque" required>
-            <input className="am-input" value={formData.brand || ""}
-              onChange={(e) => handleChange("brand", e.target.value)} required />
-          </Field>
-          <Field label="Modèle" required>
-            <input className="am-input" value={formData.model || ""}
-              onChange={(e) => handleChange("model", e.target.value)} required />
-          </Field>
-          <Field label="Année">
-            <input type="number" className="am-input" value={formData.year || ""}
-              onChange={(e) => handleChange("year", e.target.value)} />
-          </Field>
-          <Field label="Couleur">
-            <input className="am-input" value={formData.color || ""}
-              onChange={(e) => handleChange("color", e.target.value)} />
-          </Field>
-        </div>
-      </Section>
-      <Section icon={Fuel} title="Spécifications">
-        <div className="am-grid-2">
-          <Field label="Carburant">
-            <select className="am-input" value={formData.fuel_type || "essence"}
-              onChange={(e) => handleChange("fuel_type", e.target.value)}>
-              <option value="essence">Essence</option>
-              <option value="diesel">Diesel</option>
-              <option value="hybride">Hybride</option>
-              <option value="electrique">Électrique</option>
-            </select>
-          </Field>
-          <Field label="Transmission">
-            <select className="am-input" value={formData.transmission || "manuelle"}
-              onChange={(e) => handleChange("transmission", e.target.value)}>
-              <option value="manuelle">Manuelle</option>
-              <option value="automatique">Automatique</option>
-            </select>
-          </Field>
-          <Field label="Places">
-            <input type="number" className="am-input" value={formData.seats || 5}
-              onChange={(e) => handleChange("seats", e.target.value)} />
-          </Field>
-          <Field label="Portes">
-            <input type="number" className="am-input" value={formData.doors || 4}
-              onChange={(e) => handleChange("doors", e.target.value)} />
-          </Field>
-        </div>
-      </Section>
-    </div>
-    <div className="am-col">
-      <Section icon={DollarSign} title="Tarif et statut">
-        <div className="am-grid-2">
-          <Field label="Prix / jour (DH)" required>
-            <input type="number" className="am-input" value={formData.price_per_day || ""}
-              onChange={(e) => handleChange("price_per_day", e.target.value)} required />
-          </Field>
-          <Field label="Statut">
-            <select className="am-input" value={formData.status || "available"}
-              onChange={(e) => handleChange("status", e.target.value)}>
-              <option value="available">Disponible</option>
-              <option value="unavailable">Indisponible</option>
-            </select>
-          </Field>
-        </div>
-      </Section>
-      <Section icon={Info} title="Description">
-        <textarea className="am-input am-textarea" rows={6}
-          value={formData.description || ""}
-          onChange={(e) => handleChange("description", e.target.value)}
-          placeholder="Détails, équipements, remarques…" />
-      </Section>
-    </div>
-  </div>
-);
-
-// ============================================================
-// USERS
-// ============================================================
-const UserFields = ({ formData, handleChange, modalType }) => (
-  <div className="am-columns">
-    <div className="am-col">
-      <Section icon={User} title="Compte utilisateur">
-        <Field label="Nom complet" required>
-          <input className="am-input" value={formData.Fullname || ""}
-            onChange={(e) => handleChange("Fullname", e.target.value)} required />
-        </Field>
-        <Field
-          label="Mot de passe"
-          required={modalType === "create"}
-          hint={modalType === "edit" ? "Laisser vide pour ne pas changer" : ""}
-        >
-          <input type="password" className="am-input" value={formData.password || ""}
-            onChange={(e) => handleChange("password", e.target.value)}
-            required={modalType === "create"} />
-        </Field>
-        <Field label="Rôle">
-          <select className="am-input" value={formData.role || "employee"}
-            onChange={(e) => handleChange("role", e.target.value)}>
-            <option value="employee">Employé</option>
-            <option value="admin">Administrateur</option>
-          </select>
-        </Field>
-      </Section>
-    </div>
-    <div className="am-col">
-      <Section icon={Lock} title="Accès">
-        <p className="am-note">
-          Les permissions détaillées se gèrent depuis la fiche de l'utilisateur une fois créé.
-        </p>
-      </Section>
-    </div>
-  </div>
-);
-
-// ============================================================
-// CONTACTS
-// ============================================================
-const ContactFields = ({ formData, handleChange }) => (
-  <div className="am-columns">
-    <div className="am-col">
-      <Section icon={User} title="Expéditeur">
-        <Field label="Nom complet" required>
-          <input className="am-input" value={formData.fullname || ""}
-            onChange={(e) => handleChange("fullname", e.target.value)} required />
-        </Field>
-        <Field label="Email" required>
-          <input type="email" className="am-input" value={formData.email || ""}
-            onChange={(e) => handleChange("email", e.target.value)} required />
-        </Field>
-        <Field label="Téléphone">
-          <input className="am-input" value={formData.phone || ""}
-            onChange={(e) => handleChange("phone", e.target.value)} />
-        </Field>
-      </Section>
-    </div>
-    <div className="am-col">
-      <Section icon={MessageSquare} title="Message">
-        <textarea className="am-input am-textarea" rows={10}
-          value={formData.message || ""}
-          onChange={(e) => handleChange("message", e.target.value)}
-          required />
-      </Section>
-    </div>
-  </div>
-);
-
-// ============================================================
-// ACCIDENTS
-// ============================================================
-const ACCIDENT_STATUS = [
-  { value: "pending", label: "En attente" },
-  { value: "evaluation_owner", label: "Évaluation propriétaire" },
-  { value: "contact expert", label: "Contact expert" },
-  { value: "evaluation_expert", label: "Évaluation expert" },
-  { value: "fixed", label: "Réparé" },
-  { value: "completed", label: "Terminé" },
-];
-const ACCIDENT_TYPE = [
-  { value: "grave", label: "Accident grave" },
-  { value: "non_grave", label: "Accident non grave" },
-];
-const PROCEDURE_TYPE = [
-  { value: "classic", label: "Procédure classique" },
-  { value: "forphie", label: "Procédure forphie" },
-];
-const EXPERT_DECISION = [
-  { value: "pending", label: "En attente" },
-  { value: "accepted", label: "Accepté" },
-  { value: "rejected", label: "Rejeté" },
-];
-
-const AccidentFields = ({ formData, handleChange, matricules, cars }) => {
-  const [selectedMatricule, setSelectedMatricule] = useState(
-    () => matricules.find((m) => sameId(m.id, formData.matricule_id)) || null
-  );
-  const needsExpert =
-    formData.status === "evaluation_expert" ||
-    formData.status === "contact expert" ||
-    (formData.accident_type === "grave" && ["evaluation_owner", "pending"].includes(formData.status));
-
-  return (
-    <div className="am-columns">
-      <div className="am-col">
-        <Section icon={Car} title="Véhicule concerné">
-          <SearchPicker
-            placeholder="Rechercher une immatriculation…"
-            items={matricules}
-            filterFn={(m, t) => (m.matricule_code || "").toLowerCase().includes(t)}
-            renderResult={(m) => {
-              const car = cars.find((c) => sameId(c.id, m.car_id));
-              return (
-                <>
-                  <strong>{m.matricule_code}</strong>
-                  {car && <span className="am-result-meta">{car.brand} {car.model}</span>}
-                </>
-              );
-            }}
-            onSelect={(m) => { setSelectedMatricule(m); handleChange("matricule_id", m.id); }}
-            selectedText={selectedMatricule ? selectedMatricule.matricule_code : null}
-          />
-        </Section>
-
-        <Section icon={AlertTriangle} title="Classification">
-          <div className="am-grid-2">
-            <Field label="Type d'accident" required>
-              <select className="am-input" value={formData.accident_type || "grave"}
-                onChange={(e) => handleChange("accident_type", e.target.value)} required>
-                {ACCIDENT_TYPE.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Type de procédure" required>
-              <select className="am-input" value={formData.procedure_type || "classic"}
-                disabled={formData.accident_type === "non_grave"}
-                onChange={(e) => handleChange("procedure_type", e.target.value)} required>
-                {PROCEDURE_TYPE.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Statut" required>
-              <select className="am-input" value={formData.status || "pending"}
-                onChange={(e) => handleChange("status", e.target.value)} required>
-                {ACCIDENT_STATUS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Date de l'accident" required>
-              <input type="date" className="am-input" value={formData.date_accident || ""}
-                onChange={(e) => handleChange("date_accident", e.target.value)} required />
-            </Field>
-          </div>
-        </Section>
-      </div>
-
-      <div className="am-col">
-        <Section icon={DollarSign} title="Montants">
-          <div className="am-grid-2">
-            <Field label="Montant des dégâts (DH)">
-              <input type="number" className="am-input" value={formData.amount_of_losses || ""}
-                onChange={(e) => handleChange("amount_of_losses", e.target.value)} />
-            </Field>
-            <Field label="Pris en charge assurance (DH)">
-              <input type="number" className="am-input" value={formData.amount_assurance || ""}
-                onChange={(e) => handleChange("amount_assurance", e.target.value)} />
-            </Field>
-          </div>
-        </Section>
-
-        {needsExpert && (
-          <Section icon={ShieldCheck} title="Expertise">
-            <div className="am-grid-2">
-              <Field label="Nom de l'expert">
-                <input className="am-input" value={formData.nom_expert || ""}
-                  onChange={(e) => handleChange("nom_expert", e.target.value)} />
-              </Field>
-              <Field label="Montant expert (DH)">
-                <input type="number" className="am-input" value={formData.expert_amount || ""}
-                  onChange={(e) => handleChange("expert_amount", e.target.value)} />
-              </Field>
-              <Field label="Décision">
-                <select className="am-input" value={formData.expert_decision || "pending"}
-                  onChange={(e) => handleChange("expert_decision", e.target.value)}>
-                  {EXPERT_DECISION.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-            <Field label="Notes de l'expert">
-              <textarea className="am-input am-textarea" rows={3} value={formData.expert_notes || ""}
-                onChange={(e) => handleChange("expert_notes", e.target.value)} />
-            </Field>
-          </Section>
-        )}
-
-        <Section icon={Info} title="Notes générales">
-          <textarea className="am-input am-textarea" rows={5} value={formData.notes || ""}
-            onChange={(e) => handleChange("notes", e.target.value)} />
-        </Section>
-      </div>
-    </div>
-  );
-};
-
-// ============================================================
-// MAIN MODAL
-// ============================================================
-const TYPE_META = {
-  reservations: { label: "une Réservation", icon: Calendar },
-  matricules: { label: "un Matricule", icon: Gauge },
-  clients: { label: "un Client", icon: User },
-  cars: { label: "un Véhicule", icon: Car },
-  users: { label: "un Utilisateur", icon: User },
-  contacts: { label: "un Contact", icon: MessageSquare },
-  accidents: { label: "un Accident", icon: AlertTriangle },
-};
-
-const AdminModal = ({
-  type, modalType, formData, setFormData, onClose, onSubmit, onSubmitAndNavigate,
-  clients = [], matricules = [], cars = [], submitting = false, createClient,
-  sousLocations = [], createSousLocation, canCreateSousLocation = true,
-}) => {
-  const handleChange = (field, value) => setFormData((prev) => ({ ...prev, [field]: value }));
-  const meta = TYPE_META[type] || { label: type, icon: Info };
-  const Icon = meta.icon;
-
-  const createClientFn = createClient || (async (data) => ({ id: `temp_${Date.now()}`, ...data }));
-  const createSousLocationFn = createSousLocation || (async (data) => ({ id: `temp_${Date.now()}`, ...data }));
-
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === "Escape" && !submitting) onClose?.();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, submitting]);
-
-  useEffect(() => {
-    const scrollEl = document.querySelector(".content-area");
-    const prevBodyOverflow = document.body.style.overflow;
-    const prevAreaOverflow = scrollEl?.style.overflow;
-
-    document.body.style.overflow = "hidden";
-    if (scrollEl) scrollEl.style.overflow = "hidden";
-
-    return () => {
-      document.body.style.overflow = prevBodyOverflow;
-      if (scrollEl) scrollEl.style.overflow = prevAreaOverflow || "";
-    };
-  }, []);
-
-  const renderFields = () => {
-    switch (type) {
-      case "reservations":
-        return (
-          <ReservationFields
-            formData={formData}
-            handleChange={handleChange}
-            clients={clients}
-            cars={cars}
-            matricules={matricules}
-            createClient={createClientFn}
-            submitting={submitting}
-            sousLocations={sousLocations}
-            createSousLocation={createSousLocationFn}
-            canCreateSousLocation={canCreateSousLocation}
-          />
-        );
-      case "matricules":
-        return <MatriculeFields formData={formData} handleChange={handleChange} cars={cars} />;
-      case "clients":
-        return <ClientFields formData={formData} handleChange={handleChange} />;
-      case "cars":
-        return <CarFields formData={formData} handleChange={handleChange} />;
-      case "users":
-        return <UserFields formData={formData} handleChange={handleChange} modalType={modalType} />;
-      case "contacts":
-        return <ContactFields formData={formData} handleChange={handleChange} />;
-      case "accidents":
-        return <AccidentFields formData={formData} handleChange={handleChange}
-          matricules={matricules} cars={cars} />;
-      default:
-        return <p className="am-note">Formulaire pour « {type} » non disponible.</p>;
+  const viewPayments = async (financingId) => {
+    try {
+      const response = await api.get(`/payments/${financingId}/payments`);
+      const financing = financings.find(f => f.id === financingId);
+      setSelectedFinancing({ ...financing, payments: response.data.payments });
+      setPaymentsModalOpen(true);
+    } catch (error) {
+      console.error("Error fetching payments:", error);
+      toast.error("Erreur lors du chargement des paiements");
     }
   };
 
-  return createPortal(
-    <div className="am-overlay" role="dialog" aria-modal="true">
-      <div className="am-modal">
-        <header className="am-header">
-          <div className="am-header-icon">
-            <Icon size={28} />
-          </div>
-          <div className="am-header-title">
-            <h2>{modalType === "create" ? "Ajouter" : "Modifier"} {meta.label}</h2>
-            <p>{modalType === "create"
-              ? "Renseignez les informations ci-dessous"
-              : "Modifiez les informations puis enregistrez"}</p>
-          </div>
-          <button type="button" className="am-header-close" onClick={onClose}
-            disabled={submitting} aria-label="Fermer">
-            <X size={24} />
-          </button>
-        </header>
+  const handleRecordPayment = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      await recordPayment(selectedFinancing.id, paymentForm);
+      await viewPayments(selectedFinancing.id);
+      await fetchFinancings();
+      setRecordPaymentModalOpen(false);
+      setPaymentForm({
+        installment_number: 1,
+        paid_amount: 0,
+        paid_date: new Date().toISOString().slice(0, 10),
+        payment_method: "bank_transfer",
+        transaction_reference: "",
+        payment_notes: "",
+      });
+    } catch (error) {
+      // handled
+    } finally { setSubmitting(false); }
+  };
 
-        <form onSubmit={onSubmit} className="am-form">
-          <div className="am-body">{renderFields()}</div>
+  const handleMatriculeSearch = (term) => {
+    setMatriculeSearchTerm(term);
+    if (term.trim() === "") { setFilteredMatriculesList([]); return; }
+    const lower = term.toLowerCase().trim();
+    const filtered = matricules.filter(m => {
+      if (m.status === 'sold') return false;
+      const car = cars.find(c => c.id === m.car_id);
+      const carStr = car ? `${car.brand} ${car.model}`.toLowerCase() : '';
+      return m.matricule_code.toLowerCase().includes(lower) || carStr.includes(lower);
+    });
+    setFilteredMatriculesList(filtered.slice(0, 10));
+  };
 
-          <div className="am-footer">
-            <button type="button" className="am-btn-secondary" onClick={onClose} disabled={submitting}>
-              Annuler
-            </button>
-            {type === "reservations" && onSubmitAndNavigate && (
-              <button type="button" className="am-btn-secondary"
-                onClick={onSubmitAndNavigate} disabled={submitting}>
-                <Save size={16} />
-                {submitting ? "Traitement…" : modalType === "create" ? "Créer & Contrat" : "Mettre à jour & Contrat"}
+  const handleMatriculeSelect = (mat) => {
+    setSelectedMatriculeObj(mat);
+    const car = cars.find(c => c.id === mat.car_id);
+    setMatriculeSearchTerm(`${mat.matricule_code} - ${car ? `${car.brand} ${car.model}` : 'N/A'}`);
+    setFormData(prev => ({ ...prev, matricule_id: mat.id }));
+    setFilteredMatriculesList([]);
+  };
+
+  const clearMatriculeSelection = () => {
+    setSelectedMatriculeObj(null);
+    setMatriculeSearchTerm("");
+    setFilteredMatriculesList([]);
+    setFormData(prev => ({ ...prev, matricule_id: "" }));
+  };
+
+  const handleEdit = (f) => {
+    setEditing(f);
+    setFormData({
+      matricule_id: f.matricule_id,
+      dossier_number: f.dossier_number,
+      account_number: f.account_number || "",
+      credit_type: f.credit_type,
+      contract_date: formatDateForInput(f.contract_date),
+      credit_amount: f.credit_amount,
+      preti_interet_ttc_differe: f.preti_interet_ttc_differe || 0,
+      duration_months: f.duration_months,
+      differed_months: f.differed_months || 0,
+      periodicity: f.periodicity || "mensuel",
+      total_installments: f.total_installments,
+      first_installment_date: formatDateForInput(f.first_installment_date),
+      last_installment_date: formatDateForInput(f.last_installment_date) || "",
+      bank_name: f.bank_name || "",
+      bank_account: f.bank_account || "",
+      installment_amount: f.installment_amount,
+      prestation_amount: f.prestation_amount || 0,
+      status: f.status,
+      notes: f.notes || "",
+    });
+
+    if (f.matricule_id) {
+      const mat = matricules.find(m => m.id === f.matricule_id);
+      if (mat) {
+        setSelectedMatriculeObj(mat);
+        const car = cars.find(c => c.id === mat.car_id);
+        setMatriculeSearchTerm(`${mat.matricule_code} - ${car ? `${car.brand} ${car.model}` : 'N/A'}`);
+      }
+    } else {
+      setSelectedMatriculeObj(null);
+      setMatriculeSearchTerm("");
+    }
+    setShowPaymentForm(true);
+  };
+
+  const handleViewDetails = (financing) => {
+    setSelectedFinancing(financing);
+    setShowPaymentDetails(true);
+    loadPayments(financing.id);
+  };
+
+  const handleAddNew = () => { setEditing(null); resetForm(); setShowPaymentForm(true); };
+
+  const refreshData = () => {
+    fetchFinancings();
+    dispatch(fetchCars(true));
+    dispatch(fetchMatricules(true));
+    toast.success("Données actualisées");
+  };
+
+  const handleExport = () => {
+    const headers = ['ID', 'Dossier N°', 'Véhicule', 'Matricule', 'Montant Crédit', 'Mensualité', 'Total Échéances', 'Payé', 'Reste', 'Statut', 'Date Contrat'];
+    const csvData = filteredFinancings.map(f => {
+      const info = getMatriculeInfo(f.matricule_id);
+      return [
+        f.id,
+        `"${f.dossier_number}"`,
+        `"${info ? `${info.car.brand} ${info.car.model}` : '—'}"`,
+        `"${info ? info.matricule_code : '—'}"`,
+        f.credit_amount,
+        f.installment_amount,
+        f.total_installments,
+        f.total_paid,
+        f.total_remaining,
+        f.status === 'active' ? 'Actif' : f.status === 'completed' ? 'Terminé' : 'En retard',
+        f.contract_date,
+      ].join(',');
+    });
+    const blob = new Blob([headers.join(',') + '\n' + csvData.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `financements_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Export CSV effectué");
+  };
+
+  const getMatriculeInfo = (matriculeId) => {
+    const matricule = matricules.find(m => m.id === matriculeId);
+    if (matricule) {
+      const car = cars.find(c => c.id === matricule.car_id);
+      return { car, matricule_code: matricule.matricule_code };
+    }
+    return null;
+  };
+
+  const filteredFinancings = useMemo(() => {
+    return financings.filter(f => {
+      const info = getMatriculeInfo(f.matricule_id);
+      const carName = info && info.car ? `${info.car.brand} ${info.car.model}`.toLowerCase() : "";
+      const matchesSearch = searchTerm === "" ||
+        carName.includes(searchTerm.toLowerCase()) ||
+        f.dossier_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (info && info.matricule_code.toLowerCase().includes(searchTerm.toLowerCase()));
+      const matchesStatus = statusFilter === "all" || f.status === statusFilter;
+
+      // 🔔 Notification filter: overdue OR upcoming (≤ 7 days) payments
+      let matchesNotification = true;
+      if (filterParam === 'notifications') {
+        let hasOverdueOrUpcoming = false;
+        if (f.payments && f.payments.length > 0) {
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          const hasOverdue = f.payments.some(p => p.status !== 'paid' && new Date(p.due_date) < today);
+          const hasUpcoming = f.payments.some(p => {
+            const diff = (new Date(p.due_date) - today) / (1000 * 60 * 60 * 24);
+            return p.status !== 'paid' && diff >= 0 && diff <= 7;
+          });
+          hasOverdueOrUpcoming = hasOverdue || hasUpcoming;
+        } else {
+          if (f.status === 'late' || f.status === 'defaulted') hasOverdueOrUpcoming = true;
+        }
+        matchesNotification = hasOverdueOrUpcoming;
+      }
+
+      return matchesSearch && matchesStatus && matchesNotification;
+    }).sort((a, b) => {
+      let aVal, bVal;
+      switch (sortField) {
+        case "id": aVal = a.id; bVal = b.id; break;
+        case "dossier": aVal = a.dossier_number?.toLowerCase() || ""; bVal = b.dossier_number?.toLowerCase() || ""; break;
+        case "vehicle": {
+          const aInfo = getMatriculeInfo(a.matricule_id); const bInfo = getMatriculeInfo(b.matricule_id);
+          aVal = aInfo?.car ? `${aInfo.car.brand} ${aInfo.car.model}`.toLowerCase() : "";
+          bVal = bInfo?.car ? `${bInfo.car.brand} ${bInfo.car.model}`.toLowerCase() : "";
+          break;
+        }
+        case "matricule": {
+          const aMat = getMatriculeInfo(a.matricule_id); const bMat = getMatriculeInfo(b.matricule_id);
+          aVal = aMat?.matricule_code || ""; bVal = bMat?.matricule_code || "";
+          break;
+        }
+        case "amount": aVal = a.credit_amount || 0; bVal = b.credit_amount || 0; break;
+        case "installment": aVal = a.installment_amount || 0; bVal = b.installment_amount || 0; break;
+        case "progress":
+          aVal = (a.current_installment_number || 0) / (a.total_installments || 1);
+          bVal = (b.current_installment_number || 0) / (b.total_installments || 1);
+          break;
+        case "status": aVal = a.status || ""; bVal = b.status || ""; break;
+        default: aVal = a.id; bVal = b.id;
+      }
+      return sortDirection === "asc" ? (aVal > bVal ? 1 : -1) : (aVal < bVal ? 1 : -1);
+    });
+  }, [financings, searchTerm, statusFilter, sortField, sortDirection, matricules, cars, filterParam]);
+
+  const totalPages = Math.ceil(filteredFinancings.length / itemsPerPage);
+  const paginated = filteredFinancings.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  const stats = {
+    total: financings.length,
+    active: financings.filter(f => f.status === 'active').length,
+    completed: financings.filter(f => f.status === 'completed').length,
+    totalRemaining: financings.reduce((sum, f) => sum + (parseFloat(f.total_remaining) || 0), 0),
+  };
+
+  const formatCurrency = (amount) => {
+    const num = Number(amount) || 0;
+    return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'MAD' }).format(num);
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return "—";
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return dateString;
+      return date.toLocaleDateString("fr-FR");
+    } catch { return dateString; }
+  };
+
+  if (loading) {
+    return (
+      <div className="loading">
+        <div className="spinner"></div>
+        <p>Chargement des financements...</p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* ====================================================================
+          Payment Form — full-screen overlay (AdminModal shell)
+         ==================================================================== */}
+      {showPaymentForm && createPortal(
+        <div className="payment-fullscreen-overlay" role="dialog" aria-modal="true">
+          <div className="payment-form-modal">
+            <header className="payment-form-header">
+              <div className="payment-form-header-icon">
+                {editing ? <Sparkles size={28} /> : <DollarSign size={28} />}
+              </div>
+              <div className="payment-form-header-title">
+                <h2>{editing ? "Modifier le financement" : "Nouveau financement"}</h2>
+                <p>{editing
+                  ? "Modifiez les informations du financement"
+                  : "Ajoutez un nouveau financement automobile"}</p>
+              </div>
+              <button
+                type="button"
+                className="payment-form-header-close"
+                onClick={closeForm}
+                disabled={submitting}
+                aria-label="Fermer"
+              >
+                <X size={24} />
               </button>
-            )}
-            <button type="submit" className="am-btn-primary" disabled={submitting}>
-              {submitting ? "Traitement…" : modalType === "create" ? "Créer" : "Mettre à jour"}
-            </button>
-          </div>
-        </form>
-      </div>
+            </header>
 
+            <form onSubmit={handleSubmit} className="payment-form">
+              <div className="payment-form-body">
+                <div className="payment-form-grid">
+                  {/* Left Column */}
+                  <div className="payment-form-col">
+                    <section className="payment-section">
+                      <div className="payment-section-header">
+                        <Car size={18} />
+                        <h3>Informations véhicule</h3>
+                      </div>
+                      <div className="payment-grid-2">
+                        <div className="payment-field" style={{ gridColumn: "1 / -1" }}>
+                          <label className="payment-label payment-required">Véhicule (matricule)</label>
+                          <div className="payment-search-section">
+                            <div className="payment-search-input-wrapper">
+                              <Search size={18} />
+                              <input
+                                type="text"
+                                className="payment-input"
+                                value={matriculeSearchTerm}
+                                onChange={(e) => handleMatriculeSearch(e.target.value)}
+                                placeholder="Rechercher un matricule (plaque, marque, modèle)..."
+                                required
+                              />
+                              {selectedMatriculeObj && (
+                                <button type="button" className="payment-clear-search-btn" onClick={clearMatriculeSelection} title="Effacer la sélection">
+                                  <X size={18} />
+                                </button>
+                              )}
+                            </div>
+
+                            {filteredMatriculesList.length > 0 && (
+                              <div className="payment-results">
+                                {filteredMatriculesList.map(mat => {
+                                  const car = cars.find(c => c.id === mat.car_id);
+                                  return (
+                                    <div key={mat.id} className="payment-result-item" onClick={() => handleMatriculeSelect(mat)}>
+                                      <div className="payment-result-avatar"><Car size={20} /></div>
+                                      <div className="payment-result-info">
+                                        <strong>{mat.matricule_code}</strong>
+                                        <div className="payment-result-details">
+                                          <span>{car ? `${car.brand} ${car.model} (${car.year})` : 'N/A'}</span>
+                                          <span>{mat.kilometrage?.toLocaleString()} km</span>
+                                          <span className={`badge ${mat.status === 'active' ? 'badge-success' : 'badge-danger'}`}>
+                                            {mat.status === 'active' ? 'Actif' : 'Inactif'}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {selectedMatriculeObj && (
+                              <div className="payment-selected">
+                                <CheckCircle size={20} />
+                                <div>
+                                  <strong>Matricule sélectionné</strong>
+                                  <p>
+                                    {selectedMatriculeObj.matricule_code} - {cars.find(c => c.id === selectedMatriculeObj.car_id)?.brand} {cars.find(c => c.id === selectedMatriculeObj.car_id)?.model}
+                                    <span className={`badge ${selectedMatriculeObj.status === 'active' ? 'badge-success' : 'badge-danger'}`} style={{ marginLeft: '8px' }}>
+                                      {selectedMatriculeObj.status === 'active' ? 'Actif' : 'Inactif'}
+                                    </span>
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+
+                            {!selectedMatriculeObj && matriculeSearchTerm.trim() !== "" && filteredMatriculesList.length === 0 && (
+                              <div className="payment-no-results">Aucun matricule trouvé.</div>
+                            )}
+                          </div>
+                          <input type="hidden" name="matricule_id" value={formData.matricule_id} />
+                        </div>
+                        <div className="payment-field">
+                          <label className="payment-label payment-required">N° Dossier</label>
+                          <input type="text" required value={formData.dossier_number}
+                            onChange={(e) => setFormData({ ...formData, dossier_number: e.target.value })}
+                            className="payment-input" placeholder="Ex: FIN-2024-001" />
+                        </div>
+                        <div className="payment-field">
+                          <label className="payment-label">N° Compte</label>
+                          <input type="text" value={formData.account_number}
+                            onChange={(e) => setFormData({ ...formData, account_number: e.target.value })}
+                            className="payment-input" placeholder="Numéro de compte bancaire" />
+                        </div>
+                        <div className="payment-field" style={{ gridColumn: "1 / -1" }}>
+                          <label className="payment-label">Type crédit</label>
+                          <select value={formData.credit_type}
+                            onChange={(e) => setFormData({ ...formData, credit_type: e.target.value })}
+                            className="payment-input">
+                            <option value="vehicule_entreprise">Véhicule Entreprise</option>
+                            <option value="vehicule_personnel">Véhicule Personnel</option>
+                            <option value="other">Autre</option>
+                          </select>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="payment-section">
+                      <div className="payment-section-header">
+                        <Calendar size={18} />
+                        <h3>Dates et durée</h3>
+                      </div>
+                      <div className="payment-grid-2">
+                        <div className="payment-field">
+                          <label className="payment-label payment-required">Date contrat</label>
+                          <input type="date" required value={formData.contract_date}
+                            onChange={(e) => setFormData({ ...formData, contract_date: e.target.value })}
+                            className="payment-input" />
+                        </div>
+                        <div className="payment-field">
+                          <label className="payment-label payment-required">1ère échéance</label>
+                          <input type="date" required value={formData.first_installment_date}
+                            onChange={(e) => setFormData({ ...formData, first_installment_date: e.target.value })}
+                            className="payment-input" />
+                        </div>
+                        <div className="payment-field">
+                          <label className="payment-label">Dernière échéance</label>
+                          <input type="date" value={formData.last_installment_date}
+                            onChange={(e) => setFormData({ ...formData, last_installment_date: e.target.value })}
+                            className="payment-input" />
+                        </div>
+                        <div className="payment-field">
+                          <label className="payment-label payment-required">Durée (mois)</label>
+                          <input type="number" required value={formData.duration_months}
+                            onChange={(e) => setFormData({ ...formData, duration_months: parseInt(e.target.value), total_installments: parseInt(e.target.value) })}
+                            className="payment-input" placeholder="36" />
+                        </div>
+                        <div className="payment-field">
+                          <label className="payment-label">Mois différés</label>
+                          <input type="number" value={formData.differed_months}
+                            onChange={(e) => setFormData({ ...formData, differed_months: parseInt(e.target.value) })}
+                            className="payment-input" placeholder="0" />
+                        </div>
+                        <div className="payment-field">
+                          <label className="payment-label">Périodicité</label>
+                          <select value={formData.periodicity}
+                            onChange={(e) => setFormData({ ...formData, periodicity: e.target.value })}
+                            className="payment-input">
+                            <option value="mensuel">Mensuel</option>
+                            <option value="trimestriel">Trimestriel</option>
+                            <option value="semestriel">Semestriel</option>
+                            <option value="annuel">Annuel</option>
+                          </select>
+                        </div>
+                      </div>
+                    </section>
+                  </div>
+
+                  {/* Right Column */}
+                  <div className="payment-form-col">
+                    <section className="payment-section">
+                      <div className="payment-section-header">
+                        <DollarSign size={18} />
+                        <h3>Montants</h3>
+                      </div>
+                      <div className="payment-grid-2">
+                        <div className="payment-field">
+                          <label className="payment-label payment-required">Montant crédit (DH)</label>
+                          <input type="number" step="0.01" required value={formData.credit_amount}
+                            onChange={(e) => setFormData({ ...formData, credit_amount: parseFloat(e.target.value) })}
+                            className="payment-input" placeholder="0.00" />
+                        </div>
+                        <div className="payment-field">
+                          <label className="payment-label payment-required">Montant mensualité (DH)</label>
+                          <input type="number" step="0.01" required value={formData.installment_amount}
+                            onChange={(e) => setFormData({ ...formData, installment_amount: parseFloat(e.target.value) })}
+                            className="payment-input" placeholder="0.00" />
+                        </div>
+                        <div className="payment-field" style={{ gridColumn: "1 / -1" }}>
+                          <label className="payment-label">Prestation (DH)</label>
+                          <input type="number" step="0.01" value={formData.prestation_amount}
+                            onChange={(e) => setFormData({ ...formData, prestation_amount: parseFloat(e.target.value) })}
+                            className="payment-input" placeholder="0.00" />
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="payment-section">
+                      <div className="payment-section-header">
+                        <Building2 size={18} />
+                        <h3>Informations bancaires</h3>
+                      </div>
+                      <div className="payment-grid-2">
+                        <div className="payment-field">
+                          <label className="payment-label">Banque</label>
+                          <input type="text" value={formData.bank_name}
+                            onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
+                            className="payment-input" placeholder="Nom de la banque" />
+                        </div>
+                        <div className="payment-field">
+                          <label className="payment-label">Compte bancaire</label>
+                          <input type="text" value={formData.bank_account}
+                            onChange={(e) => setFormData({ ...formData, bank_account: e.target.value })}
+                            className="payment-input" placeholder="Numéro de compte" />
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="payment-section">
+                      <div className="payment-section-header">
+                        <Shield size={18} />
+                        <h3>Statut et notes</h3>
+                      </div>
+                      <div className="payment-grid-2">
+                        <div className="payment-field" style={{ gridColumn: "1 / -1" }}>
+                          <label className="payment-label">Statut</label>
+                          <select value={formData.status}
+                            onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                            className="payment-input">
+                            <option value="active">Actif</option>
+                            <option value="completed">Terminé</option>
+                            <option value="late">En retard</option>
+                            <option value="defaulted">Impayé</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div className="payment-field" style={{ marginTop: "1rem" }}>
+                        <label className="payment-label">Notes</label>
+                        <textarea value={formData.notes}
+                          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                          className="payment-input payment-textarea" rows="3" placeholder="Notes supplémentaires..." />
+                      </div>
+                    </section>
+
+                    {editing && (
+                      <section className="payment-section">
+                        <div className="payment-section-header">
+                          <Activity size={18} />
+                          <h3>Informations système</h3>
+                        </div>
+                        <div className="payment-info-grid">
+                          <div className="payment-info-item">
+                            <span className="payment-info-label">Date de création</span>
+                            <span className="payment-info-value">{editing.created_at ? formatDate(editing.created_at) : "—"}</span>
+                          </div>
+                          <div className="payment-info-item">
+                            <span className="payment-info-label">Dernière modification</span>
+                            <span className="payment-info-value">{editing.updated_at ? formatDate(editing.updated_at) : "—"}</span>
+                          </div>
+                        </div>
+                      </section>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="payment-form-footer">
+                <button type="button" className="payment-btn-secondary" onClick={closeForm} disabled={submitting}>
+                  Annuler
+                </button>
+                <button type="submit" className="payment-btn-primary" disabled={submitting}>
+                  {submitting ? "Traitement…" : (editing ? "Mettre à jour" : "Créer le financement")}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ====================================================================
+          Payment Details — full-screen overlay (AdminModal shell)
+         ==================================================================== */}
+      {showPaymentDetails && selectedFinancing && createPortal(
+        <div className="payment-fullscreen-overlay" role="dialog" aria-modal="true">
+          <div className="payment-details-modal">
+            <header className="payment-details-header">
+              <div className="payment-details-header-icon">
+                <Receipt size={28} />
+              </div>
+              <div className="payment-details-header-title">
+                <h2>Détails du financement</h2>
+                <p>Dossier: {selectedFinancing.dossier_number}</p>
+              </div>
+              <button
+                type="button"
+                className="payment-details-header-close"
+                onClick={() => setShowPaymentDetails(false)}
+                aria-label="Fermer"
+              >
+                <X size={24} />
+              </button>
+            </header>
+
+            <div className="payment-details-content">
+              <div className="payment-details-actions-bar">
+                <button onClick={() => setShowPaymentDetails(false)} className="payment-back-btn">
+                  <ArrowLeft size={16} /> Retour à la liste
+                </button>
+                <div className="payment-details-action-buttons">
+                  <button onClick={() => { setShowPaymentDetails(false); handleEdit(selectedFinancing); }} className="payment-action-edit-btn">
+                    <Edit2 size={16} /> Modifier
+                  </button>
+                  <button onClick={() => { setShowPaymentDetails(false); handleDeleteClick(selectedFinancing); }} className="payment-action-delete-btn">
+                    <Trash2 size={16} /> Supprimer
+                  </button>
+                </div>
+              </div>
+
+              <div className="payment-financing-header-card">
+                <div className="payment-financing-stats-grid">
+                  <div className="payment-stat-item-detail">
+                    <div className="payment-stat-value">{formatCurrency(selectedFinancing.credit_amount)}</div>
+                    <div className="payment-stat-label-detail">Montant total</div>
+                  </div>
+                  <div className="payment-stat-item-detail">
+                    <div className="payment-stat-value">{formatCurrency(selectedFinancing.installment_amount)}</div>
+                    <div className="payment-stat-label-detail">Mensualité</div>
+                  </div>
+                  <div className="payment-stat-item-detail">
+                    <div className="payment-stat-value">{selectedFinancing.current_installment_number || 0} / {selectedFinancing.total_installments || 0}</div>
+                    <div className="payment-stat-label-detail">Échéances</div>
+                  </div>
+                  <div className="payment-stat-item-detail">
+                    <div className="payment-stat-value">{formatCurrency(selectedFinancing.total_paid || 0)}</div>
+                    <div className="payment-stat-label-detail">Total payé</div>
+                  </div>
+                  <div className="payment-stat-item-detail">
+                    <div className="payment-stat-value">{formatCurrency(selectedFinancing.total_remaining || 0)}</div>
+                    <div className="payment-stat-label-detail">Reste à payer</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="payment-details-sections-grid">
+                <div className="payment-detail-card">
+                  <div className="payment-detail-card-title">
+                    <Car size={16} /> Informations véhicule
+                  </div>
+                  <div className="payment-detail-card-content">
+                    <div className="payment-info-row">
+                      <span className="payment-info-label">Matricule</span>
+                      <span className="payment-info-value payment-matricule-value">{getMatriculeInfo(selectedFinancing.matricule_id)?.matricule_code || "—"}</span>
+                    </div>
+                    <div className="payment-info-row">
+                      <span className="payment-info-label">Marque</span>
+                      <span className="payment-info-value">{getMatriculeInfo(selectedFinancing.matricule_id)?.car?.brand || "—"}</span>
+                    </div>
+                    <div className="payment-info-row">
+                      <span className="payment-info-label">Modèle</span>
+                      <span className="payment-info-value">{getMatriculeInfo(selectedFinancing.matricule_id)?.car?.model || "—"}</span>
+                    </div>
+                    <div className="payment-info-row">
+                      <span className="payment-info-label">Année</span>
+                      <span className="payment-info-value">{getMatriculeInfo(selectedFinancing.matricule_id)?.car?.year || "—"}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="payment-detail-card">
+                  <div className="payment-detail-card-title">
+                    <FileText size={16} /> Informations financement
+                  </div>
+                  <div className="payment-detail-card-content">
+                    <div className="payment-info-row">
+                      <span className="payment-info-label">N° Dossier</span>
+                      <span className="payment-info-value">{selectedFinancing.dossier_number}</span>
+                    </div>
+                    <div className="payment-info-row">
+                      <span className="payment-info-label">N° Compte</span>
+                      <span className="payment-info-value">{selectedFinancing.account_number || "—"}</span>
+                    </div>
+                    <div className="payment-info-row">
+                      <span className="payment-info-label">Type crédit</span>
+                      <span className="payment-info-value">{selectedFinancing.credit_type === 'vehicule_entreprise' ? 'Véhicule Entreprise' : selectedFinancing.credit_type === 'vehicule_personnel' ? 'Véhicule Personnel' : 'Autre'}</span>
+                    </div>
+                    <div className="payment-info-row">
+                      <span className="payment-info-label">Date contrat</span>
+                      <span className="payment-info-value">{formatDate(selectedFinancing.contract_date)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="payment-detail-card">
+                  <div className="payment-detail-card-title">
+                    <Building2 size={16} /> Informations bancaires
+                  </div>
+                  <div className="payment-detail-card-content">
+                    <div className="payment-info-row">
+                      <span className="payment-info-label">Banque</span>
+                      <span className="payment-info-value">{selectedFinancing.bank_name || "—"}</span>
+                    </div>
+                    <div className="payment-info-row">
+                      <span className="payment-info-label">Compte bancaire</span>
+                      <span className="payment-info-value">{selectedFinancing.bank_account || "—"}</span>
+                    </div>
+                    <div className="payment-info-row">
+                      <span className="payment-info-label">Statut</span>
+                      <span className={`payment-status-badge ${selectedFinancing.status === 'active' ? 'payment-status-active' : selectedFinancing.status === 'completed' ? 'payment-status-completed' : 'payment-status-late'}`}>
+                        {selectedFinancing.status === 'active' ? 'Actif' : selectedFinancing.status === 'completed' ? 'Terminé' : 'En retard'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="payment-detail-card">
+                  <div className="payment-detail-card-title">
+                    <Calendar size={16} /> Échéancier
+                  </div>
+                  <div className="payment-detail-card-content">
+                    <div className="payment-info-row">
+                      <span className="payment-info-label">1ère échéance</span>
+                      <span className="payment-info-value">{formatDate(selectedFinancing.first_installment_date)}</span>
+                    </div>
+                    <div className="payment-info-row">
+                      <span className="payment-info-label">Dernière échéance</span>
+                      <span className="payment-info-value">{formatDate(selectedFinancing.last_installment_date)}</span>
+                    </div>
+                    <div className="payment-info-row">
+                      <span className="payment-info-label">Progression</span>
+                      <div className="payment-progress-wrapper">
+                        <div className="payment-progress-bar">
+                          <div className="payment-progress-fill" style={{ width: `${Math.min(100, ((selectedFinancing.current_installment_number || 0) / (selectedFinancing.total_installments || 1)) * 100)}%` }} />
+                        </div>
+                        <span className="payment-progress-text">{selectedFinancing.current_installment_number || 0} / {selectedFinancing.total_installments || 0}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {selectedFinancing.notes && (
+                <div className="payment-notes-section">
+                  <div className="payment-notes-title">
+                    <FileText size={16} /> Notes
+                  </div>
+                  <div className="payment-notes-content">
+                    {selectedFinancing.notes}
+                  </div>
+                </div>
+              )}
+
+              <div className="payment-payments-section">
+                <div className="payment-payments-section-header">
+                  <Receipt size={16} /> Échéances détaillées
+                  <button onClick={() => openSchedulePrompt(selectedFinancing)} className="payment-generate-schedule-btn">
+                    <Calculator size={14} /> Générer échéancier
+                  </button>
+                </div>
+                <div className="payment-payments-table-wrapper">
+                  <table className="payment-payments-table">
+                    <thead>
+                      <tr>
+                        <th>N°</th>
+                        <th>Date échéance</th>
+                        <th>Capital</th>
+                        <th>Intérêts</th>
+                        <th>TVA</th>
+                        <th>Total</th>
+                        <th>Statut</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedFinancing.payments?.map(payment => (
+                        <tr key={payment.id}>
+                          <td>#{payment.installment_number}</td>
+                          <td>{formatDate(payment.due_date)}</td>
+                          <td>{formatCurrency(payment.capital_amount || 0)}</td>
+                          <td>{formatCurrency(payment.interest_amount || 0)}</td>
+                          <td>{formatCurrency(payment.tva_amount || 0)}</td>
+                          <td className="font-semibold">{formatCurrency(payment.total_amount || 0)}</td>
+                          <td>
+                            <span className={`badge ${payment.status === 'paid' ? 'badge-paid' : 'badge-pending'}`}>
+                              {payment.status === 'paid' ? <CheckCircle size={12} /> : <Clock size={12} />}
+                              {payment.status === 'paid' ? 'Payé' : 'En attente'}
+                            </span>
+                          </td>
+                          <td>
+                            {payment.status !== 'paid' && (
+                              <button
+                                onClick={() => {
+                                  setSelectedPayment(payment);
+                                  setPaymentForm({
+                                    installment_number: payment.installment_number,
+                                    paid_amount: payment.total_amount,
+                                    paid_date: new Date().toISOString().slice(0, 10),
+                                    payment_method: "bank_transfer",
+                                    transaction_reference: "",
+                                    payment_notes: "",
+                                  });
+                                  setRecordPaymentModalOpen(true);
+                                }}
+                                className="payment-record-payment-btn"
+                              >
+                                <Check size={12} /> Enregistrer
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      {(!selectedFinancing.payments || selectedFinancing.payments.length === 0) && (
+                        <tr>
+                          <td colSpan="8" className="text-center py-12">
+                            Aucun échéancier généré.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div className="payment-details-footer">
+              <button onClick={() => setShowPaymentDetails(false)} className="payment-btn-secondary">
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ====================================================================
+          Delete confirmation — polished confirmation style
+         ==================================================================== */}
+      {deleteModalOpen && financingToDelete && createPortal(
+        <div className="confirmation-modal-overlay">
+          <div className="confirmation-modal">
+            <div className="confirmation-header">
+              <div className="confirmation-icon delete">
+                <TrashIcon size={32} />
+              </div>
+              <h3 className="confirmation-title">Confirmer la suppression</h3>
+            </div>
+            <div className="confirmation-body">
+              <p className="confirmation-message">
+                Êtes-vous sûr de vouloir supprimer le financement<br />
+                <span className="payment-dossier-chip">"{financingToDelete.dossier_number}"</span> ?<br />
+                Cette action est irréversible.
+              </p>
+              {financingToDelete.total_paid > 0 && (
+                <div className="payment-delete-warning">
+                  ⚠️ Ce financement a déjà des paiements enregistrés ({formatCurrency(financingToDelete.total_paid)}). La suppression affectera les données associées.
+                </div>
+              )}
+            </div>
+            <div className="confirmation-actions">
+              <button className="btn-confirm-cancel" onClick={() => setDeleteModalOpen(false)}>
+                Annuler
+              </button>
+              <button className="btn-confirm-delete" onClick={confirmDelete}>
+                <Trash2 size={16} /> Supprimer
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ====================================================================
+          Interest rate prompt — small dialog
+         ==================================================================== */}
+      {interestModalOpen && currentFinancingForSchedule && createPortal(
+        <div className="confirmation-modal-overlay">
+          <div className="confirmation-modal">
+            <div className="confirmation-header">
+              <div className="confirmation-icon info">
+                <Calculator size={32} />
+              </div>
+              <h3 className="confirmation-title">Générer l'échéancier</h3>
+              <p className="confirmation-subtitle">
+                Financement {currentFinancingForSchedule.dossier_number}
+              </p>
+            </div>
+            <div className="confirmation-body">
+              <div className="payment-prompt-field">
+                <label className="payment-prompt-label"><Percent size={16} /> Taux d'intérêt annuel (%)</label>
+                <div className="payment-prompt-input-wrapper">
+                  <input type="number" step="0.1" value={interestRate}
+                    onChange={(e) => setInterestRate(e.target.value)}
+                    className="payment-prompt-input" placeholder="Ex: 5" />
+                  <span className="payment-prompt-unit">%</span>
+                </div>
+              </div>
+              <div className="payment-prompt-field">
+                <label className="payment-prompt-label"><Percent size={16} /> Taux de TVA (%)</label>
+                <div className="payment-prompt-input-wrapper">
+                  <input type="number" step="0.1" value={tvaRate}
+                    onChange={(e) => setTvaRate(e.target.value)}
+                    className="payment-prompt-input" placeholder="Ex: 20" />
+                  <span className="payment-prompt-unit">%</span>
+                </div>
+              </div>
+              <div className="payment-prompt-note">
+                <Info size={14} />
+                <span>Le système va générer un échéancier détaillé avec calcul des intérêts et de la TVA pour chaque mensualité.</span>
+              </div>
+            </div>
+            <div className="confirmation-actions">
+              <button onClick={() => setInterestModalOpen(false)} className="btn-confirm-cancel">Annuler</button>
+              <button onClick={confirmGenerateSchedule} className="btn-confirm-primary">
+                <Calculator size={16} /> Générer
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ====================================================================
+          Record payment — small dialog
+         ==================================================================== */}
+      {recordPaymentModalOpen && selectedFinancing && selectedPayment && createPortal(
+        <div className="confirmation-modal-overlay">
+          <div className="confirmation-modal" style={{ maxWidth: '600px' }}>
+            <div className="confirmation-header">
+              <div className="confirmation-icon info">
+                <Wallet size={32} />
+              </div>
+              <h3 className="confirmation-title">Enregistrer paiement</h3>
+              <p className="confirmation-subtitle">Échéance N°{selectedPayment.installment_number}</p>
+            </div>
+            <form onSubmit={handleRecordPayment}>
+              <div className="confirmation-body">
+                <div className="payment-prompt-grid-2">
+                  <div className="payment-prompt-field">
+                    <label className="payment-prompt-label"><DollarSign size={16} /> Montant à payer (DH) *</label>
+                    <input type="number" step="0.01" required value={paymentForm.paid_amount}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, paid_amount: parseFloat(e.target.value) })}
+                      className="payment-prompt-input" />
+                  </div>
+                  <div className="payment-prompt-field">
+                    <label className="payment-prompt-label"><Calendar size={16} /> Date paiement *</label>
+                    <input type="date" required value={paymentForm.paid_date}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, paid_date: e.target.value })}
+                      className="payment-prompt-input" />
+                  </div>
+                  <div className="payment-prompt-field">
+                    <label className="payment-prompt-label"><CreditCard size={16} /> Mode paiement</label>
+                    <select value={paymentForm.payment_method}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, payment_method: e.target.value })}
+                      className="payment-prompt-input">
+                      <option value="bank_transfer">Virement bancaire</option>
+                      <option value="check">Chèque</option>
+                      <option value="cash">Espèces</option>
+                      <option value="card">Carte bancaire</option>
+                    </select>
+                  </div>
+                  <div className="payment-prompt-field">
+                    <label className="payment-prompt-label"><Tag size={16} /> Référence transaction</label>
+                    <input type="text" value={paymentForm.transaction_reference}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, transaction_reference: e.target.value })}
+                      className="payment-prompt-input" placeholder="Référence du virement" />
+                  </div>
+                </div>
+                <div className="payment-prompt-field" style={{ marginTop: '0.75rem' }}>
+                  <label className="payment-prompt-label"><Info size={16} /> Notes</label>
+                  <textarea value={paymentForm.payment_notes}
+                    onChange={(e) => setPaymentForm({ ...paymentForm, payment_notes: e.target.value })}
+                    className="payment-prompt-input payment-prompt-textarea" rows="2" placeholder="Notes supplémentaires..." />
+                </div>
+              </div>
+              <div className="confirmation-actions">
+                <button type="button" onClick={() => setRecordPaymentModalOpen(false)} className="btn-confirm-cancel">
+                  Annuler
+                </button>
+                <button type="submit" className="btn-confirm-primary" disabled={submitting}>
+                  {submitting ? "Traitement..." : "Enregistrer"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Main List View */}
+      {!showPaymentForm && !showPaymentDetails && (
+        <div className="admin-container">
+          {/* Header */}
+          <div className="section-header">
+            <div className="header-content">
+              <h1 className="section-title">
+                <CreditCardIcon size={28} /> Financements / Traites
+              </h1>
+              <p className="section-subtitle">Gestion des financements automobiles</p>
+            </div>
+            <div className="section-actions">
+              <button onClick={refreshData} className="btn btn-secondary">
+                <RefreshCw size={16} /> Actualiser
+              </button>
+              <button onClick={handleExport} className="btn btn-secondary">
+                <Download size={16} /> Exporter
+              </button>
+              <button onClick={handleAddNew} className="btn btn-primary">
+                <Plus size={16} /> Nouveau financement
+              </button>
+            </div>
+          </div>
+
+          <div className="stats-grid">
+            <div className="stat-card stat-total">
+              <div>
+                <p className="stat-label">Total Financements</p>
+                <p className="stat-number">{stats.total}</p>
+              </div>
+              <CreditCardIcon size={32} className="stat-icon" />
+            </div>
+            <div className="stat-card stat-active">
+              <div>
+                <p className="stat-label">Actifs</p>
+                <p className="stat-number" style={{ color: '#16a34a' }}>{stats.active}</p>
+              </div>
+              <TrendingUp size={32} className="stat-icon" />
+            </div>
+            <div className="stat-card stat-vidange">
+              <div>
+                <p className="stat-label">Terminés</p>
+                <p className="stat-number" style={{ color: '#1565c0' }}>{stats.completed}</p>
+              </div>
+              <Check size={32} className="stat-icon" />
+            </div>
+            <div className="stat-card stat-inactive">
+              <div>
+                <p className="stat-label">Montant restant</p>
+                <p className="stat-number" style={{ color: '#dc2626', fontSize: '1.25rem' }}>{formatCurrency(stats.totalRemaining)}</p>
+              </div>
+              <AlertCircle size={32} className="stat-icon" />
+            </div>
+          </div>
+
+          {/* Search + Status filter */}
+          <div className="search-filter-section">
+            <div className="search-box">
+              <Search size={16} className="search-icon" />
+              <input
+                type="text"
+                placeholder="Rechercher par véhicule, matricule ou dossier..."
+                value={searchTerm}
+                onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                className="search-input"
+              />
+            </div>
+            <div className="filter-group">
+              <div className="filter-item">
+                <label><AlertCircle size={14} /> Statut</label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
+                  className="filter-select"
+                >
+                  <option value="all">Tous statuts</option>
+                  <option value="active">Actif</option>
+                  <option value="completed">Terminé</option>
+                  <option value="late">En retard</option>
+                  <option value="defaulted">Impayé</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {filterParam === 'notifications' && (
+            <div className="filter-indicator">
+              <span className="filter-indicator-text">
+                <AlertCircle size={16} /> Affichage des financements avec échéances en retard ou à venir (7 jours)
+              </span>
+              <button onClick={() => setSearchParams({})} className="clear-filter-btn">
+                <X size={16} /> Effacer le filtre
+              </button>
+            </div>
+          )}
+
+          {/* Results summary */}
+          <div className="results-summary">
+            <span className="results-count">
+              Affichage de {paginated.length} sur {filteredFinancings.length} financement(s)
+              {filteredFinancings.length !== financings.length && ` (filtré sur ${financings.length} au total)`}
+            </span>
+            <span className="page-info">Page {currentPage} sur {totalPages || 1}</span>
+          </div>
+
+          <div className="content-container">
+            <div style={{ overflowX: 'auto' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th onClick={() => handleSort("dossier")} className="sortable-header">Dossier N° {getSortIcon("dossier")}</th>
+                    <th onClick={() => handleSort("vehicle")} className="sortable-header">Véhicule {getSortIcon("vehicle")}</th>
+                    <th onClick={() => handleSort("matricule")} className="sortable-header">Matricule {getSortIcon("matricule")}</th>
+                    <th onClick={() => handleSort("amount")} className="sortable-header">Montant {getSortIcon("amount")}</th>
+                    <th onClick={() => handleSort("installment")} className="sortable-header">Mensualité {getSortIcon("installment")}</th>
+                    <th onClick={() => handleSort("progress")} className="sortable-header">Progression {getSortIcon("progress")}</th>
+                    <th onClick={() => handleSort("status")} className="sortable-header">Statut {getSortIcon("status")}</th>
+                    <th className="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginated.length === 0 ? (
+                    <tr><td colSpan="8" className="text-center py-12">Aucun financement</td></tr>
+                  ) : (
+                    paginated.map(f => {
+                      const info = getMatriculeInfo(f.matricule_id);
+                      const progress = f.total_installments > 0 ? (f.current_installment_number / f.total_installments) * 100 : 0;
+                      return (
+                        <tr key={f.id}>
+                          <td className="font-medium">{f.dossier_number}</td>
+                          <td>{info && info.car ? `${info.car.brand} ${info.car.model}` : "—"}</td>
+                          <td className="matricule-code">{info ? info.matricule_code : "—"}</td>
+                          <td className="amount-cell">{formatCurrency(f.credit_amount)}</td>
+                          <td className="installment-cell">{formatCurrency(f.installment_amount)}</td>
+                          <td>
+                            <div className="progress-container">
+                              <div className="progress-label">{f.current_installment_number || 0} / {f.total_installments || 0} échéances</div>
+                              <div className="progress-bar">
+                                <div className="progress-fill" style={{ width: `${Math.min(100, progress)}%` }} />
+                              </div>
+                            </div>
+                          </td>
+                          <td>
+                            <span className={`badge ${
+                              f.status === "active" ? "badge-success" :
+                              f.status === "completed" ? "badge-blue" :
+                              f.status === "late" ? "badge-warning" : "badge-danger"
+                            }`}>
+                              {f.status === "active" ? <CheckCircle size={12} /> : f.status === "completed" ? <Check size={12} /> : <AlertTriangle size={12} />}
+                              {f.status === "active" ? "Actif" : f.status === "completed" ? "Terminé" : f.status === "late" ? "En retard" : "Impayé"}
+                            </span>
+                          </td>
+                          <td className="text-right">
+                            <div className="action-buttons-circular">
+                              <button onClick={() => handleViewDetails(f)} className="icon-action-btn" title="Détails" style={{ color: "#06b6d4" }}>
+                                <Eye size={16} />
+                              </button>
+                              <button onClick={() => openSchedulePrompt(f)} className="icon-action-btn" title="Générer échéancier" style={{ color: "#8b5cf6" }}>
+                                <Calculator size={16} />
+                              </button>
+                              <button onClick={() => handleEdit(f)} className="icon-action-btn" title="Modifier" style={{ color: "#10b981" }}>
+                                <Edit2 size={16} />
+                              </button>
+                              <button onClick={() => handleDeleteClick(f)} className="icon-action-btn" title="Supprimer" style={{ color: "#ef4444" }}>
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {totalPages > 1 && (
+              <div className="pagination-container">
+                <PaginationControls
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={setCurrentPage}
+                  itemsPerPage={itemsPerPage}
+                  onItemsPerPageChange={setItemsPerPage}
+                  totalItems={filteredFinancings.length}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Page-specific styles */}
       <style>{`
-        .am-overlay {
+        /* ================= Header ================= */
+        .section-header {
+          display: flex; justify-content: space-between; align-items: flex-start;
+          gap: 1rem; margin-bottom: 2rem; background: #fff; padding: 2rem;
+          border-radius: 1.25rem; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+          border: 1px solid #e2e8f0; flex-wrap: wrap;
+        }
+        .header-content { flex: 1; }
+        .section-title {
+          display: flex; align-items: center; gap: 10px;
+          font-size: 2rem; font-weight: 700; margin: 0 0 0.5rem 0;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+          background-clip: text; flex-wrap: wrap;
+        }
+        .section-title svg { color: #667eea; stroke: #667eea; }
+        .section-subtitle { color: #64748b; font-size: 1rem; margin: 0; font-weight: 400; }
+        .section-actions { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+
+        /* ================= Buttons ================= */
+        .btn {
+          display: inline-flex; align-items: center; gap: 0.5rem;
+          height: 2.5rem; padding: 0 1rem; border-radius: 9999px;
+          border: none; cursor: pointer; font-size: 0.875rem; font-weight: 500;
+          transition: all 0.2s; font-family: inherit;
+        }
+        .btn-secondary { background: #f1f5f9; color: #1e293b; }
+        .btn-secondary:hover { background: #e2e8f0; transform: translateY(-1px); }
+        .btn-primary {
+          background: linear-gradient(135deg, #667eea, #764ba2); color: white;
+          box-shadow: 0 4px 15px rgba(102,126,234,0.3);
+        }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 25px rgba(102,126,234,0.4); }
+
+        /* ================= Stats ================= */
+        .stats-grid {
+          display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          gap: 1rem; margin-bottom: 1.5rem;
+        }
+        .stat-card {
+          background: white; border: 1px solid #e2e8f0; border-radius: 1rem;
+          padding: 1rem; transition: all 0.2s;
+          display: flex; justify-content: space-between; align-items: center;
+        }
+        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); }
+        .stat-number { font-size: 1.875rem; font-weight: 700; color: #0f172a; line-height: 1; }
+        .stat-label { font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 0.35rem; }
+        .stat-icon { opacity: 0.5; }
+
+        /* ================= Search + filters ================= */
+        .search-filter-section {
+          background: #fff; padding: 1.5rem; border-radius: 1rem;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 1.5rem;
+          display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end;
+          border: 1px solid #e2e8f0;
+        }
+        .search-box { position: relative; flex: 1; min-width: 240px; }
+        .search-box .search-icon {
+          position: absolute; left: 0.75rem; top: 50%;
+          transform: translateY(-50%); color: #64748b;
+        }
+        .search-box .search-input {
+          width: 100%; padding: 0.5rem 1rem 0.5rem 2.5rem;
+          border: 1px solid #e2e8f0; border-radius: 0.5rem;
+          font-size: 0.875rem; font-family: inherit; transition: all 0.2s;
+        }
+        .search-box .search-input:focus {
+          outline: none; border-color: #667eea;
+          box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15);
+        }
+        .filter-group { display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap; }
+        .filter-item { display: flex; flex-direction: column; gap: 0.5rem; }
+        .filter-item label {
+          display: flex; align-items: center; gap: 0.5rem;
+          font-size: 0.7rem; font-weight: 600; color: #64748b;
+          text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .filter-select {
+          padding: 0.5rem 0.75rem; border: 1px solid #e2e8f0;
+          border-radius: 0.5rem; font-size: 0.875rem; background: #fff;
+          cursor: pointer; font-family: inherit; min-width: 12rem;
+        }
+        .filter-select:focus {
+          outline: none; border-color: #667eea;
+          box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15);
+        }
+
+        /* ================= Filter indicator ================= */
+        .filter-indicator {
+          display: flex; align-items: center; justify-content: space-between;
+          background: #fef3c7; border: 1px solid #f59e0b;
+          border-radius: 0.75rem; padding: 0.75rem 1rem;
+          margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;
+        }
+        .filter-indicator-text {
+          display: flex; align-items: center; gap: 0.5rem;
+          font-size: 0.875rem; font-weight: 500; color: #92400e;
+        }
+        .clear-filter-btn {
+          display: inline-flex; align-items: center; gap: 0.25rem;
+          background: none; border: 1px solid #92400e;
+          padding: 0.25rem 0.75rem; border-radius: 2rem;
+          font-size: 0.75rem; font-weight: 500;
+          color: #92400e; cursor: pointer;
+        }
+        .clear-filter-btn:hover { background: #92400e; color: #fff; }
+
+        /* ================= Results summary ================= */
+        .results-summary {
+          display: flex; justify-content: space-between; align-items: center;
+          margin-bottom: 1rem; padding: 0 0.25rem;
+          font-size: 0.875rem; color: #64748b; flex-wrap: wrap; gap: 0.5rem;
+        }
+        .results-count { font-weight: 500; }
+        .page-info { font-weight: 600; color: #334155; }
+
+        /* ================= Content container ================= */
+        .content-container {
+          background: white; border: 1px solid #e2e8f0; border-radius: 1rem;
+          overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        /* ================= Table ================= */
+        .data-table {
+          width: 100%; font-size: 0.875rem; border-collapse: collapse; min-width: 1000px;
+        }
+        .data-table th {
+          text-align: left; padding: 0.75rem 1rem; background: #f8fafc;
+          color: #64748b; font-weight: 500; white-space: nowrap;
+          border-bottom: 1px solid #e2e8f0;
+        }
+        .data-table td {
+          padding: 0.75rem 1rem; border-top: 1px solid #e2e8f0;
+          color: #334155; vertical-align: middle;
+        }
+        .data-table tr:hover { background: #f8fafc; }
+
+        .sortable-header { cursor: pointer; user-select: none; transition: background-color 0.2s; }
+        .sortable-header:hover { background-color: #e2e8f0; }
+        .sort-icon { display: inline-block; margin-left: 4px; opacity: 0.5; vertical-align: middle; }
+        .sort-icon.active { opacity: 1; color: #667eea; }
+
+        /* ================= Action buttons ================= */
+        .action-buttons-circular {
+          display: flex; gap: 0.5rem; justify-content: flex-end; align-items: center;
+        }
+        .icon-action-btn {
+          padding: 0.5rem; background: none; border: none; cursor: pointer;
+          border-radius: 0.5rem; transition: all 0.2s;
+          display: inline-flex; align-items: center; justify-content: center;
+        }
+        .icon-action-btn:hover:not(:disabled) { background: rgba(15, 23, 42, 0.06); }
+        .icon-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* ================= Pagination ================= */
+        .pagination-container {
+          padding: 2rem; display: flex; justify-content: center;
+          border-top: 1px solid #f1f3f4;
+        }
+
+        /* ================= Badges ================= */
+        .badge {
+          display: inline-flex; align-items: center; gap: 0.25rem;
+          padding: 0.25rem 0.625rem; border-radius: 9999px;
+          font-size: 0.7rem; font-weight: 500; white-space: nowrap;
+        }
+        .badge-success { background: #dcfce7; color: #166534; }
+        .badge-danger  { background: #fee2e2; color: #991b1b; }
+        .badge-warning { background: #fef3c7; color: #92400e; }
+        .badge-blue    { background: #dbeafe; color: #1e40af; }
+        .badge-paid    { background: #dcfce7; color: #166534; }
+        .badge-pending { background: #fef3c7; color: #92400e; }
+
+        /* ================= Table cells ================= */
+        .font-medium { font-weight: 500; }
+        .font-semibold { font-weight: 600; }
+        .matricule-code { font-family: 'Courier New', monospace; font-weight: 600; color: #667eea; }
+        .amount-cell, .installment-cell { font-weight: 600; }
+        .progress-container { min-width: 140px; }
+        .progress-label { font-size: 0.75rem; color: #64748b; margin-bottom: 0.25rem; }
+        .progress-bar { height: 6px; background: #e2e8f0; border-radius: 4px; overflow: hidden; }
+        .progress-fill {
+          height: 100%;
+          background: linear-gradient(135deg, #667eea, #764ba2);
+          border-radius: 4px; transition: width 0.3s;
+        }
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
+        .py-12 { padding: 3rem 0; }
+
+        /* ====================================================================
+           Shared keyframes
+           ==================================================================== */
+        @keyframes amSlideIn {
+          from { opacity: 0; transform: translateY(20px) scale(0.98); }
+          to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes modalSlideUp {
+          from { opacity: 0; transform: translateY(20px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+
+        /* ====================================================================
+           Full-screen overlay (form + details)
+           ==================================================================== */
+        .payment-fullscreen-overlay {
           position: fixed;
-          top: 0;
-          right: 0;
-          bottom: 0;
-          left: 0;
+          top: 0; right: 0; bottom: 0; left: 0;
           background: #f8fafc;
-          overflow-y: auto;
-          overflow-x: hidden;
+          overflow-y: auto; overflow-x: hidden;
           z-index: 9999;
         }
-
         @media (min-width: 768px) {
-          .am-overlay {
-            left: 18rem;
-          }
+          .payment-fullscreen-overlay { left: 18rem; }
         }
 
-        .am-modal {
+        .payment-form-modal,
+        .payment-details-modal {
           background: #fff;
           border-radius: 32px;
           margin: 1.5rem;
@@ -1602,12 +1663,10 @@ const AdminModal = ({
           overflow: hidden;
           animation: amSlideIn 0.3s ease-out;
         }
-        @keyframes amSlideIn {
-          from { opacity: 0; transform: translateY(20px) scale(0.98); }
-          to   { opacity: 1; transform: translateY(0)   scale(1); }
-        }
 
-        .am-header {
+        /* ============ Headers ============ */
+        .payment-form-header,
+        .payment-details-header {
           position: relative;
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           padding: 24px 32px;
@@ -1615,7 +1674,8 @@ const AdminModal = ({
           align-items: center;
           gap: 20px;
         }
-        .am-header-icon {
+        .payment-form-header-icon,
+        .payment-details-header-icon {
           width: 56px;
           height: 56px;
           background: #ffffff;
@@ -1626,20 +1686,24 @@ const AdminModal = ({
           color: #667eea;
           flex-shrink: 0;
         }
-        .am-header-title { flex: 1; min-width: 0; padding-right: 48px; }
-        .am-header-title h2 {
+        .payment-form-header-title,
+        .payment-details-header-title { flex: 1; min-width: 0; padding-right: 48px; }
+        .payment-form-header-title h2,
+        .payment-details-header-title h2 {
           color: #fff;
           font-size: 1.75rem;
           font-weight: 700;
           margin: 0;
           line-height: 1.2;
         }
-        .am-header-title p {
+        .payment-form-header-title p,
+        .payment-details-header-title p {
           color: rgba(255, 255, 255, 0.85);
           font-size: 0.875rem;
           margin: 4px 0 0;
         }
-        .am-header-close {
+        .payment-form-header-close,
+        .payment-details-header-close {
           position: absolute;
           top: 24px;
           right: 28px;
@@ -1655,66 +1719,55 @@ const AdminModal = ({
           color: #fff;
           transition: all 0.2s;
         }
-        .am-header-close:hover:not(:disabled) {
+        .payment-form-header-close:hover:not(:disabled),
+        .payment-details-header-close:hover:not(:disabled) {
           background: rgba(255, 255, 255, 0.25);
           transform: scale(1.05);
         }
-        .am-header-close:disabled { opacity: 0.5; cursor: not-allowed; }
+        .payment-form-header-close:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        .am-form { padding: 28px 32px; }
-
-        .am-columns {
+        /* ============ Form body ============ */
+        .payment-form { padding: 28px 32px; }
+        .payment-form-body { display: flex; flex-direction: column; gap: 24px; }
+        .payment-form-grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 32px;
           align-items: start;
         }
-        .am-col { display: flex; flex-direction: column; gap: 24px; }
+        .payment-form-col { display: flex; flex-direction: column; gap: 24px; }
 
-        .am-section {
+        .payment-section {
           background: #f8fafc;
           border-radius: 16px;
           padding: 20px;
           border: 1px solid #e2e8f0;
         }
-        .am-section-head {
+        .payment-section-header {
           display: flex;
           align-items: center;
-          justify-content: space-between;
           gap: 10px;
           margin-bottom: 20px;
           padding-bottom: 12px;
           border-bottom: 2px solid #667eea;
         }
-        .am-section-title {
-          display: flex;
-          align-items: center;
-          gap: 8px;
+        .payment-section-header h3 {
           font-size: 1rem;
           font-weight: 600;
           color: #1e293b;
+          margin: 0;
         }
-        .am-section-body {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
-        .am-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-
-        .am-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-        .am-label {
+        .payment-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .payment-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+        .payment-label {
           font-size: 0.7rem;
           font-weight: 600;
           color: #475569;
           text-transform: uppercase;
           letter-spacing: 0.5px;
         }
-        .am-required::after { content: " *"; color: #dc2626; }
-        .am-hint { font-size: 0.7rem; color: #b45309; font-style: italic; }
-        .am-note { font-size: 0.875rem; color: #64748b; margin: 0; }
-
-        .am-input {
+        .payment-required::after { content: " *"; color: #dc2626; }
+        .payment-input {
           width: 100%;
           padding: 10px 14px;
           border: 1.5px solid #e2e8f0;
@@ -1726,139 +1779,30 @@ const AdminModal = ({
           transition: all 0.2s;
           box-sizing: border-box;
         }
-        .am-input:focus {
+        .payment-input:focus {
           outline: none;
           border-color: #667eea;
           box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
-        .am-input:disabled {
-          background: #f1f5f9;
-          color: #94a3b8;
-          cursor: not-allowed;
-        }
-        .am-input-readonly {
-          background: #f8fafc;
-          color: #475569;
-        }
-        .am-textarea { resize: vertical; min-height: 80px; }
+        .payment-textarea { resize: vertical; min-height: 80px; }
 
-        .am-picker { display: flex; flex-direction: column; gap: 8px; }
-        .am-search { position: relative; }
-        .am-search > svg {
-          position: absolute;
-          left: 14px;
-          top: 50%;
-          transform: translateY(-50%);
-          color: #94a3b8;
-          pointer-events: none;
-        }
-        .am-input-search { padding-left: 42px; }
+        .payment-info-grid { display: flex; flex-direction: column; gap: 12px; }
+        .payment-info-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
+        .payment-info-item .payment-info-label { font-size: 0.75rem; color: #64748b; }
+        .payment-info-item .payment-info-value { font-size: 0.875rem; font-weight: 500; color: #1e293b; }
 
-        .am-results {
-          border: 1.5px solid #e2e8f0;
-          border-radius: 12px;
-          max-height: 220px;
-          overflow-y: auto;
-          background: #fff;
-        }
-        .am-result {
-          padding: 10px 14px;
-          cursor: pointer;
-          border-bottom: 1px solid #f1f5f9;
-          display: flex;
-          flex-direction: column;
-          gap: 2px;
-          transition: background 0.15s;
-        }
-        .am-result:last-child { border-bottom: none; }
-        .am-result:hover { background: #f5f3ff; }
-        .am-result strong { font-size: 0.875rem; color: #1e293b; font-weight: 600; }
-        .am-result-meta { font-size: 0.75rem; color: #64748b; }
-
-        .am-selected {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 10px 14px;
-          border-radius: 12px;
-          background: rgba(102, 126, 234, 0.08);
-          color: #4338ca;
-          font-size: 0.85rem;
-          font-weight: 500;
-          border: 1px solid rgba(102, 126, 234, 0.2);
-        }
-        .am-selected svg { color: #667eea; flex-shrink: 0; }
-
-        .am-toggle {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 0.8rem;
-          font-weight: 500;
-          color: #475569;
-          cursor: pointer;
-          user-select: none;
-        }
-        .am-toggle input { cursor: pointer; accent-color: #667eea; }
-
-        .am-chip {
-          display: inline-block;
-          background: #e0e7ff;
-          color: #4338ca;
-          font-size: 0.72rem;
-          font-weight: 600;
-          padding: 3px 10px;
-          border-radius: 999px;
-        }
-        .am-chip-primary {
-          background: #667eea;
-          color: #fff;
-        }
-        .am-chip-success {
-          background: #dcfce7;
-          color: #166534;
-        }
-        .am-chip-danger {
-          background: #fee2e2;
-          color: #991b1b;
-        }
-
-        .am-status-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          font-size: 0.72rem;
-          font-weight: 700;
-          padding: 5px 12px;
-          border-radius: 999px;
-          width: fit-content;
-          text-transform: uppercase;
-          letter-spacing: 0.4px;
-        }
-        .am-status-done { background: #dcfce7; color: #166534; }
-        .am-status-pending { background: #fee2e2; color: #991b1b; }
-
-        .am-inline-create {
-          background: #fff;
-          border: 1.5px solid #e2e8f0;
-          border-radius: 12px;
-          padding: 16px;
-          margin-top: 12px;
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-        .am-inline-actions {
+        .payment-form-footer {
           display: flex;
           justify-content: flex-end;
-          gap: 10px;
-          margin-top: 4px;
+          gap: 16px;
+          padding-top: 24px;
+          border-top: 1px solid #e2e8f0;
+          margin-top: 24px;
+          flex-wrap: wrap;
         }
 
-        .am-btn-primary,
-        .am-btn-secondary,
-        .am-btn-ghost,
-        .am-btn-icon {
+        .payment-btn-primary,
+        .payment-btn-secondary {
           font-family: inherit;
           font-size: 0.875rem;
           font-weight: 600;
@@ -1871,213 +1815,424 @@ const AdminModal = ({
           transition: all 0.2s;
           white-space: nowrap;
         }
-
-        .am-btn-primary {
+        .payment-btn-primary {
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           border: none;
           padding: 12px 28px;
           color: #fff;
           box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
         }
-        .am-btn-primary:hover:not(:disabled) {
+        .payment-btn-primary:hover:not(:disabled) {
           transform: translateY(-2px);
           box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
         }
-        .am-btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+        .payment-btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
 
-        .am-btn-secondary {
+        .payment-btn-secondary {
           background: #fff;
           border: 1.5px solid #e2e8f0;
           padding: 10px 24px;
           color: #475569;
         }
-        .am-btn-secondary:hover:not(:disabled) {
+        .payment-btn-secondary:hover:not(:disabled) {
           border-color: #667eea;
           color: #667eea;
           background: #f8fafc;
         }
-        .am-btn-secondary:disabled { opacity: 0.6; cursor: not-allowed; }
+        .payment-btn-secondary:disabled { opacity: 0.6; cursor: not-allowed; }
 
-        .am-btn-ghost {
-          background: transparent;
-          border: 1.5px dashed #cbd5e1;
-          padding: 8px 16px;
-          color: #475569;
-          font-size: 0.8rem;
-        }
-        .am-btn-ghost:hover {
-          border-color: #667eea;
-          color: #667eea;
-          background: #f5f3ff;
-          border-style: solid;
-        }
-
-        .am-btn-block { width: 100%; }
-
-        .am-btn-icon {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          border: none;
-          width: 42px;
-          height: 42px;
-          padding: 0;
-          color: #fff;
-          border-radius: 12px;
-          flex-shrink: 0;
-        }
-        .am-btn-icon:hover:not(:disabled) {
-          transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.35);
-        }
-        .am-btn-icon:disabled { opacity: 0.5; cursor: not-allowed; }
-
-        .am-icon-btn {
-          background: none;
-          border: none;
-          color: #ef4444;
-          cursor: pointer;
-          padding: 6px;
-          border-radius: 6px;
-          display: inline-flex;
-          align-items: center;
-          transition: background 0.15s;
-        }
-        .am-icon-btn:hover { background: #fee2e2; }
-
-        .am-inline-input-btn {
-          display: flex;
-          gap: 8px;
-          align-items: stretch;
-        }
-        .am-inline-input-btn .am-input { flex: 1; min-width: 0; }
-
-        .am-history {
-          border: 1.5px solid #e2e8f0;
-          border-radius: 12px;
-          overflow: hidden;
+        /* ============ Searchable matricule ============ */
+        .payment-search-section {
           background: #fff;
+          border-radius: 12px;
+          padding: 12px;
+          border: 1px solid #e2e8f0;
         }
-        .am-history-head {
-          padding: 10px 14px;
-          background: #f8fafc;
-          border-bottom: 1px solid #e2e8f0;
-          font-size: 0.75rem;
-          font-weight: 700;
-          color: #475569;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          text-transform: uppercase;
-          letter-spacing: 0.4px;
+        .payment-search-input-wrapper { position: relative; }
+        .payment-search-input-wrapper svg {
+          position: absolute; left: 14px; top: 50%;
+          transform: translateY(-50%); color: #94a3b8;
         }
-        .am-history-row {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 10px 14px;
-          font-size: 0.8rem;
-          color: #334155;
+        .payment-search-input-wrapper .payment-input {
+          padding-left: 42px;
+          padding-right: 42px;
+          width: 100%;
+        }
+        .payment-clear-search-btn {
+          position: absolute; right: 12px; top: 50%;
+          transform: translateY(-50%);
+          background: none; border: none; cursor: pointer;
+          color: #94a3b8; padding: 4px;
+        }
+        .payment-clear-search-btn:hover { color: #ef4444; }
+        .payment-results {
+          max-height: 250px; overflow-y: auto;
+          margin-top: 8px; border-radius: 0.75rem;
+          border: 1px solid #e2e8f0; background: #fff;
+        }
+        .payment-result-item {
+          display: flex; align-items: center; gap: 12px;
+          padding: 10px 14px; cursor: pointer;
           border-bottom: 1px solid #f1f5f9;
+          transition: background 0.2s;
         }
-        .am-history-row:last-child { border-bottom: none; }
-        .am-history-amount {
-          font-weight: 700;
-          color: #667eea;
-          margin-left: auto;
+        .payment-result-item:hover { background: #f5f3ff; }
+        .payment-result-avatar {
+          width: 36px; height: 36px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          border-radius: 36px; display: flex; align-items: center;
+          justify-content: center; color: #fff; flex-shrink: 0;
+        }
+        .payment-result-info { flex: 1; }
+        .payment-result-info strong { display: block; margin-bottom: 4px; font-size: 0.875rem; }
+        .payment-result-details { display: flex; gap: 12px; font-size: 0.7rem; color: #64748b; flex-wrap: wrap; }
+        .payment-selected {
+          background: rgba(102,126,234,0.08);
+          border-radius: 0.75rem; padding: 10px 14px;
+          display: flex; align-items: center; gap: 10px; margin-top: 12px;
+        }
+        .payment-selected svg { color: #667eea; flex-shrink: 0; }
+        .payment-selected strong { display: block; font-size: 0.7rem; color: #4338ca; }
+        .payment-selected p { font-size: 0.8rem; font-weight: 500; margin: 0; }
+        .payment-no-results {
+          padding: 0.75rem; color: #64748b;
+          font-size: 0.875rem; text-align: center;
         }
 
-        .am-maint-grid { display: flex; flex-direction: column; gap: 12px; }
-        .am-maint-row {
-          border: 1.5px solid #e2e8f0;
-          border-radius: 12px;
-          padding: 12px 14px;
-          background: #fff;
-          transition: border-color 0.15s;
+        /* ============ Details content ============ */
+        .payment-details-content { padding: 28px 32px; }
+        .payment-details-footer {
+          display: flex; justify-content: flex-end; gap: 16px;
+          padding: 20px 32px; border-top: 1px solid #e2e8f0; background: #f8fafc;
         }
-        .am-maint-row:hover { border-color: #cbd5e1; }
-        .am-maint-row.am-maint-required { border-left: 4px solid #667eea; }
-        .am-maint-top {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 8px;
+
+        .payment-details-actions-bar {
+          display: flex; justify-content: space-between; align-items: center;
+          margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;
         }
-        .am-maint-name {
-          font-size: 0.85rem;
-          font-weight: 600;
-          color: #1e293b;
-          display: flex;
-          align-items: center;
-          gap: 6px;
+        .payment-back-btn {
+          display: inline-flex; align-items: center; gap: 0.5rem;
+          padding: 8px 16px; background: #f1f5f9; border: none;
+          border-radius: 40px; font-size: 0.875rem; font-weight: 500;
+          cursor: pointer; transition: all 0.2s;
         }
-        .am-required-dot {
-          width: 6px;
-          height: 6px;
-          border-radius: 50%;
-          background: #667eea;
-          display: inline-block;
+        .payment-back-btn:hover { background: #e2e8f0; }
+        .payment-details-action-buttons { display: flex; gap: 0.5rem; }
+        .payment-action-edit-btn {
+          display: inline-flex; align-items: center; gap: 0.5rem;
+          padding: 8px 16px; background: #10b981; border: none;
+          border-radius: 40px; font-size: 0.875rem; font-weight: 500;
+          color: #fff; cursor: pointer;
         }
-        .am-maint-meta {
-          display: flex;
-          gap: 14px;
-          font-size: 0.72rem;
-          color: #64748b;
-          margin-top: 6px;
+        .payment-action-edit-btn:hover { background: #059669; }
+        .payment-action-delete-btn {
+          display: inline-flex; align-items: center; gap: 0.5rem;
+          padding: 8px 16px; background: #ef4444; border: none;
+          border-radius: 40px; font-size: 0.875rem; font-weight: 500;
+          color: #fff; cursor: pointer;
         }
-        .am-maint-actions {
-          display: flex;
-          gap: 8px;
-          margin-top: 10px;
+        .payment-action-delete-btn:hover { background: #dc2626; }
+
+        .payment-financing-header-card {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          border-radius: 1rem; padding: 1.5rem; margin-bottom: 1.5rem;
         }
-        .am-maint-log {
-          display: flex;
-          gap: 8px;
-          margin-top: 10px;
-          align-items: stretch;
+        .payment-financing-stats-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          gap: 1rem;
         }
-        .am-maint-log .am-input { flex: 1; min-width: 0; }
-        .am-maint-history {
-          margin-top: 10px;
-          border-top: 1px dashed #e2e8f0;
-          padding-top: 10px;
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
+        .payment-stat-item-detail {
+          background: rgba(255,255,255,0.15);
+          padding: 0.75rem; border-radius: 0.75rem; text-align: center;
         }
-        .am-maint-history-row {
-          display: flex;
-          gap: 14px;
+        .payment-stat-value { font-size: 1.25rem; font-weight: 700; color: #fff; }
+        .payment-stat-label-detail { font-size: 0.7rem; opacity: 0.9; margin-top: 0.25rem; color: #fff; }
+
+        .payment-details-sections-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+          gap: 1rem; margin-bottom: 1.5rem;
+        }
+        .payment-detail-card {
+          border: 1px solid #e2e8f0; border-radius: 1rem;
+          overflow: hidden; background: #fff;
+        }
+        .payment-detail-card-title {
+          background: #f8fafc; padding: 0.75rem 1rem;
+          font-weight: 600; font-size: 0.875rem;
+          display: flex; align-items: center; gap: 0.5rem;
+          border-bottom: 1px solid #e2e8f0;
+        }
+        .payment-detail-card-content { padding: 1rem; }
+        .payment-info-row {
+          display: flex; justify-content: space-between; align-items: center;
+          padding: 0.5rem 0; border-bottom: 1px solid #f1f5f9;
+        }
+        .payment-info-row:last-child { border-bottom: none; }
+        .payment-info-label { font-size: 0.75rem; color: #64748b; }
+        .payment-info-value { font-size: 0.75rem; font-weight: 500; }
+        .payment-matricule-value { font-family: 'Courier New', monospace; font-weight: 600; color: #667eea; }
+        .payment-status-badge {
+          padding: 0.25rem 0.625rem; border-radius: 9999px;
+          font-size: 0.7rem; font-weight: 500;
+        }
+        .payment-status-active { background: #dcfce7; color: #166534; }
+        .payment-status-completed { background: #dbeafe; color: #1e40af; }
+        .payment-status-late { background: #fef3c7; color: #92400e; }
+        .payment-progress-wrapper { display: flex; align-items: center; gap: 0.5rem; width: 100%; }
+        .payment-progress-bar { height: 6px; background: #e2e8f0; border-radius: 4px; overflow: hidden; flex: 1; }
+        .payment-progress-fill {
+          height: 100%;
+          background: linear-gradient(135deg, #667eea, #764ba2);
+          border-radius: 4px; transition: width 0.3s;
+        }
+        .payment-progress-text { font-size: 0.7rem; color: #64748b; }
+
+        .payment-notes-section {
+          border: 1px solid #e2e8f0; border-radius: 1rem;
+          overflow: hidden; margin-bottom: 1.5rem;
+        }
+        .payment-notes-title {
+          background: #f8fafc; padding: 0.75rem 1rem;
+          font-weight: 600; font-size: 0.875rem;
+          display: flex; align-items: center; gap: 0.5rem;
+          border-bottom: 1px solid #e2e8f0;
+        }
+        .payment-notes-content { padding: 1rem; font-size: 0.875rem; line-height: 1.5; }
+
+        .payment-payments-section {
+          border: 1px solid #e2e8f0; border-radius: 1rem; overflow: hidden;
+        }
+        .payment-payments-section-header {
+          background: #f8fafc; padding: 0.75rem 1rem;
+          font-weight: 600; font-size: 0.875rem;
+          display: flex; justify-content: space-between;
+          align-items: center; border-bottom: 1px solid #e2e8f0;
+        }
+        .payment-generate-schedule-btn {
+          display: inline-flex; align-items: center; gap: 0.5rem;
+          padding: 0.25rem 0.75rem;
+          background: linear-gradient(135deg, #667eea, #764ba2);
+          border: none; border-radius: 20px;
+          font-size: 0.7rem; font-weight: 500; color: #fff; cursor: pointer;
+        }
+        .payment-payments-table-wrapper { overflow-x: auto; }
+        .payment-payments-table {
+          width: 100%; font-size: 0.75rem;
+          border-collapse: collapse; min-width: 800px;
+        }
+        .payment-payments-table th, .payment-payments-table td {
+          padding: 0.75rem; text-align: left; border-bottom: 1px solid #e2e8f0;
+        }
+        .payment-payments-table th {
+          background: #f8fafc; font-weight: 600; color: #64748b;
+        }
+        .payment-record-payment-btn {
+          display: inline-flex; align-items: center; gap: 0.25rem;
+          padding: 0.25rem 0.5rem; background: #10b981;
+          border: none; border-radius: 20px; font-size: 0.7rem;
+          font-weight: 500; color: #fff; cursor: pointer;
+        }
+
+        /* ====================================================================
+           Confirmation modals
+           ==================================================================== */
+        .confirmation-modal-overlay {
+          position: fixed;
+          top: 0; right: 0; bottom: 0; left: 0;
+          background: rgba(0, 0, 0, 0.6);
+          backdrop-filter: blur(6px);
+          -webkit-backdrop-filter: blur(6px);
+          display: flex; align-items: center; justify-content: center;
+          z-index: 10000;
+          padding: 1rem;
+          overflow-y: auto; overflow-x: hidden;
+          animation: fadeIn 0.2s ease;
+        }
+        .confirmation-modal {
+          background: white; border-radius: 1.25rem;
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+          max-width: 480px; width: 100%; overflow: hidden;
+          animation: modalSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+          margin: auto;
+        }
+        .confirmation-header {
+          padding: 2rem 2rem 1rem;
+          text-align: center;
+          border-bottom: 1px solid #f1f3f4;
+        }
+        .confirmation-icon {
+          width: 80px; height: 80px; border-radius: 50%;
+          display: flex; align-items: center; justify-content: center;
+          margin: 0 auto 1rem; font-size: 2rem;
+        }
+        .confirmation-icon.delete {
+          background: rgba(220, 53, 69, 0.1); color: #dc3545;
+          border: 2px solid rgba(220, 53, 69, 0.2);
+        }
+        .confirmation-icon.info {
+          background: rgba(102, 126, 234, 0.1); color: #667eea;
+          border: 2px solid rgba(102, 126, 234, 0.2);
+        }
+        .confirmation-title {
+          font-size: 1.5rem; font-weight: 700;
+          color: #0f172a; margin: 0;
+        }
+        .confirmation-subtitle {
+          font-size: 0.75rem; color: #64748b;
+          margin: 6px 0 0;
+        }
+        .confirmation-body { padding: 1.5rem 2rem; }
+        .confirmation-message {
+          color: #64748b; font-size: 1rem;
+          line-height: 1.6; margin: 0; text-align: center;
+        }
+        .payment-dossier-chip {
+          font-weight: 700; color: #0f172a;
+          background: #f1f5f9; padding: 0.2rem 0.6rem;
+          border-radius: 0.5rem; display: inline-block;
+          margin: 0.35rem 0;
+        }
+        .payment-delete-warning {
+          margin-top: 1rem;
+          padding: 0.75rem 1rem;
+          background: rgba(220, 53, 69, 0.08);
+          border: 1px solid rgba(220, 53, 69, 0.2);
+          border-radius: 0.5rem;
           font-size: 0.75rem;
-          color: #64748b;
+          color: #991b1b;
+          text-align: center;
+        }
+        .confirmation-actions {
+          padding: 1.5rem 2rem 2rem;
+          display: flex; gap: 1rem; justify-content: flex-end;
+        }
+        .btn-confirm-cancel {
+          padding: 0.75rem 1.5rem;
+          border: 1px solid #cbd5e1;
+          background: transparent; color: #64748b;
+          border-radius: 0.75rem;
+          font-size: 0.875rem; font-weight: 600;
+          cursor: pointer; transition: all 0.3s ease;
+          font-family: inherit;
+        }
+        .btn-confirm-cancel:hover { background: #f1f5f9; color: #334155; }
+        .btn-confirm-delete {
+          padding: 0.75rem 1.5rem; border: none;
+          background: #ef4444; color: white;
+          border-radius: 0.75rem; font-size: 0.875rem;
+          font-weight: 600; cursor: pointer;
+          transition: all 0.3s ease;
+          box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
+          display: inline-flex; align-items: center; gap: 0.5rem;
+          font-family: inherit;
+        }
+        .btn-confirm-delete:hover {
+          background: #dc2626; transform: translateY(-1px);
+          box-shadow: 0 6px 20px rgba(220, 53, 69, 0.4);
+        }
+        .btn-confirm-primary {
+          padding: 0.75rem 1.5rem; border: none;
+          background: linear-gradient(135deg, #667eea, #764ba2);
+          color: white; border-radius: 0.75rem;
+          font-size: 0.875rem; font-weight: 600;
+          cursor: pointer; transition: all 0.3s ease;
+          box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+          display: inline-flex; align-items: center; gap: 0.5rem;
+          font-family: inherit;
+        }
+        .btn-confirm-primary:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+        .btn-confirm-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        /* ============ Prompt modals (interest + record payment) ============ */
+        .payment-prompt-field { margin-bottom: 1rem; }
+        .payment-prompt-field:last-child { margin-bottom: 0; }
+        .payment-prompt-label {
+          display: flex; align-items: center; gap: 0.5rem;
+          font-size: 0.8rem; font-weight: 600;
+          margin-bottom: 0.5rem; color: #0f172a;
+        }
+        .payment-prompt-input-wrapper { position: relative; }
+        .payment-prompt-input {
+          width: 100%; height: 2.75rem;
+          padding: 0 0.75rem;
+          border: 1.5px solid #e2e8f0; border-radius: 0.75rem;
+          font-size: 0.875rem; background: #fff;
+          font-family: inherit; box-sizing: border-box;
+        }
+        .payment-prompt-input-wrapper .payment-prompt-input { padding-right: 2.5rem; }
+        .payment-prompt-input:focus {
+          outline: none; border-color: #667eea;
+          box-shadow: 0 0 0 3px rgba(102,126,234,0.1);
+        }
+        .payment-prompt-textarea {
+          height: auto; min-height: 70px;
+          resize: vertical; padding: 0.75rem;
+        }
+        .payment-prompt-unit {
+          position: absolute; right: 0.75rem;
+          top: 50%; transform: translateY(-50%);
+          color: #64748b; font-size: 0.875rem; font-weight: 500;
+        }
+        .payment-prompt-note {
+          font-size: 0.7rem; color: #64748b;
+          margin-top: 0.75rem; padding: 0.5rem 0.75rem;
+          background: #f1f5f9; border-radius: 0.5rem;
+          display: flex; align-items: flex-start; gap: 0.5rem;
+          line-height: 1.5;
+        }
+        .payment-prompt-note svg { flex-shrink: 0; margin-top: 2px; }
+        .payment-prompt-grid-2 {
+          display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
         }
 
-        .am-footer {
-          display: flex;
-          justify-content: flex-end;
-          gap: 16px;
-          padding-top: 24px;
-          border-top: 1px solid #e2e8f0;
-          margin-top: 24px;
-          flex-wrap: wrap;
+        /* ================= Loading ================= */
+        .loading { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 400px; color: #64748b; }
+        .spinner {
+          width: 48px; height: 48px; border: 3px solid #e2e8f0;
+          border-top: 3px solid #667eea; border-radius: 50%;
+          animation: spin 1s linear infinite; margin-bottom: 1rem;
         }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
+        /* ================= Responsive ================= */
         @media (max-width: 1024px) {
-          .am-columns { grid-template-columns: 1fr; gap: 24px; }
+          .payment-form-grid { grid-template-columns: 1fr; gap: 24px; }
+          .section-header { flex-direction: column; }
+          .section-actions { width: 100%; justify-content: flex-start; }
         }
-
         @media (max-width: 768px) {
-          .am-grid-2 { grid-template-columns: 1fr; }
-          .am-modal { margin: 1rem; border-radius: 24px; }
-          .am-header { padding: 16px 20px; gap: 14px; }
-          .am-header-title h2 { font-size: 1.25rem; }
-          .am-header-title { padding-right: 40px; }
-          .am-header-icon { width: 44px; height: 44px; border-radius: 22px; }
-          .am-header-close { top: 16px; right: 16px; width: 36px; height: 36px; }
-          .am-form { padding: 20px; }
+          .search-filter-section { flex-direction: column; align-items: stretch; }
+          .search-box { min-width: auto; }
+          .filter-group { flex-direction: column; align-items: stretch; }
+          .filter-select { width: 100%; }
+          .payment-form-modal,
+          .payment-details-modal { margin: 1rem; border-radius: 24px; }
+          .payment-form-header,
+          .payment-details-header { padding: 16px 20px; gap: 14px; }
+          .payment-form-header-title h2,
+          .payment-details-header-title h2 { font-size: 1.25rem; }
+          .payment-form-header-title,
+          .payment-details-header-title { padding-right: 40px; }
+          .payment-form-header-icon,
+          .payment-details-header-icon { width: 44px; height: 44px; border-radius: 22px; }
+          .payment-form-header-close,
+          .payment-details-header-close { top: 16px; right: 16px; width: 36px; height: 36px; }
+          .payment-form,
+          .payment-details-content { padding: 20px; }
+          .payment-grid-2 { grid-template-columns: 1fr; }
+          .payment-prompt-grid-2 { grid-template-columns: 1fr; }
+          .payment-details-sections-grid { grid-template-columns: 1fr; }
+          .payment-financing-stats-grid { grid-template-columns: repeat(2, 1fr); }
+          .payment-details-actions-bar { flex-direction: column; align-items: stretch; }
+          .payment-details-action-buttons { justify-content: center; }
+          .results-summary { flex-direction: column; gap: 0.5rem; align-items: flex-start; }
         }
       `}</style>
-    </div>,
-    document.body
+    </>
   );
-};
-
-export default AdminModal;
+}
