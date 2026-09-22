@@ -10,6 +10,45 @@ import {
 } from "lucide-react";
 
 // ============================================================
+// Date helpers — TIMEZONE SAFE
+// ============================================================
+// Parses "YYYY-MM-DD" (or ISO strings) into a local Date at 00:00.
+// Never relies on UTC parsing, which shifts the day in some timezones.
+const parseDateOnly = (input) => {
+  if (!input) return null;
+  if (input instanceof Date) {
+    if (isNaN(input.getTime())) return null;
+    return new Date(input.getFullYear(), input.getMonth(), input.getDate());
+  }
+  const s = String(input).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return null;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+};
+
+// Whole-day difference between two dates (signed).
+const diffInDays = (start, end) => {
+  const s = parseDateOnly(start);
+  const e = parseDateOnly(end);
+  if (!s || !e) return 0;
+  // Use Date.UTC on the *local* calendar fields so DST cannot skew the result.
+  const sUTC = Date.UTC(s.getFullYear(), s.getMonth(), s.getDate());
+  const eUTC = Date.UTC(e.getFullYear(), e.getMonth(), e.getDate());
+  return Math.round((eUTC - sUTC) / 86400000);
+};
+
+// Formats a local Date as "YYYY-MM-DD" without going through UTC.
+const formatLocalYMD = (date) => {
+  if (!date) return "";
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+// ============================================================
 // Shared building blocks
 // ============================================================
 const Field = ({ label, required, hint, children }) => (
@@ -236,7 +275,7 @@ const ReservationFields = ({
     prevStatusRef.current = formData.status;
 
     const now = new Date();
-    const currentDate = now.toISOString().split("T")[0];
+    const currentDate = formatLocalYMD(now);
     const currentTime = now.toTimeString().slice(0, 5);
 
     if (formData.status === "confirmed") {
@@ -250,9 +289,9 @@ const ReservationFields = ({
   }, [formData.status]);
 
   const totalDays = useMemo(() => {
-    const base = parseInt(formData.rental_days, 10) || 0;
+    const base = Math.max(parseInt(formData.rental_days, 10) || 0, 0);
     const prolongation = formData.can_extend_days
-      ? parseInt(formData.prolongation_days, 10) || 0
+      ? Math.max(parseInt(formData.prolongation_days, 10) || 0, 0)
       : 0;
     return base + prolongation;
   }, [formData.rental_days, formData.prolongation_days, formData.can_extend_days]);
@@ -282,22 +321,16 @@ const ReservationFields = ({
 
   const recalcEndDate = (startDate, days) => {
     if (!startDate || days <= 0) return null;
-    const start = new Date(startDate);
-    const end = new Date(start);
-    end.setDate(start.getDate() + days);
-    return end.toISOString().split("T")[0];
+    const start = parseDateOnly(startDate);
+    if (!start) return null;
+    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + days);
+    return formatLocalYMD(end);
   };
 
-  // ✅ Compute number of days between two dates (difference-based, min 1)
+  // ✅ Compute number of days between two dates (timezone-safe, min 1)
   const daysBetween = (startDate, endDate) => {
-    if (!startDate || !endDate) return 0;
-    const s = new Date(startDate);
-    const e = new Date(endDate);
-    s.setHours(0, 0, 0, 0);
-    e.setHours(0, 0, 0, 0);
-    const diff = Math.abs(e - s);
-    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-    return days === 0 ? 1 : days;
+    const d = Math.abs(diffInDays(startDate, endDate));
+    return d === 0 ? 1 : d;
   };
 
   const applyManualDailyPrice = () => {
@@ -357,7 +390,7 @@ const ReservationFields = ({
 
     setNewPayment({
       amount: "",
-      date: new Date().toISOString().split("T")[0],
+      date: formatLocalYMD(new Date()),
       method: "cash",
       notes: "",
     });
@@ -397,15 +430,15 @@ const ReservationFields = ({
     } else if (!checked) {
       handleChange("prolongation_days", 0);
     }
-    const base = parseInt(formData.rental_days, 10) || 0;
+    const base = Math.max(parseInt(formData.rental_days, 10) || 0, 0);
     const end = recalcEndDate(formData.start_date, base + nextProlong);
     if (end) handleChange("end_date", end);
   };
 
   const handleProlongationDaysChange = (value) => {
-    const val = parseInt(value, 10) || 1;
+    const val = Math.max(parseInt(value, 10) || 1, 1);
     handleChange("prolongation_days", val);
-    const base = parseInt(formData.rental_days, 10) || 0;
+    const base = Math.max(parseInt(formData.rental_days, 10) || 0, 0);
     const end = recalcEndDate(formData.start_date, base + val);
     if (end) handleChange("end_date", end);
   };
@@ -546,7 +579,8 @@ const ReservationFields = ({
               <input type="number" min="1" className="am-input"
                 value={formData.rental_days ?? ""}
                 onChange={(e) => {
-                  const d = parseInt(e.target.value, 10) || "";
+                  const parsed = parseInt(e.target.value, 10);
+                  const d = isNaN(parsed) ? "" : Math.max(parsed, 1);
                   handleChange("rental_days", d);
                   const end = recalcEndDate(
                     formData.start_date,
@@ -839,7 +873,7 @@ const OPTIONAL_MAINTENANCE = [
 const MaintenanceRow = ({ item, formData, handleChange, required }) => {
   const [logOpen, setLogOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [logDate, setLogDate] = useState(new Date().toISOString().split("T")[0]);
+  const [logDate, setLogDate] = useState(formatLocalYMD(new Date()));
   const [logQty, setLogQty] = useState("");
 
   const status = formData[item.key] || "no";

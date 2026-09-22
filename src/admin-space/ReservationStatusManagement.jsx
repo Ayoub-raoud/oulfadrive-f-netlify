@@ -22,7 +22,7 @@ import {
   selectCars, selectMatricules, selectUser, refreshMatricules,
   checkLateReservations,
 } from '../Redux/store';
-import { syncReportForReservation } from '../utils/reportSync'; // ✅ NEW
+import { syncReportForReservation } from '../utils/reportSync';
 import AdminModal from './AdminModal';
 
 import checklistImage from '../assets/Checklist.png';
@@ -46,6 +46,37 @@ const DEFAULT_DISPLAY_OPTIONS = {
   deliveryReception: 'show', rentalDates: 'show', kilometrage: 'show',
   rentalDays: 'dash', observations: 'show', insurance: 'show',
   depositGuarantee: 'show', signatures: 'show',
+};
+
+// ============================================================
+// Date helpers — TIMEZONE SAFE
+// ============================================================
+const parseDateOnly = (input) => {
+  if (!input) return null;
+  if (input instanceof Date) {
+    if (isNaN(input.getTime())) return null;
+    return new Date(input.getFullYear(), input.getMonth(), input.getDate());
+  }
+  const s = String(input).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return null;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+};
+
+const diffInDays = (start, end) => {
+  const s = parseDateOnly(start);
+  const e = parseDateOnly(end);
+  if (!s || !e) return 0;
+  const sUTC = Date.UTC(s.getFullYear(), s.getMonth(), s.getDate());
+  const eUTC = Date.UTC(e.getFullYear(), e.getMonth(), e.getDate());
+  return Math.round((eUTC - sUTC) / 86400000);
+};
+
+const calculateRentalDays = (s, e) => {
+  const d = Math.abs(diffInDays(s, e));
+  return d === 0 ? 1 : d;
 };
 
 const Checkbox = ({ checked = false }) => (
@@ -221,16 +252,12 @@ const ContractLocation = ({
     } catch (error) { console.error(error); return ''; }
   };
 
-  const calculateRentalDays = () => {
+  const calculateRentalDaysLocal = () => {
     if (!reservation?.start_date || !reservation?.end_date) return 1;
-    const start = new Date(reservation.start_date); const end = new Date(reservation.end_date);
-    start.setHours(0, 0, 0, 0); end.setHours(0, 0, 0, 0);
-    const diffTime = Math.abs(end - start);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays === 0 ? 1 : diffDays;
+    return calculateRentalDays(reservation.start_date, reservation.end_date);
   };
 
-  const rentalDays = reservation?.rental_days || calculateRentalDays();
+  const rentalDays = reservation?.rental_days || calculateRentalDaysLocal();
   const dailyPrice = (reservation?.total_price && rentalDays) ? (reservation.total_price / rentalDays).toFixed(2) : reservation?.car?.price_per_day || '—';
 
   const getCautionAmount = () => {
@@ -336,7 +363,7 @@ const ContractLocation = ({
                 <div className="section-content">
                   <div className="field-row"><span className="field-label">Départ :</span><span className="field-value">{getDisplayValue(opt('rentalDates'), `${formatDate(reservation?.start_date)} à ${reservation?.start_time || '08:00'}`)}</span></div>
                   <div className="field-row"><span className="field-label">Retour :</span><span className="field-value">{getDisplayValue(opt('rentalDates'), `${formatDate(reservation?.end_date)} à ${reservation?.end_time || '18:00'}`)}</span></div>
-                  <div className="field-row"><span className="field-label">Durée :</span><span className="field-value">{getDisplayValue(opt('rentalDays'), `${calculateRentalDays()} jours` + (reservation?.prolongation_days > 0 ? ` (dont prolongation: ${reservation.prolongation_days} jours)` : ''))}</span></div>
+                  <div className="field-row"><span className="field-label">Durée :</span><span className="field-value">{getDisplayValue(opt('rentalDays'), `${calculateRentalDaysLocal()} jours` + (reservation?.prolongation_days > 0 ? ` (dont prolongation: ${reservation.prolongation_days} jours)` : ''))}</span></div>
                   {reservation?.prolongation_days > 0 && (<div className="field-row"><span className="field-label">Prolongation :</span><span className="field-value">{reservation.prolongation_days} jours</span></div>)}
                   <div className="field-row"><span className="field-label">Km départ :</span><span className="field-value">{getDisplayValue(opt('kilometrage'), `${reservation?.kilometrage_sortie || '—'} km`)}</span></div>
                   <div className="field-row"><span className="field-label">Km retour :</span><span className="field-value">{getDisplayValue(opt('kilometrage'), reservation?.kilometrage_entree ? `${reservation.kilometrage_entree} km` : '—')}</span></div>
@@ -474,10 +501,20 @@ const ReservationStatusManagement = () => {
     dispatch(fetchMatricules()); dispatch(checkLateReservations());
   }, [dispatch]);
 
-  const isToday = (d) => { if (!d) return false; const dt = new Date(d), t = new Date(); return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime() === new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime(); };
-  const isThisWeek = (d) => { if (!d) return false; const date = new Date(d), today = new Date(); const sw = new Date(today); sw.setDate(today.getDate() - today.getDay()); sw.setHours(0,0,0,0); const ew = new Date(sw); ew.setDate(sw.getDate() + 6); ew.setHours(23,59,59,999); return date >= sw && date <= ew; };
-  const isThisMonth = (d) => { if (!d) return false; const date = new Date(d), today = new Date(); return date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear(); };
-  const calculateRentalDays = (s, e) => { if (!s || !e) return 0; const sd = new Date(s), ed = new Date(e); sd.setHours(0,0,0,0); ed.setHours(0,0,0,0); const diff = Math.abs(ed - sd); const days = Math.ceil(diff / (1000 * 60 * 60 * 24)); return days === 0 ? 1 : days; };
+  const isToday = (d) => { if (!d) return false; const dt = parseDateOnly(d), t = parseDateOnly(new Date()); return dt && t && dt.getTime() === t.getTime(); };
+  const isThisWeek = (d) => {
+    if (!d) return false;
+    const date = parseDateOnly(d); if (!date) return false;
+    const today = parseDateOnly(new Date());
+    const sw = new Date(today); sw.setDate(today.getDate() - today.getDay()); sw.setHours(0,0,0,0);
+    const ew = new Date(sw); ew.setDate(sw.getDate() + 6); ew.setHours(23,59,59,999);
+    return date >= sw && date <= ew;
+  };
+  const isThisMonth = (d) => {
+    if (!d) return false;
+    const date = parseDateOnly(d), today = parseDateOnly(new Date());
+    return date && today && date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
+  };
 
   const showSuccessMessage = (message) => {
     document.querySelectorAll('.success-notification, .error-notification').forEach(n => n.remove());
@@ -503,26 +540,20 @@ const ReservationStatusManagement = () => {
   };
 
   /* ============================================================
-     ✅ generateContractPDF — TRUE A4 PDF, smart-fit + 5px top/bottom margin
-     - Renders at 794px (A4 width @ 96dpi), captured at 3x for high DPI
-     - Adds 5px (≈1.32 mm) margin at the top and bottom of each page
-     - If content ≤ available height → fits directly
-     - If content is slightly taller → shrinks to fit on ONE page
-     - If content is much taller → paginates cleanly
+     ✅ generateContractPDF — unchanged
      ============================================================ */
   const generateContractPDF = async (reservation) => {
     try {
-      const A4_WIDTH_PX = 794; // 210mm @ 96dpi
+      const A4_WIDTH_PX = 794;
 
       const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
-      const pageWidth  = doc.internal.pageSize.getWidth();   // 210 mm
-      const pageHeight = doc.internal.pageSize.getHeight();  // 297 mm
+      const pageWidth  = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
 
-      // ✅ 5px top/bottom padding converted to mm (5px / 96dpi * 25.4 ≈ 1.3229mm)
       const PADDING_PX = 5;
-      const PADDING_MM = (PADDING_PX / 96) * 25.4; // ≈ 1.3229 mm
+      const PADDING_MM = (PADDING_PX / 96) * 25.4;
       const contentTop    = PADDING_MM;
-      const contentHeight = pageHeight - PADDING_MM * 2; // available height per page
+      const contentHeight = pageHeight - PADDING_MM * 2;
 
       const contractElement =
         document.querySelector('#contract-pdf-root .contract-container-print') ||
@@ -581,26 +612,21 @@ const ReservationStatusManagement = () => {
 
       const imgData = canvas.toDataURL('image/jpeg', 0.95);
 
-      // ── Fit to full content width (page width, no left/right padding) ─
       let imgWidth  = pageWidth;
       let imgHeight = (canvas.height * imgWidth) / canvas.width;
 
       if (imgHeight <= contentHeight) {
-        // ── Case 1: fits on ONE page as-is → place with top padding ────
-        const x = (pageWidth - imgWidth) / 2; // center horizontally
+        const x = (pageWidth - imgWidth) / 2;
         doc.addImage(imgData, 'JPEG', x, contentTop, imgWidth, imgHeight);
       } else {
-        // Content is taller than 1 page → try shrinking to fit on ONE page
         const scaleToFit = contentHeight / imgHeight;
 
         if (scaleToFit >= 0.7) {
-          // ── Case 2: slightly too tall → shrink to fit on ONE page ────
           imgWidth  = imgWidth * scaleToFit;
           imgHeight = contentHeight;
-          const x = (pageWidth - imgWidth) / 2; // center horizontally
+          const x = (pageWidth - imgWidth) / 2;
           doc.addImage(imgData, 'JPEG', x, contentTop, imgWidth, imgHeight);
         } else {
-          // ── Case 3: really long → paginate cleanly with 5px top/bottom ─
           let heightLeft = imgHeight;
           let position = contentTop;
 
@@ -676,12 +702,10 @@ const ReservationStatusManagement = () => {
     }
     let matchesNotification = true;
     if (filterParam === 'notifications') {
-      const today = new Date(); today.setHours(0, 0, 0, 0);
-      const end = r.end_date ? new Date(r.end_date) : null;
-      if (end) end.setHours(0, 0, 0, 0);
+      const today = parseDateOnly(new Date());
+      const end = r.end_date ? parseDateOnly(r.end_date) : null;
+      const start = r.start_date ? parseDateOnly(r.start_date) : null;
       const diffDays = end ? Math.ceil((end - today) / (1000 * 60 * 60 * 24)) : null;
-      const start = r.start_date ? new Date(r.start_date) : null;
-      if (start) start.setHours(0, 0, 0, 0);
       const diffStart = start ? Math.ceil((start - today) / (1000 * 60 * 60 * 24)) : null;
       matchesNotification = (diffStart !== null && diffStart >= 0 && diffStart <= 7) || (diffDays !== null && diffDays >= 0 && diffDays <= 7);
     }
@@ -739,23 +763,34 @@ const ReservationStatusManagement = () => {
     setShowDeleteModal(false); setReservationToDelete(null);
   };
 
+  /* ============================================================
+     ✅ handleEdit — TIMEZONE SAFE + never trust bad rental_days
+     ============================================================ */
   const handleEdit = (reservation) => {
     setModalType('edit'); setEditingItem(reservation);
     let displayNotes = reservation.notes || '';
     try { if (displayNotes && displayNotes.trim().startsWith('{')) { const n = JSON.parse(displayNotes); if (n.original_text !== undefined) displayNotes = n.original_text || ''; } } catch {}
 
-    // ✅ Dates are the source of truth: use calculateRentalDays(start, end)
-    //    to avoid showing a stale `rental_days` from the DB.
-    const totalDaysFromDates = calculateRentalDays(reservation.start_date, reservation.end_date);
-    const prolongation = reservation.prolongation_days || 0;
+    const computedDays = calculateRentalDays(reservation.start_date, reservation.end_date);
+    const storedDays = parseInt(reservation.rental_days, 10);
+    const hasValidStored = Number.isFinite(storedDays) && storedDays > 0;
+
+    let totalDays;
+    if (hasValidStored && Math.abs(storedDays - computedDays) <= 1) {
+      totalDays = storedDays;
+    } else {
+      totalDays = computedDays;
+    }
+
+    const prolongation = Math.max(parseInt(reservation.prolongation_days, 10) || 0, 0);
     const baseDays = reservation.can_extend_days
-      ? Math.max(totalDaysFromDates - prolongation, 1)
-      : totalDaysFromDates;
+      ? Math.max(totalDays - prolongation, 1)
+      : Math.max(totalDays, 1);
 
     setFormData({
       ...reservation,
-      start_date: reservation.start_date?.split('T')[0] || '',
-      end_date: reservation.end_date?.split('T')[0] || '',
+      start_date: reservation.start_date ? String(reservation.start_date).split('T')[0] : '',
+      end_date: reservation.end_date ? String(reservation.end_date).split('T')[0] : '',
       rental_days: baseDays,
       nom: reservation.client?.nom || '',
       prenom: reservation.client?.prenom || '',
@@ -774,11 +809,19 @@ const ReservationStatusManagement = () => {
     setShowModal(true);
   };
 
+  /* ============================================================
+     ✅ handleSubmit — clamps rental_days to >= 1, syncs report
+     ============================================================ */
   const handleSubmit = async (e) => {
     e.preventDefault(); setSubmitting(true);
     try {
-      const baseDays = parseInt(formData.rental_days, 10) || calculateRentalDays(formData.start_date, formData.end_date) || 1;
-      const prolongationDays = formData.can_extend_days ? (parseInt(formData.prolongation_days, 10) || 0) : 0;
+      const parsedBase = parseInt(formData.rental_days, 10);
+      const derivedBase = calculateRentalDays(formData.start_date, formData.end_date);
+      const baseDays = Math.max(
+        Number.isFinite(parsedBase) && parsedBase > 0 ? parsedBase : derivedBase,
+        1
+      );
+      const prolongationDays = formData.can_extend_days ? Math.max(parseInt(formData.prolongation_days, 10) || 0, 0) : 0;
       const totalRentalDays = baseDays + prolongationDays;
       const payload = { ...formData, rental_days: totalRentalDays, total_days: totalRentalDays, can_extend_days: !!formData.can_extend_days, prolongation_days: prolongationDays };
       const result = await dispatch(updateReservation({ id: editingItem.id, data: payload })).unwrap();
