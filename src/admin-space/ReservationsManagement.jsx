@@ -19,6 +19,7 @@ import {
   selectReservations, selectReservationsLoading, selectClients, selectCars,
   selectMatricules, selectUser, updateMatricule, refreshMatricules,
   checkLateReservations,
+  fetchSousLocations, createSousLocation, selectSousLocations,
 } from '../Redux/store';
 import { syncReportForReservation } from '../utils/reportSync';
 import AdminModal from './AdminModal';
@@ -596,6 +597,7 @@ const ReservationsManagement = ({ onBack, filter }) => {
   const cars = useSelector(selectCars);
   const matricules = useSelector(selectMatricules);
   const currentUser = useSelector(selectUser);
+  const sousLocations = useSelector(selectSousLocations); // ✅ ADDED
 
   const [showModal, setShowModal] = useState(false);
   const [modalType, setModalType] = useState('create');
@@ -638,10 +640,16 @@ const ReservationsManagement = ({ onBack, filter }) => {
   const processedContractRef = useRef(null);
 
   useEffect(() => { if (filter) { setStatusFilter(filter); setCurrentPage(1); } }, [filter]);
+
   useEffect(() => {
-    dispatch(fetchReservations()); dispatch(fetchClients()); dispatch(fetchCars());
-    dispatch(fetchMatricules()); dispatch(checkLateReservations());
+    dispatch(fetchReservations());
+    dispatch(fetchClients());
+    dispatch(fetchCars());
+    dispatch(fetchMatricules());
+    dispatch(checkLateReservations());
+    dispatch(fetchSousLocations()); // ✅ ADDED
   }, [dispatch]);
+
   useEffect(() => {
     const interval = setInterval(() => { dispatch(checkLateReservations()); }, 60000);
     return () => clearInterval(interval);
@@ -693,21 +701,12 @@ const ReservationsManagement = ({ onBack, filter }) => {
     throw lastError;
   };
 
-  /* ============================================================
-     ✅ enrichReservationWithSignatures — FAST version
-     - No more full list re-fetch (that was slowing down modal open)
-     - No more broken `/signature` (singular) fallback → no 404
-     - Short-circuits immediately if the reservation already has signatures
-     ============================================================ */
   const enrichReservationWithSignatures = async (reservation) => {
-    // 1) Already has signatures → no network call at all
     if (reservationHasAnySignature(reservation)) return reservation;
 
-    // 2) Look for a fresher copy already in the Redux store (no network)
     const fromStore = reservations.find(r => r.id === reservation.id);
     if (fromStore && reservationHasAnySignature(fromStore)) return fromStore;
 
-    // 3) Only one endpoint to try: `/signatures` (plural). No 404 fallback.
     try {
       const { api } = await import('../Redux/store');
       const res = await api.get(`/reservations/${reservation.id}/signatures`);
@@ -715,7 +714,6 @@ const ReservationsManagement = ({ onBack, filter }) => {
 
       const base = fromStore || reservation;
       if (data && typeof data === 'object') {
-        // Normalise response shape
         let payload = data;
         if (payload.data && typeof payload.data === 'object' && !payload.signatures) {
           payload = payload.data;
@@ -747,17 +745,10 @@ const ReservationsManagement = ({ onBack, filter }) => {
       }
       return base;
     } catch (_) {
-      // 404 or any other error → silently return the row we already have
       return fromStore || reservation;
     }
   };
 
-  /* ============================================================
-     ✅ generateContractPDF — same sizing as AdminReservations.jsx
-     - 210mm clone width, padding 15px, boxSizing border-box
-     - scale: 2
-     - fit-to-single-A4-page with 10mm margin, centered
-     ============================================================ */
   const generateContractPDF = async (reservation) => {
     try {
       const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
@@ -860,29 +851,20 @@ const ReservationsManagement = ({ onBack, filter }) => {
 
   const handlePrintFromModal = () => { if (!selectedContractReservation) return; setPrintTargetReservation(selectedContractReservation); setShowPrintOptions(true); };
 
-  /* ============================================================
-     ✅ handleViewContract — INSTANT open, enrich in background
-     The modal opens immediately with what we already have,
-     then signatures are fetched in the background and merged in.
-     ============================================================ */
   const handleViewContract = (reservation) => {
-    // 1) Use the freshest copy already in the store (no network)
     const fromStore = reservations.find(r => r.id === reservation.id) || reservation;
 
-    // 2) Open the modal immediately
     setSelectedContractReservation(fromStore);
     if (fromStore.paperwork) {
       setContractPaperwork({ ...DEFAULT_PAPERWORK, ...fromStore.paperwork });
     }
     setShowContract(true);
 
-    // 3) If signatures are missing, fetch them in the background (non-blocking)
     if (!reservationHasAnySignature(fromStore)) {
       enrichReservationWithSignatures(fromStore)
         .then(enriched => {
           if (enriched && enriched !== fromStore) {
             setSelectedContractReservation(prev =>
-              // Only update if the same modal is still open on the same reservation
               prev && prev.id === enriched.id ? enriched : prev
             );
           }
@@ -1177,7 +1159,12 @@ const ReservationsManagement = ({ onBack, filter }) => {
     showSuccessMessage('CSV exported successfully!');
   };
 
-  const refreshData = () => { dispatch(fetchReservations()); dispatch(fetchClients()); dispatch(fetchCars()); dispatch(fetchMatricules()); dispatch(checkLateReservations()); showSuccessMessage('Data refreshed successfully!'); };
+  const refreshData = () => {
+    dispatch(fetchReservations()); dispatch(fetchClients()); dispatch(fetchCars());
+    dispatch(fetchMatricules()); dispatch(checkLateReservations());
+    dispatch(fetchSousLocations()); // ✅ ADDED
+    showSuccessMessage('Data refreshed successfully!');
+  };
 
   const openConfirmModal = (reservation) => {
     const carId = reservation.car_id;
@@ -1554,10 +1541,31 @@ const ReservationsManagement = ({ onBack, filter }) => {
         )}
       </div>
 
+      {/* ✅ UPDATED: AdminModal now receives sousLocations, createClient, createSousLocation */}
       {showModal && (
-        <AdminModal type="reservations" modalType={modalType} formData={formData} setFormData={setFormData}
-          onClose={() => !submitting && setShowModal(false)} onSubmit={handleSubmit}
-          clients={clients} cars={cars} matricules={matricules} submitting={submitting} currentUser={currentUser} />
+        <AdminModal
+          type="reservations"
+          modalType={modalType}
+          formData={formData}
+          setFormData={setFormData}
+          onClose={() => !submitting && setShowModal(false)}
+          onSubmit={handleSubmit}
+          clients={clients}
+          cars={cars}
+          matricules={matricules}
+          submitting={submitting}
+          currentUser={currentUser}
+          sousLocations={sousLocations}
+          canCreateSousLocation={true}
+          createClient={async (data) => {
+            const result = await dispatch(createClient(data)).unwrap();
+            return result?.client || result?.data || result;
+          }}
+          createSousLocation={async (data) => {
+            const result = await dispatch(createSousLocation(data)).unwrap();
+            return result?.sousLocation || result?.data || result;
+          }}
+        />
       )}
 
       {showConfirmation && createPortal(

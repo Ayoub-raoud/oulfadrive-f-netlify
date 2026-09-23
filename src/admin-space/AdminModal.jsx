@@ -12,8 +12,6 @@ import {
 // ============================================================
 // Date helpers — TIMEZONE SAFE
 // ============================================================
-// Parses "YYYY-MM-DD" (or ISO strings) into a local Date at 00:00.
-// Never relies on UTC parsing, which shifts the day in some timezones.
 const parseDateOnly = (input) => {
   if (!input) return null;
   if (input instanceof Date) {
@@ -28,18 +26,15 @@ const parseDateOnly = (input) => {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 };
 
-// Whole-day difference between two dates (signed).
 const diffInDays = (start, end) => {
   const s = parseDateOnly(start);
   const e = parseDateOnly(end);
   if (!s || !e) return 0;
-  // Use Date.UTC on the *local* calendar fields so DST cannot skew the result.
   const sUTC = Date.UTC(s.getFullYear(), s.getMonth(), s.getDate());
   const eUTC = Date.UTC(e.getFullYear(), e.getMonth(), e.getDate());
   return Math.round((eUTC - sUTC) / 86400000);
 };
 
-// Formats a local Date as "YYYY-MM-DD" without going through UTC.
 const formatLocalYMD = (date) => {
   if (!date) return "";
   const yyyy = date.getFullYear();
@@ -211,6 +206,24 @@ const emptySousLocation = { name: "", description: "" };
 // Safe id comparison (handles string/number mismatch)
 const sameId = (a, b) => a != null && b != null && String(a) === String(b);
 
+// Helper: detect temporary / invalid IDs
+const isTempId = (id) =>
+  id == null || id === "" || (typeof id === "string" && id.startsWith("temp_"));
+
+// Helper: extract the real entity from any of the common API response shapes
+const unwrapEntity = (result, ...keys) => {
+  if (!result) return null;
+  if (result.id !== undefined) return result;
+  for (const k of keys) {
+    if (result[k] && result[k].id !== undefined) return result[k];
+  }
+  if (result.data && result.data.id !== undefined) return result.data;
+  for (const k of keys) {
+    if (result.data && result.data[k] && result.data[k].id !== undefined) return result.data[k];
+  }
+  return null;
+};
+
 // ============================================================
 // RESERVATIONS
 // ============================================================
@@ -224,6 +237,7 @@ const ReservationFields = ({
   const [isNewClient, setIsNewClient] = useState(false);
   const [newClientData, setNewClientData] = useState(emptyClient);
   const [creatingClient, setCreatingClient] = useState(false);
+  const [clientError, setClientError] = useState("");
 
   const [selectedMatricule, setSelectedMatricule] = useState(
     () => matricules.find((m) => sameId(m.id, formData.matricule_id)) || null
@@ -249,7 +263,6 @@ const ReservationFields = ({
 
   const [manualDailyPrice, setManualDailyPrice] = useState("");
 
-  // 💰 Remember the current daily rate
   const [dailyRate, setDailyRate] = useState(() => {
     const base = parseInt(formData.rental_days, 10) || 0;
     const prolong = formData.can_extend_days
@@ -327,7 +340,6 @@ const ReservationFields = ({
     return formatLocalYMD(end);
   };
 
-  // ✅ Compute number of days between two dates (timezone-safe, min 1)
   const daysBetween = (startDate, endDate) => {
     const d = Math.abs(diffInDays(startDate, endDate));
     return d === 0 ? 1 : d;
@@ -363,7 +375,6 @@ const ReservationFields = ({
     handleChange("remaining_amount", newTotal - (Number(formData.amount_paid) || 0));
   };
 
-  // ✅ Payment shape matches AdminReservations (id prefix `payment_`, created_at, notes)
   const addPayment = () => {
     const amount = parseFloat(newPayment.amount);
     if (!amount || amount <= 0) return;
@@ -408,17 +419,84 @@ const ReservationFields = ({
   const secondDriver = clients.find((c) => sameId(c.id, formData.second_driver_client_id));
   const selectedSousLocation = sousLocations.find((sl) => sameId(sl.id, formData.sous_location_id));
 
+  // ============================================================
+  // ✅ FIXED: Sous-location creation — validates real ID
+  // ============================================================
   const saveNewSousLocation = async () => {
     if (!newSousLocationData.name.trim() || !createSousLocation) return;
     setCreatingSousLocation(true);
     try {
       const result = await createSousLocation(newSousLocationData);
-      const created = result?.sousLocation || result;
-      handleChange("sous_location_id", created.id);
+      const created = unwrapEntity(result, "sousLocation", "sous_location");
+      const id = created?.id;
+      if (!id || isTempId(id)) {
+        console.error("Sous-location creation returned invalid id:", result);
+        alert("Erreur : la sous-location n'a pas pu être créée (ID invalide).");
+        return;
+      }
+      handleChange("sous_location_id", id);
       setIsNewSousLocation(false);
       setNewSousLocationData(emptySousLocation);
+    } catch (err) {
+      console.error("Failed to create sous-location:", err);
+      alert("Erreur lors de la création de la sous-location.");
     } finally {
       setCreatingSousLocation(false);
+    }
+  };
+
+  // ============================================================
+  // ✅ FIXED: Client creation — validates real ID, blocks temp ids
+  // ============================================================
+  const saveNewClient = async () => {
+    if (!newClientData.prenom || !newClientData.nom || !newClientData.telephone) {
+      setClientError("Prénom, Nom et Téléphone sont obligatoires.");
+      return;
+    }
+    setClientError("");
+    setCreatingClient(true);
+    try {
+      const result = await createClient(newClientData);
+      const created = unwrapEntity(result, "client");
+      if (!created || !created.id || isTempId(created.id)) {
+        console.error("Client creation returned invalid id:", result);
+        setClientError("Échec de la création du client (ID invalide). Réessayez.");
+        return;
+      }
+      setSelectedClient(created);
+      handleChange("client_id", created.id);
+      setIsNewClient(false);
+      setNewClientData(emptyClient);
+    } catch (err) {
+      console.error("Failed to create client:", err);
+      setClientError(err?.message || "Erreur lors de la création du client.");
+    } finally {
+      setCreatingClient(false);
+    }
+  };
+
+  // ============================================================
+  // ✅ FIXED: Second driver creation — validates real ID
+  // ============================================================
+  const saveNewSecondDriver = async () => {
+    if (!newSecondDriverData.prenom || !newSecondDriverData.nom || !newSecondDriverData.telephone) {
+      return;
+    }
+    setCreatingSecondDriver(true);
+    try {
+      const result = await createClient(newSecondDriverData);
+      const created = unwrapEntity(result, "client");
+      if (!created || !created.id || isTempId(created.id)) {
+        console.error("Second driver creation returned invalid id:", result);
+        return;
+      }
+      handleChange("second_driver_client_id", created.id);
+      setIsNewSecondDriver(false);
+      setNewSecondDriverData(emptyClient);
+    } catch (err) {
+      console.error("Failed to create second driver:", err);
+    } finally {
+      setCreatingSecondDriver(false);
     }
   };
 
@@ -468,22 +546,24 @@ const ReservationFields = ({
               selectedText={selectedClient ? `${selectedClient.prenom} ${selectedClient.nom} — ${selectedClient.telephone}` : null}
             />
           ) : (
-            <InlineClientForm
-              data={newClientData}
-              setData={setNewClientData}
-              saving={creatingClient}
-              onCancel={() => setIsNewClient(false)}
-              onSave={async () => {
-                if (!newClientData.prenom || !newClientData.nom || !newClientData.telephone) return;
-                setCreatingClient(true);
-                try {
-                  const result = await createClient(newClientData);
-                  setSelectedClient(result);
-                  handleChange("client_id", result.id);
-                  setIsNewClient(false);
-                } finally { setCreatingClient(false); }
-              }}
-            />
+            <>
+              <InlineClientForm
+                data={newClientData}
+                setData={setNewClientData}
+                saving={creatingClient}
+                onCancel={() => { setIsNewClient(false); setClientError(""); }}
+                onSave={saveNewClient}
+              />
+              {clientError && (
+                <div style={{
+                  marginTop: 8, padding: "8px 12px", borderRadius: 8,
+                  background: "#fee2e2", color: "#991b1b",
+                  fontSize: "0.8rem", fontWeight: 500
+                }}>
+                  ⚠️ {clientError}
+                </div>
+              )}
+            </>
           )}
         </Section>
 
@@ -530,15 +610,7 @@ const ReservationFields = ({
               setData={setNewSecondDriverData}
               saving={creatingSecondDriver}
               onCancel={() => setIsNewSecondDriver(false)}
-              onSave={async () => {
-                if (!newSecondDriverData.prenom || !newSecondDriverData.nom || !newSecondDriverData.telephone) return;
-                setCreatingSecondDriver(true);
-                try {
-                  const result = await createClient(newSecondDriverData);
-                  handleChange("second_driver_client_id", result.id);
-                  setIsNewSecondDriver(false);
-                } finally { setCreatingSecondDriver(false); }
-              }}
+              onSave={saveNewSecondDriver}
             />
           ))}
         </Section>
@@ -1509,8 +1581,19 @@ const AdminModal = ({
   const meta = TYPE_META[type] || { label: type, icon: Info };
   const Icon = meta.icon;
 
-  const createClientFn = createClient || (async (data) => ({ id: `temp_${Date.now()}`, ...data }));
-  const createSousLocationFn = createSousLocation || (async (data) => ({ id: `temp_${Date.now()}`, ...data }));
+  // ⚠️ IMPORTANT: no more silent fallback that returns a fake temp id.
+  // If createClient isn't passed, the inline form will throw and display an error,
+  // which is much better than sending a bogus id to the backend and getting a 422.
+  const createClientFn = createClient || (async () => {
+    throw new Error(
+      "createClient() n'est pas disponible. Passez la prop 'createClient' au composant AdminModal."
+    );
+  });
+  const createSousLocationFn = createSousLocation || (async () => {
+    throw new Error(
+      "createSousLocation() n'est pas disponible. Passez la prop 'createSousLocation' au composant AdminModal."
+    );
+  });
 
   useEffect(() => {
     const onKey = (e) => {
