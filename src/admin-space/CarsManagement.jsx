@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   FaPlus, FaEdit, FaTrash, FaFileExport, FaDatabase,
   FaCheck, FaTimes, FaCar, FaGasPump, FaCog,
   FaList, FaTh, FaCalendar, FaTachometerAlt, FaIdCard,
   FaExclamationTriangle, FaEuroSign, FaPalette, FaChair, FaDoorClosed,
-  FaSearch, FaFilter, FaSort, FaSortUp, FaSortDown
+  FaSearch, FaFilter, FaSort, FaSortUp, FaSortDown, FaSpinner
 } from 'react-icons/fa';
 import {
   fetchCars,
@@ -60,7 +61,8 @@ const CarsManagement = () => {
 
   // États pour la pagination
   const [currentPage, setCurrentPage] = useState(1);
-const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
   useEffect(() => {
     dispatch(fetchCars());
     dispatch(fetchMatricules());
@@ -225,6 +227,7 @@ const [itemsPerPage, setItemsPerPage] = useState(10);
   };
 
   const confirmDelete = async (id) => {
+    setSubmitting(true);
     try {
       await dispatch(deleteCar(id)).unwrap();
       setShowConfirmation(false);
@@ -232,6 +235,8 @@ const [itemsPerPage, setItemsPerPage] = useState(10);
       dispatch(fetchCars());
     } catch (error) {
       showErrorMessage('Erreur lors de la suppression : ' + error);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -567,7 +572,6 @@ const [itemsPerPage, setItemsPerPage] = useState(10);
   );
 
   const renderTableView = () => (
-    /* ✅ Horizontal scroll wrapper added */
     <div style={{ overflowX: 'auto' }}>
       <table className="data-table">
         <thead>
@@ -905,16 +909,16 @@ const [itemsPerPage, setItemsPerPage] = useState(10);
           <>
             {viewMode === 'list' ? renderTableView() : renderCarCards()}
 
-<div className="pagination-container">
-  <PaginationControls
-    currentPage={currentPage}
-    totalPages={totalPages}
-    onPageChange={setCurrentPage}
-    itemsPerPage={itemsPerPage}
-    onItemsPerPageChange={setItemsPerPage}
-    totalItems={filteredAndSearchedCars.length}
-  />
-</div>
+            <div className="pagination-container">
+              <PaginationControls
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+                itemsPerPage={itemsPerPage}
+                onItemsPerPageChange={setItemsPerPage}
+                totalItems={filteredAndSearchedCars.length}
+              />
+            </div>
           </>
         ) : (
           <div className="empty-state">
@@ -952,9 +956,9 @@ const [itemsPerPage, setItemsPerPage] = useState(10);
         />
       )}
 
-      {/* Modal de Confirmation */}
-      {showConfirmation && (
-        <div className="confirmation-modal-overlay">
+      {/* Modal de Confirmation — matches ReservationsManagement style */}
+      {showConfirmation && createPortal(
+        <div className="full-overlay full-overlay-center" role="dialog" aria-modal="true">
           <div className="confirmation-modal">
             <div className="confirmation-header">
               <div className={`confirmation-icon ${confirmationConfig.type}`}>
@@ -967,28 +971,36 @@ const [itemsPerPage, setItemsPerPage] = useState(10);
               <p className="confirmation-message">{confirmationConfig.message}</p>
 
               {confirmationConfig.car && (
-                <div className="car-preview">
-                  <div className="car-image-preview">
-                    {getCarImageUrl(confirmationConfig.car) ? (
-                      <img
-                        src={getCarImageUrl(confirmationConfig.car)}
-                        alt={`${confirmationConfig.car.brand} ${confirmationConfig.car.model}`}
-                        onError={(e) => {
-                          e.target.style.display = 'none';
-                          e.target.nextElementSibling.style.display = 'flex';
-                        }}
-                      />
-                    ) : null}
-                    <div className={`car-image-placeholder-preview ${getCarImageUrl(confirmationConfig.car) ? 'hidden' : ''}`}>
-                      <FaCar className="placeholder-icon" />
-                    </div>
-                  </div>
-                  <div className="car-info-preview">
-                    <h4>{confirmationConfig.car.brand} {confirmationConfig.car.model}</h4>
-                    <div className="car-meta-preview">
-                      {getStatusBadge(confirmationConfig.car)}
-                      <div className="car-price-preview">
-                        {confirmationConfig.car.price_per_day}/jour
+                <div className="reservation-preview">
+                  <div className="reservation-info-preview">
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                      <div className="car-image-preview">
+                        {getCarImageUrl(confirmationConfig.car) ? (
+                          <img
+                            src={getCarImageUrl(confirmationConfig.car)}
+                            alt={`${confirmationConfig.car.brand} ${confirmationConfig.car.model}`}
+                            onError={(e) => {
+                              e.target.style.display = 'none';
+                              e.target.nextElementSibling.style.display = 'flex';
+                            }}
+                          />
+                        ) : null}
+                        <div className={`car-image-placeholder-preview ${getCarImageUrl(confirmationConfig.car) ? 'hidden' : ''}`}>
+                          <FaCar className="placeholder-icon" />
+                        </div>
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <h4 style={{ margin: '0 0 0.5rem 0', color: '#0f172a', fontSize: '1.1rem', fontWeight: 600 }}>
+                          {confirmationConfig.car.brand} {confirmationConfig.car.model}
+                        </h4>
+                        <div className="reservation-meta-preview">
+                          <div className="reservation-car"><strong>Prix :</strong> {confirmationConfig.car.price_per_day} MAD/jour</div>
+                          <div className="reservation-car"><strong>Couleur :</strong> {confirmationConfig.car.color}</div>
+                          <div className="reservation-period"><strong>Année :</strong> {confirmationConfig.car.year}</div>
+                          <div className="reservation-period">
+                            <strong>Immatriculations :</strong> {getCarMatriculeStatus(confirmationConfig.car).activeCount}/{getCarMatriculeStatus(confirmationConfig.car).totalCount} actives
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1000,18 +1012,21 @@ const [itemsPerPage, setItemsPerPage] = useState(10);
               <button
                 className="btn-confirm-cancel"
                 onClick={() => setShowConfirmation(false)}
+                disabled={submitting}
               >
                 Annuler
               </button>
               <button
                 className={`btn-confirm-${confirmationConfig.type}`}
                 onClick={confirmationConfig.onConfirm}
+                disabled={submitting}
               >
-                Supprimer
+                {submitting ? <FaSpinner className="spinning" /> : 'Supprimer la voiture'}
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       <style>{`
@@ -1033,6 +1048,7 @@ const [itemsPerPage, setItemsPerPage] = useState(10);
           animation: spin 1s linear infinite; margin-bottom: 1rem;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+        .spinning { animation: spin 1s linear infinite; }
 
         /* ================= Header ================= */
         .section-header {
@@ -1183,7 +1199,7 @@ const [itemsPerPage, setItemsPerPage] = useState(10);
           overflow: hidden; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
         }
 
-        /* ================= Table (matches AccidentsManagement) ================= */
+        /* ================= Table ================= */
         .data-table {
           width: 100%; font-size: 0.875rem;
           border-collapse: collapse; min-width: 1000px;
@@ -1359,39 +1375,48 @@ const [itemsPerPage, setItemsPerPage] = useState(10);
         .empty-state p { margin-bottom: 2rem; font-size: 1rem; color: #64748b; }
 
         /* ================= Pagination ================= */
-.pagination-container {
-  padding: 2rem;
-  border-top: 1px solid #e2e8f0;
-  background: #f8fafc;
-  display: flex;
-  justify-content: center;
-}
-
-        /* ================= Confirmation modal ================= */
-        .confirmation-modal-overlay {
-          position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6);
-          display: flex; align-items: center; justify-content: center;
-          z-index: 1000; padding: 1rem; backdrop-filter: blur(5px);
+        .pagination-container {
+          padding: 2rem;
+          border-top: 1px solid #e2e8f0;
+          background: #f8fafc;
+          display: flex;
+          justify-content: center;
         }
+
+        /* ================= Confirmation modal (matches ReservationsManagement) ================= */
+        .full-overlay {
+          position: fixed; top: 0; right: 0; bottom: 0; left: 0;
+          background: rgba(0, 0, 0, 0.6);
+          backdrop-filter: blur(6px);
+          -webkit-backdrop-filter: blur(6px);
+          overflow-y: auto; overflow-x: hidden;
+          z-index: 9999; padding: 1.5rem;
+        }
+        .full-overlay-center { display: flex; align-items: center; justify-content: center; }
+
         .confirmation-modal {
           background: white; border-radius: 1.25rem;
-          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
           max-width: 480px; width: 100%; overflow: hidden;
-          animation: modalSlideIn 0.3s ease-out;
+          animation: amSlideIn 0.3s ease-out;
         }
-        @keyframes modalSlideIn {
-          from { opacity: 0; transform: translateY(-50px) scale(0.9); }
+        @keyframes amSlideIn {
+          from { opacity: 0; transform: translateY(20px) scale(0.98); }
           to   { opacity: 1; transform: translateY(0) scale(1); }
         }
-        .confirmation-header { padding: 2rem 2rem 1rem; text-align: center; border-bottom: 1px solid #f1f3f4; }
+        .confirmation-header {
+          padding: 2rem 2rem 1rem;
+          text-align: center;
+          border-bottom: 1px solid #f1f3f4;
+        }
         .confirmation-icon {
           width: 80px; height: 80px; border-radius: 50%;
           display: flex; align-items: center; justify-content: center;
           margin: 0 auto 1rem; font-size: 2rem;
         }
         .confirmation-icon.delete {
-          background: rgba(239, 68, 68, 0.1); color: #ef4444;
-          border: 2px solid rgba(239, 68, 68, 0.2);
+          background: rgba(220, 53, 69, 0.1); color: #dc3545;
+          border: 2px solid rgba(220, 53, 69, 0.2);
         }
         .confirmation-title { font-size: 1.5rem; font-weight: 700; color: #0f172a; margin: 0; }
         .confirmation-body { padding: 1.5rem 2rem; }
@@ -1399,46 +1424,78 @@ const [itemsPerPage, setItemsPerPage] = useState(10);
           color: #64748b; font-size: 1rem; line-height: 1.6;
           margin-bottom: 1.5rem; text-align: center;
         }
-        .car-preview {
-          display: flex; align-items: center; gap: 1rem;
-          padding: 1.5rem; background: #f8fafc;
-          border-radius: 0.75rem; border: 1px solid #e2e8f0;
+
+        /* Reservation-style preview box (reused for the car preview) */
+        .reservation-preview {
+          padding: 1.5rem; background: #f8f9fa;
+          border-radius: 0.75rem; border: 1px solid #e9ecef;
         }
+        .reservation-info-preview {
+          padding: 1.5rem; background: #f8f9fa;
+          border-radius: 0.75rem; border: 1px solid #e9ecef;
+        }
+        .reservation-info-preview h4 {
+          margin: 0 0 1rem 0; color: #0f172a;
+          font-size: 1.1rem; font-weight: 600;
+        }
+        .reservation-meta-preview {
+          display: flex; flex-direction: column; gap: 0.5rem;
+          font-size: 0.9rem;
+        }
+        .reservation-client, .reservation-car,
+        .reservation-period, .reservation-second-driver { color: #64748b; }
+        .reservation-client strong, .reservation-car strong,
+        .reservation-period strong, .reservation-second-driver strong { color: #334155; }
+
+        /* Car image preview inside the reservation-preview box */
         .car-image-preview {
           flex-shrink: 0; width: 80px; height: 60px;
-          border-radius: 0.5rem; overflow: hidden; background: #f1f5f9;
+          border-radius: 0.5rem; overflow: hidden;
+          background: #f1f5f9;
         }
         .car-image-preview img { width: 100%; height: 100%; object-fit: cover; }
         .car-image-placeholder-preview {
-          width: 100%; height: 100%; display: flex; align-items: center;
-          justify-content: center; color: #94a3b8;
+          width: 100%; height: 100%;
+          display: flex; align-items: center; justify-content: center;
+          color: #94a3b8;
         }
         .car-image-placeholder-preview.hidden { display: none; }
-        .car-info-preview { flex: 1; }
-        .car-info-preview h4 { margin: 0 0 0.5rem 0; color: #0f172a; font-size: 1.1rem; font-weight: 600; }
-        .car-meta-preview { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
-        .car-price-preview { font-weight: 600; color: #16a34a; }
-        .confirmation-actions { padding: 1.5rem 2rem 2rem; display: flex; gap: 1rem; justify-content: flex-end; }
+        .car-image-placeholder-preview .placeholder-icon { font-size: 1.5rem; }
+
+        .confirmation-actions {
+          padding: 1.5rem 2rem 2rem;
+          display: flex; gap: 1rem;
+          justify-content: flex-end; flex-wrap: wrap;
+        }
         .btn-confirm-cancel {
-          padding: 0.75rem 1.5rem; border: 1px solid #6c757d;
-          background: transparent; color: #6c757d; border-radius: 0.75rem;
-          font-size: 0.875rem; font-weight: 600; cursor: pointer; transition: all 0.3s ease;
+          padding: 0.75rem 1.5rem;
+          border: 1px solid #6c757d;
+          background: transparent; color: #6c757d;
+          border-radius: 0.75rem; font-size: 0.875rem;
+          font-weight: 600; cursor: pointer;
+          transition: all 0.3s ease; font-family: inherit;
         }
-        .btn-confirm-cancel:hover { background: #6c757d; color: white; }
+        .btn-confirm-cancel:hover:not(:disabled) { background: #6c757d; color: white; }
+        .btn-confirm-cancel:disabled { opacity: 0.6; cursor: not-allowed; }
         .btn-confirm-delete {
-          padding: 0.75rem 1.5rem; border: none; background: #ef4444;
-          color: white; border-radius: 0.75rem; font-size: 0.875rem;
-          font-weight: 600; cursor: pointer; transition: all 0.3s ease;
-          box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+          padding: 0.75rem 1.5rem; border: none;
+          background: #dc3545; color: white;
+          border-radius: 0.75rem; font-size: 0.875rem;
+          font-weight: 600; cursor: pointer;
+          transition: all 0.3s ease;
+          box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
+          display: flex; align-items: center; gap: 0.5rem;
+          font-family: inherit;
         }
-        .btn-confirm-delete:hover {
-          background: #dc2626; transform: translateY(-2px);
-          box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+        .btn-confirm-delete:hover:not(:disabled) {
+          background: #c82333; transform: translateY(-2px);
+          box-shadow: 0 6px 20px rgba(220, 53, 69, 0.4);
         }
+        .btn-confirm-delete:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
 
         /* ================= Notifications ================= */
         .success-notification, .error-notification {
-          position: fixed; top: 2rem; right: 2rem; z-index: 1001;
+          position: fixed; top: 2rem; right: 2rem; z-index: 10500;
           animation: slideInRight 0.3s ease-out;
         }
         @keyframes slideInRight {
@@ -1475,7 +1532,7 @@ const [itemsPerPage, setItemsPerPage] = useState(10);
           .pagination-controls { flex-wrap: wrap; justify-content: center; }
           .confirmation-modal { margin: 1rem; }
           .confirmation-actions { flex-direction: column; }
-          .car-preview { flex-direction: column; text-align: center; }
+          .reservation-preview { flex-direction: column; text-align: center; }
           .success-notification, .error-notification { right: 1rem; left: 1rem; top: 1rem; }
         }
         @media (max-width: 480px) {
