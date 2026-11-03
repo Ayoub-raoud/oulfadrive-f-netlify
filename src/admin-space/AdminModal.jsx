@@ -1267,7 +1267,7 @@ const ClientFields = ({ formData, handleChange }) => (
 );
 
 // ============================================================
-// CARS
+// CARS  ✅ FIXED: enum values now match Laravel validation
 // ============================================================
 const CarFields = ({ formData, handleChange }) => (
   <div className="am-columns">
@@ -1294,20 +1294,22 @@ const CarFields = ({ formData, handleChange }) => (
       </Section>
       <Section icon={Fuel} title="Spécifications">
         <div className="am-grid-2">
+          {/* ✅ fuel_type values MUST match: petrol | diesel | electric | hybrid */}
           <Field label="Carburant">
-            <select className="am-input" value={formData.fuel_type || "essence"}
+            <select className="am-input" value={formData.fuel_type || "petrol"}
               onChange={(e) => handleChange("fuel_type", e.target.value)}>
-              <option value="essence">Essence</option>
+              <option value="petrol">Essence</option>
               <option value="diesel">Diesel</option>
-              <option value="hybride">Hybride</option>
-              <option value="electrique">Électrique</option>
+              <option value="hybrid">Hybride</option>
+              <option value="electric">Électrique</option>
             </select>
           </Field>
+          {/* ✅ transmission values MUST match: manual | automatic */}
           <Field label="Transmission">
-            <select className="am-input" value={formData.transmission || "manuelle"}
+            <select className="am-input" value={formData.transmission || "automatic"}
               onChange={(e) => handleChange("transmission", e.target.value)}>
-              <option value="manuelle">Manuelle</option>
-              <option value="automatique">Automatique</option>
+              <option value="manual">Manuelle</option>
+              <option value="automatic">Automatique</option>
             </select>
           </Field>
           <Field label="Places">
@@ -1328,11 +1330,12 @@ const CarFields = ({ formData, handleChange }) => (
             <input type="number" className="am-input" value={formData.price_per_day || ""}
               onChange={(e) => handleChange("price_per_day", e.target.value)} required />
           </Field>
+          {/* ✅ status values MUST match: disponible | non disponible */}
           <Field label="Statut">
-            <select className="am-input" value={formData.status || "available"}
+            <select className="am-input" value={formData.status || "disponible"}
               onChange={(e) => handleChange("status", e.target.value)}>
-              <option value="available">Disponible</option>
-              <option value="unavailable">Indisponible</option>
+              <option value="disponible">Disponible</option>
+              <option value="non disponible">Indisponible</option>
             </select>
           </Field>
         </div>
