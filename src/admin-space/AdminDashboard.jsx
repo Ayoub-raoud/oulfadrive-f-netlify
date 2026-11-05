@@ -157,6 +157,102 @@ const MatriculeCategoryCard = ({
     return Math.ceil((end - today) / (1000 * 60 * 60 * 24));
   };
 
+  // ===== NEW: PDF EXPORT =====
+  const downloadPDF = () => {
+    const list = filtered;
+    if (list.length === 0) {
+      toast.warning("Aucune donnée à exporter");
+      return;
+    }
+
+    const formatDateDisplay = (dateStr) => {
+      if (!dateStr) return '';
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      return `${day}/${month}/${year}`;
+    };
+
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+
+    // ── Branded header ──
+    doc.setFontSize(16);
+    doc.setTextColor(30, 41, 59);
+    doc.text('OULFA DRIVE', pageWidth / 2, 20, { align: 'center' });
+
+    doc.setFontSize(10);
+    doc.setTextColor(184, 134, 11);
+    doc.text('LOCATION DE VOITURE', pageWidth / 2, 28, { align: 'center' });
+
+    doc.setDrawColor(212, 175, 55);
+    doc.line(20, 32, pageWidth - 20, 32);
+
+    doc.setFontSize(14);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`Liste des matricules - ${title}`, pageWidth / 2, 42, { align: 'center' });
+
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.text(
+      `Généré le ${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR')}`,
+      pageWidth / 2,
+      50,
+      { align: 'center' }
+    );
+    doc.text(`Total : ${list.length} matricule(s)`, pageWidth / 2, 56, { align: 'center' });
+
+    // ── Table ──
+    const tableData = list.map(mat => [
+      mat.matricule_code || '',
+      `${mat.car?.brand || ''} ${mat.car?.model || ''}`.trim(),
+      mat.kilometrage?.toLocaleString() || '',
+      mat.currentReservation?.client
+        ? `${mat.currentReservation.client.prenom} ${mat.currentReservation.client.nom}`
+        : '',
+      formatDateDisplay(mat.currentReservation?.end_date),
+      mat.status === 'active' ? 'Actif' : 'Inactif',
+    ]);
+
+    autoTable(doc, {
+      head: [['Matricule', 'Marque/Modèle', 'Km', 'Client', 'Date retour', 'Statut']],
+      body: tableData,
+      startY: 62,
+      theme: 'grid',
+      headStyles: {
+        fillColor: [241, 245, 249],
+        textColor: [30, 41, 59],
+        fontStyle: 'bold',
+        halign: 'center',
+        fontSize: 8,
+      },
+      bodyStyles: { halign: 'center', fontSize: 7 },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles: {
+        0: { cellWidth: 30 },
+        1: { cellWidth: 40 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 40 },
+        4: { cellWidth: 25 },
+        5: { cellWidth: 20 },
+      },
+      margin: { left: 15, right: 15 },
+      tableWidth: 'auto',
+    });
+
+    // ── Footer ──
+    doc.setFontSize(8);
+    doc.setTextColor(150, 150, 150);
+    doc.text('OULFA DRIVE — Document généré automatiquement.', pageWidth / 2, pageHeight - 10, { align: 'center' });
+
+    doc.save(`matricules_${title.replace(/\s/g, '_')}.pdf`);
+    toast.success('PDF téléchargé');
+  };
+  // ===== END PDF EXPORT =====
+
   if (matricules.length === 0) {
     return (
       <div className={`matricule-category-card ${color}`}>
@@ -190,6 +286,30 @@ const MatriculeCategoryCard = ({
                 📅 Aujourd'hui
               </button>
             )}
+            {/* ✅ NEW: PDF download button */}
+            <button
+              type="button"
+              onClick={downloadPDF}
+              title="Télécharger la liste en PDF"
+              className="pdf-download-btn"
+              style={{
+                padding: '0.15rem 0.5rem',
+                borderRadius: '1rem',
+                border: '1px solid #e2e8f0',
+                background: 'white',
+                fontSize: '0.6rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.2rem',
+                color: '#1e293b',
+              }}
+            >
+              <Download size={11} /> PDF
+            </button>
           </div>
           <div className="dropdown-list">
             {display.map(mat => {
@@ -1981,7 +2101,6 @@ const AdminDashboard = () => {
   }, [activeTab]);
 
   // ✅ FIX: close every AdminDashboard-owned modal whenever the active tab changes.
-  // This prevents a portal overlay from staying on screen after navigating away.
   useEffect(() => {
     setProfileMenuOpen(false);
     setShowProfileModal(false);
